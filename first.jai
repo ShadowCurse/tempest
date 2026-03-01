@@ -1,10 +1,11 @@
 verbose := false;
+bindings := false;
 
 build :: () {
   // The compiler warning does not have \n for some reason, so add it manually.
   print("\n");
 
-  w := compiler_create_workspace("Target Program");
+  w := compiler_create_workspace("Tempest workspace");
   if !w {
     print("Workspace creation failed.\n");
     return;
@@ -14,24 +15,33 @@ build :: () {
   target_options := get_build_options(w);
   args := target_options.compile_time_command_line;
 
-
   for arg: args {
     if arg == {
       case "-v"; #through;
       case "-verbose";
         verbose = true;
+      case "-bindings";
+        bindings = true;
     }
   }
 
-  workspace_options.output_executable_name = "tempest";
   workspace_options.use_custom_link_command = true;
-  set_build_options(workspace_options , w);
+
+  build_file := "src/main.jai";
+  if bindings {
+    build_file = "sdl3_bindings_gen.jai";
+    workspace_options.output_executable_name = "sdl3_bindings_gen";
+  } else {
+    workspace_options.output_executable_name = "tempest";
+  }
+
+  set_build_options(workspace_options, w);
 
   {
     compiler_begin_intercept(w);
     defer compiler_end_intercept(w);
 
-    add_build_file(tprint("%/src/main.jai", #filepath), w);
+    add_build_file(tprint("%/%", #filepath, build_file), w);
 
     message_loop(w);
   }
@@ -101,6 +111,8 @@ run_linux_link_command :: (w: Workspace, m: *Message_Phase) -> string {
 
   system_libs := string.["c", "SDL3"];
   for system_libs array_add(*args, tprint("-l%", it));
+
+  if bindings array_add(*args, "-lclang");
 
   options := get_build_options(w);
   output_filename := tprint("%/%", ifx options.output_path else ".", options.output_executable_name);

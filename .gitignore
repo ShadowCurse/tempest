@@ -2,3 +2,4 @@
 .direnv/
 .envrc
 tempest
+sdl3_bindings_gen
