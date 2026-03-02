@@ -1,4 +1,7 @@
-bindings := false;
+Binaries :: struct {
+  tempest       :: "src/main.jai";
+  sdl3_bindings :: "sdl3_bindings_gen.jai";
+}
 
 build :: () {
   // The compiler warning does not have \n for some reason, so add it manually.
@@ -13,34 +16,43 @@ build :: () {
     }
   }
 
-
   w := compiler_create_workspace("Tempest workspace");
   if !w {
     print("Workspace creation failed.\n");
     return;
   }
 
-  workspace_options := get_build_options();
+  info_struct : Type_Info_Struct = type_info(Binaries);
+
   target_options := get_build_options(w);
   args := target_options.compile_time_command_line;
-
   for arg: args {
-    if arg == {
-      case "-bindings";
-        bindings = true;
+    for info_struct.members {
+      if arg == it.name {
+        if it.offset_into_constant_storage >= 0 {
+          path: *string = xx (info_struct.constant_storage.data + it.offset_into_constant_storage);
+          compile(it.name, path.*);
+        }
+      }
     }
   }
 
-  build_file := "src/main.jai";
-  if bindings {
-    build_file = "sdl3_bindings_gen.jai";
-    workspace_options.output_executable_name = "sdl3_bindings_gen";
-  } else {
-    workspace_options.output_executable_name = "tempest";
-  }
-  set_build_options(workspace_options, w);
-  add_build_file(tprint("%/%", #filepath, build_file), w);
   set_build_options_dc(.{do_output=false});
+}
+
+compile :: (binary_name: string, path: string) {
+  workspace_name := tprint("Workspace: name: % path: %", binary_name, path);
+  w := compiler_create_workspace(workspace_name);
+  if !w {
+    print(tprint("Failed: %\n", workspace_name));
+    return;
+  }
+
+  workspace_options := get_build_options();
+  workspace_options.output_executable_name = binary_name;
+  set_build_options(workspace_options, w);
+
+  add_build_file(tprint("%/%", #filepath, path), w);
 }
 
 #run build();
