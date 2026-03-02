@@ -5,6 +5,16 @@ build :: () {
   // The compiler warning does not have \n for some reason, so add it manually.
   print("\n");
 
+  ld_lib_path := getenv("LD_LIBRARY_PATH");
+  if ld_lib_path {
+    s := to_string(ld_lib_path);
+    for split(s, ":") {
+      print("Adding library search path: %\n", it);
+      compiler_add_library_search_directory(it);
+    }
+  }
+
+
   w := compiler_create_workspace("Tempest workspace");
   if !w {
     print("Workspace creation failed.\n");
@@ -24,8 +34,6 @@ build :: () {
         bindings = true;
     }
   }
-
-  workspace_options.use_custom_link_command = true;
 
   build_file := "src/main.jai";
   if bindings {
@@ -75,10 +83,6 @@ message_loop :: (w: Workspace) {
               }
           }
         }
-        if phase.phase == .READY_FOR_CUSTOM_LINK_COMMAND {
-          compiler_custom_link_command_is_complete(w);
-          run_linux_link_command(w, phase);
-        }
       case .TYPECHECKED;
         if verbose {
           typechecked := cast(*Message_Typechecked) message;
@@ -97,51 +101,9 @@ message_loop :: (w: Workspace) {
   }
 }
 
-run_linux_link_command :: (w: Workspace, m: *Message_Phase) -> string {
-  compiler := "clang";
-  linker   := "mold";
-
-  args: [..] string;
-  array_add(*args, compiler);
-  array_add(*args, tprint("-fuse-ld=%", linker));
-  array_add(*args, "-no-pie");
-
-  for m.compiler_generated_object_files array_add(*args, it);
-  for m.support_object_files            array_add(*args, it);
-
-  system_libs := string.["c", "SDL3"];
-  for system_libs array_add(*args, tprint("-l%", it));
-
-  if bindings array_add(*args, "-lclang");
-
-  options := get_build_options(w);
-  output_filename := tprint("%/%", ifx options.output_path else ".", options.output_executable_name);
-  array_add(*args, "-o", output_filename);
-
-  log("Running linker: %\n", get_quoted_command_string(args));
-
-  result := run_command(..args);
-  if result.exit_code != 0 {
-      details: string;
-      if result.type == {
-          case .FAILED_TO_LAUNCH;
-              details = "Could not launch linker.";
-          case .SIGNALED;
-              details = tprint("Linker caught signal %.", result.signal);
-          case;
-              details = tprint("Linker exit code %.", result.exit_code);
-      }
-      log_error("Error: Link step failed! %", details);
-      compiler_set_workspace_status(.FAILED, w);
-  }
-
-  compiler_custom_link_command_is_complete(w);
-
-  return output_filename;
-}
-
 #run build();
 
 #import "Basic";
-#import "Process";
+#import "POSIX";
+#import "String";
 #import "Compiler";
