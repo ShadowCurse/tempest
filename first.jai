@@ -1,6 +1,7 @@
 Binaries :: struct {
   tempest       :: "src/main.jai";
   sdl3_bindings :: "sdl3_bindings_gen.jai";
+  vulkan_bindings :: "vulkan_bindings_gen.jai";
 }
 
 build :: () {
