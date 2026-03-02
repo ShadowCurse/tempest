@@ -4,7 +4,7 @@ main :: ()  {
   ld_lib_path := getenv("LD_LIBRARY_PATH");
   if ld_lib_path {
     s := to_string(ld_lib_path);
-    print("found LD_LIBRARY_PATH: %\n", s);
+    log("found LD_LIBRARY_PATH: %\n", s);
     for split(s, ":") array_add(*opts.system_library_search_paths, it);
   }
 
@@ -13,14 +13,14 @@ main :: ()  {
   libc_include_path := getenv("LIBC_INCLUDE_PATH");
   if libc_include_path  {
     s := to_string(libc_include_path );
-    print("found LIBC_INCLUDE_PATH : %\n", s);
+    log("found LIBC_INCLUDE_PATH : %\n", s);
     for split(s, ":") array_add(*opts.system_include_paths, it);
   }
 
   sdl3_include_path := getenv("SDL3_INCLUDE_PATH");
   if sdl3_include_path {
     s := to_string(sdl3_include_path);
-    print("found SDL3_INCLUDE_PATH  : %\n", s);
+    log("found SDL3_INCLUDE_PATH  : %\n", s);
     for split(s, ":") array_add(*opts.include_paths, it);
   }
   // Cannot used this since there are functions with arguments names
@@ -31,8 +31,8 @@ main :: ()  {
   array_add(*opts.system_libraries, .{ filename = "libSDL3.so" });
 
   opts.generate_compile_time_struct_checks = false;
-  s := generate_bindings(opts, "src/sdl3.jai");
-  print("Done: %\n", s);
+  s := generate_bindings(opts, "modules/SDL3.jai");
+  log("Done: %\n", s);
 }
 
 #import "Basic";
