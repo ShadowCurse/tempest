@@ -2,4 +2,5 @@
 .direnv/
 .envrc
 tempest
-sdl3_bindings_gen
+sdl3_bindings
+vulkan_bindings
