@@ -28,6 +28,7 @@ main :: ()  {
   // array_add(*opts.strip_prefixes, "SDL");
 
   array_add(*opts.source_files, "SDL3/SDL.h");
+  array_add(*opts.source_files, "SDL3/SDL_vulkan.h");
   array_add(*opts.system_libraries, .{ filename = "libSDL3.so" });
 
   opts.generate_compile_time_struct_checks = false;

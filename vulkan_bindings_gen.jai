@@ -28,7 +28,7 @@ main :: ()  {
   // No actulal functions are generated. Use PNF_* typedefs
   // as function types. Actulal functions will be loaded
   // at runtime
-  array_add(*opts.strip_prefixes, "PFN_vk");
+  array_add(*opts.strip_prefixes, "PFN_");
 
   opts.generate_compile_time_struct_checks = false;
   opts.generate_library_declarations = true;
