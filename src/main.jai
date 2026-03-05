@@ -1,8 +1,9 @@
 main :: () {
-  SDL_Init(0);
-
-  SDL_Quit();
+  if !platform_init() return;
+  defer platform_quit();
+  if !vulkan_init(true) return;
 }
 
-#import,file "sdl3.jai";
-#import "Basic";
+#import,file "platform.jai";
+#import,file "vulkan.jai";
+
