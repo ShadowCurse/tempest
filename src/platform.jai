@@ -1,14 +1,14 @@
 window: *SDL_Window;
-window_width  : s32 = 1600;
-window_height : s32 = 800;
+window_width  : u32 = 1600;
+window_height : u32 = 800;
 
 platform_init :: () -> success: bool {
   SDL_Init(SDL_INIT_AUDIO);
   window = SDL_CreateWindow(
       "tempest",
-      window_width,
-      window_height,
-      SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE,
+      xx window_width,
+      xx window_height,
+      SDL_WINDOW_VULKAN, // note(sc): no swapchain resizing for now | SDL_WINDOW_RESIZABLE,
   );
   if !window {
     log_error("Cannot create SDL window: %\n", SDL_GetError());
@@ -39,18 +39,36 @@ platform_vulkan_extensions :: () -> []*u8 {
   return slice;
 }
 
-platform_create_surface :: (instance: vk.VkInstance, surface: *vk.VkSurfaceKHR) -> bool {
-  if !SDL_Vulkan_CreateSurface(window, xx instance, null, xx surface) {
+platform_create_surface :: (instance: vk.VkInstance, surface: *vk.VkSurfaceKHR) {
+  if !SDL_Vulkan_CreateSurface(window, xx instance, null, xx surface)
     log_error("Cannot create Vulkan surface. Error: %", SDL_GetError());
+}
+
+platform_new_frame :: () {
+    if !SDL_GetWindowSize(window, xx *window_width, xx *window_height)
+        log_error("Cannot get window size. Error: %\n", to_string(SDL_GetError()));
+    // _ = SDL_GetMouseState(&mouse_position.x, &mouse_position.y);
+}
+
+platform_read_entire_file :: (path: string) -> string, bool {
+  data, ok := read_entire_file(path);
+  return data, ok;
+}
+
+platform_wants_to_exit :: () -> bool {
+    events: [64]SDL_Event = ---;
+    SDL_FlushEvents(xx SDL_EventType.FIRST, xx SDL_EventType.LAST);
+    SDL_PumpEvents();
+    n_events := SDL_PeepEvents(events.data, events.count, .PEEKEVENT, xx SDL_EventType.FIRST, xx SDL_EventType.LAST);
+    for 0..n_events -1 if events[it].type == xx SDL_EventType.QUIT return true;
     return false;
-  }
-  return true;
 }
 
 #scope_file
 
 #import "SDL3";
 #import "Basic";
+#import "File";
 vk :: #import "Vulkan";
 
 SDL_WINDOW_FULLSCREEN           :: 0x0000000000000001; //window is in fullscreen mode
