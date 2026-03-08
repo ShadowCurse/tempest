@@ -109,6 +109,22 @@ reset_command_buffer :: (cmd: VkCommandBuffer) {
   assert(!vkResetCommandBuffer(cmd, 0));
 }
 
+destroy_image_view :: (view: VkImageView) {
+  vkDestroyImageView(device, view, null);
+}
+
+destroy_semaphore :: (semaphore: VkSemaphore) {
+  vkDestroySemaphore(device, semaphore, null);
+}
+
+destroy_fence :: (fence: VkFence) {
+  vkDestroyFence(device, fence, null);
+}
+
+destroy_swapchain :: (swapchain: VkSwapchainKHR) {
+  vkDestroySwapchainKHR(device, swapchain, null);
+}
+
 begin_command_buffer :: (cmd: VkCommandBuffer, begin_info: VkCommandBufferBeginInfo) {
   assert(!vkBeginCommandBuffer(cmd, *begin_info));
 }
@@ -123,6 +139,10 @@ wait_for_fence :: (fence: VkFence) {
 
 reset_fences :: (fences: []VkFence) {
   assert(!vkResetFences(device, xx fences.count, fences.data));
+}
+
+wait_swapchain_fence :: (index: u32) {
+  wait_for_fence(swapchain_fences[index]);
 }
 
 cmd_bind_pipeline :: (cmd: VkCommandBuffer, pipeline: VkPipeline, bind_point: VkPipelineBindPoint) {
@@ -161,29 +181,16 @@ cmd_draw :: (
   vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, first_instance);
 }
 
-acquire_next_image :: (smaphore: VkSemaphore) -> next_image: u32, need_swapchain_recreation: bool {
-  result: u32 = ---;
-  r := vkAcquireNextImageKHR(device, swapchain, ~0, smaphore, null, *result);
-  if r == .VK_SUBOPTIMAL_KHR || r == .VK_ERROR_OUT_OF_DATE_KHR return result, true;
-
-  assert(!r, "Cannot acquire next image: %", r);
-
-  fence := swapchain_fences[result];
-  wait_for_fence(fence);
-  reset_fences(.[fence]);
-  return result, false;
-}
-
 transition_image :: (
-    cmd:        VkCommandBuffer,
-    image:      VkImage,
-    usage:      VkImageUsageFlags,
-    src_layout: VkImageLayout,
-    dst_layout: VkImageLayout,
-    src_stage:  VkPipelineStageFlags2,
-    dst_stage:  VkPipelineStageFlags2,
-    src_access: VkAccessFlags2,
-    dst_access: VkAccessFlags2,
+  cmd:        VkCommandBuffer,
+  image:      VkImage,
+  usage:      VkImageUsageFlags,
+  src_layout: VkImageLayout,
+  dst_layout: VkImageLayout,
+  src_stage:  VkPipelineStageFlags2,
+  dst_stage:  VkPipelineStageFlags2,
+  src_access: VkAccessFlags2,
+  dst_access: VkAccessFlags2,
 ) {
   VK_REMAINING_MIP_LEVELS   :: 4294967295;
   VK_REMAINING_ARRAY_LAYERS :: 4294967295;
@@ -212,48 +219,70 @@ transition_image :: (
   vkCmdPipelineBarrier2(cmd, *dependency);
 }
 
+acquire_next_image :: (smaphore: VkSemaphore) -> next_image: u32, need_swapchain_recreation: bool {
+  result: u32 = ---;
+  r := vkAcquireNextImageKHR(device, swapchain, ~0, smaphore, null, *result);
+  if r == .VK_SUBOPTIMAL_KHR || r == .VK_ERROR_OUT_OF_DATE_KHR return result, true;
+
+  assert(!r, "Cannot acquire next image: %", r);
+
+  fence := swapchain_fences[result];
+  wait_for_fence(fence);
+  reset_fences(.[fence]);
+  return result, false;
+}
+
 graphics_queue_submit :: (cmd: VkCommandBuffer, semaphore: VkSemaphore, fence: VkFence, image_idx: u32) {
-    buffer_submit_info: VkCommandBufferSubmitInfo = .{ commandBuffer = cmd, deviceMask = 0 };
-    wait_semaphore_info: VkSemaphoreSubmitInfo = .{
-      semaphore = semaphore,
-      stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-    };
-    signal_semaphore_info: VkSemaphoreSubmitInfo = .{
-      semaphore = swapchain_semaphores[image_idx],
-      stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-    };
-    submit_info: VkSubmitInfo2 = .{
-      pWaitSemaphoreInfos      = *wait_semaphore_info,
-      waitSemaphoreInfoCount   = 1,
-      pSignalSemaphoreInfos    = *signal_semaphore_info,
-      signalSemaphoreInfoCount = 1,
-      pCommandBufferInfos      = *buffer_submit_info,
-      commandBufferInfoCount   = 1,
-    };
-    assert(!vkQueueSubmit2(graphics_queue, 1, *submit_info, fence));
+  buffer_submit_info: VkCommandBufferSubmitInfo = .{ commandBuffer = cmd, deviceMask = 0 };
+  wait_semaphore_info: VkSemaphoreSubmitInfo = .{
+    semaphore = semaphore,
+    stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+  };
+  signal_semaphore_info: VkSemaphoreSubmitInfo = .{
+    semaphore = swapchain_semaphores[image_idx],
+    stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+  };
+  submit_info: VkSubmitInfo2 = .{
+    pWaitSemaphoreInfos      = *wait_semaphore_info,
+    waitSemaphoreInfoCount   = 1,
+    pSignalSemaphoreInfos    = *signal_semaphore_info,
+    signalSemaphoreInfoCount = 1,
+    pCommandBufferInfos      = *buffer_submit_info,
+    commandBufferInfoCount   = 1,
+  };
+  assert(!vkQueueSubmit2(graphics_queue, 1, *submit_info, fence));
 }
 
 present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
-    fence := *swapchain_fences[image_idx];
-    present_info_fence: VkSwapchainPresentFenceInfoKHR = .{ swapchainCount = 1, pFences = fence };
-    present_info: VkPresentInfoKHR = .{
-        pNext              = *present_info_fence,
-        pSwapchains        = *swapchain,
-        swapchainCount     = 1,
-        pWaitSemaphores    = *swapchain_semaphores[image_idx],
-        waitSemaphoreCount = 1,
-        pImageIndices      = *image_idx,
-    };
-    r := vkQueuePresentKHR(graphics_queue, *present_info);
-    if r != .VK_SUCCESS && r != .VK_SUBOPTIMAL_KHR {
-        log_error("Cannot present to graphics queue: %", r);
-    }
-    // note(sc): the windowing system might not tell the driver about the window resizing
-    // so do the check manually
-    need_swapchain_recreation := r == .VK_SUBOPTIMAL_KHR ||
-                                 swapchain_extent.width  != window_width ||
-                                 swapchain_extent.height != window_height;
-    return need_swapchain_recreation;
+  fence := *swapchain_fences[image_idx];
+  present_info_fence: VkSwapchainPresentFenceInfoKHR = .{ swapchainCount = 1, pFences = fence };
+  present_info: VkPresentInfoKHR = .{
+    pNext              = *present_info_fence,
+    pSwapchains        = *swapchain,
+    swapchainCount     = 1,
+    pWaitSemaphores    = *swapchain_semaphores[image_idx],
+    waitSemaphoreCount = 1,
+    pImageIndices      = *image_idx,
+  };
+  r := vkQueuePresentKHR(graphics_queue, *present_info);
+  if r != .VK_SUCCESS && r != .VK_SUBOPTIMAL_KHR {
+    log_error("Cannot present to graphics queue: %", r);
+  }
+  // note(sc): the windowing system might not tell the driver about the window resizing
+  // so do the check manually
+  need_swapchain_recreation := r == .VK_SUBOPTIMAL_KHR ||
+                               swapchain_extent.width  != window_width ||
+                               swapchain_extent.height != window_height;
+  return need_swapchain_recreation;
+}
+
+recreate_swapchain :: () {
+  for swapchain_image_views destroy_image_view(it);
+  for swapchain_semaphores  destroy_semaphore(it);
+  for swapchain_fences      destroy_fence(it);
+  old_swapchain := swapchain;
+  init_swapchain(window_width, window_height, old_swapchain);
+  destroy_swapchain(old_swapchain);
 }
 
 #scope_file

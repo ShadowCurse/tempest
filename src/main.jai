@@ -1,6 +1,7 @@
 FRAMES :: 2;
 current_frame_idx: u8 = 0;
 render_commands: [FRAMES]RenderCommand = ---;
+NO_LAST_SWAPCHAIN_INDEX : u32 = ~cast(u32)0;
 
 main :: () {
   if !platform_init() return;
@@ -11,13 +12,44 @@ main :: () {
   for *rc: render_commands rc.* = create_render_command();
 
   v := 1.0;
+  need_swapchain_recreation := false;
+  last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
   while (!platform_wants_to_exit()) {
+    platform_new_frame();
+
+    if need_swapchain_recreation {
+        if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
+          wait_swapchain_fence(xx last_swapchain_image_index);
+        recreate_swapchain();
+    }
+
     render_command := *render_commands[current_frame_idx];
     defer current_frame_idx = (current_frame_idx + 1) % FRAMES;
 
     wait_for_cmd(render_command);
     reset_render_command(render_command);
-    swapchaine_image_index, need_swapchain_recreation := acquire_next_image(render_command.swapchain_semaphore);
+
+    swapchaine_image_index: u32 = 0;
+    while (true) {
+        index, need_swapchain_recreation := acquire_next_image(render_command);
+        if !need_swapchain_recreation {
+          swapchaine_image_index = index;
+          break;
+        } else {
+            if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
+              wait_swapchain_fence(xx last_swapchain_image_index);
+            recreate_swapchain();
+
+            // note(sc): for some reason acquiring the image singles the semaphore even on
+            // failure. Maybe there is a way to handle it more reasonably.
+            destroy_semaphore(render_command);
+            render_command.swapchain_semaphore = create_semaphore(.{});
+
+            last_swapchain_image_index = NO_LAST_SWAPCHAIN_INDEX;
+        }
+    }
+    last_swapchain_image_index = swapchaine_image_index;
+
     begin_render_command(render_command);
     cmd_transition_swapchain_image(
       render_command,
