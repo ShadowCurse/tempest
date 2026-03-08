@@ -75,6 +75,18 @@ create_semaphore :: (create_info: VkSemaphoreCreateInfo) -> VkSemaphore  {
   return result;
 }
 
+create_buffer:: (create_info: VkBufferCreateInfo) -> VkBuffer {
+  result: VkBuffer = ---;
+  assert(!vkCreateBuffer(device, *create_info, null, *result));
+  return result;
+}
+
+create_image:: (create_info: VkImageCreateInfo) -> VkImage {
+  result: VkImage = ---;
+  assert(!vkCreateImage(device, *create_info, null, *result));
+  return result;
+}
+
 create_image_view :: (create_info: VkImageViewCreateInfo) -> VkImageView {
   result: VkImageView = ---;
   assert(!vkCreateImageView(device, *create_info, null, *result));
@@ -84,6 +96,12 @@ create_image_view :: (create_info: VkImageViewCreateInfo) -> VkImageView {
 create_descriptor_set_layout :: (create_info: VkDescriptorSetLayoutCreateInfo) -> VkDescriptorSetLayout {
   result: VkDescriptorSetLayout = ---;
   assert(!vkCreateDescriptorSetLayout(device, *create_info, null, *result));
+  return result;
+}
+
+create_sampler :: (create_info: VkSamplerCreateInfo) -> VkSampler {
+  result: VkSampler = ---;
+  assert(!vkCreateSampler(device, *create_info, null, *result));
   return result;
 }
 
@@ -97,6 +115,33 @@ create_compute_pipeline :: (create_info: VkComputePipelineCreateInfo) -> VkPipel
   result: VkPipeline = ---;
   assert(!vkCreateComputePipelines(device, null, 1, *create_info, null, *result));
   return result;
+}
+
+get_buffer_memory_requirements :: (buffer: VkBuffer) -> VkMemoryRequirements {
+  result: VkMemoryRequirements = ---;
+  vkGetBufferMemoryRequirements(device, buffer, *result);
+  return result;
+}
+
+get_image_memory_requirements :: (image: VkImage) -> VkMemoryRequirements {
+  result: VkMemoryRequirements = ---;
+  vkGetImageMemoryRequirements(device, image, *result);
+  return result;
+}
+
+get_buffer_address :: (buffer: VkBuffer) -> VkDeviceAddress {
+  result: VkDeviceAddress = ---;
+  info: VkBufferDeviceAddressInfo = .{ buffer = buffer };
+  result = vkGetBufferDeviceAddress(device, *info);
+  return result;
+}
+
+bind_buffer_memory :: (buffer: VkBuffer, device_memory: VkDeviceMemory, offset: u32) {
+  assert(!vkBindBufferMemory(device, buffer, device_memory, offset));
+}
+
+bind_image_memory :: (image: VkImage, device_memory: VkDeviceMemory, offset: u32) {
+  assert(!vkBindImageMemory(device, image, device_memory, offset));
 }
 
 allocate_command_buffer :: (allocate_info: VkCommandBufferAllocateInfo) -> VkCommandBuffer {
@@ -143,6 +188,21 @@ reset_fences :: (fences: []VkFence) {
 
 wait_swapchain_fence :: (index: u32) {
   wait_for_fence(swapchain_fences[index]);
+}
+
+cmd_copy_buffer_to_buffer :: (cmd: VkCommandBuffer, dst: VkBuffer, src: VkBuffer, copy: VkBufferCopy) {
+  vkCmdCopyBuffer(cmd, src, dst, 1, *copy);
+}
+
+cmd_copy_buffer_to_image :: (cmd: VkCommandBuffer, buffer: VkBuffer, image: VkImage, extent: VkExtent3D) {
+  copy_region: VkBufferImageCopy = .{
+    imageExtent = extent,
+    imageSubresource = .{
+      layerCount = VK_REMAINING_ARRAY_LAYERS,
+      aspectMask = .COLOR_BIT,
+    },
+  };
+  vkCmdCopyBufferToImage(cmd, buffer, image, .GENERAL, 1, *copy_region);
 }
 
 cmd_bind_pipeline :: (cmd: VkCommandBuffer, pipeline: VkPipeline, bind_point: VkPipelineBindPoint) {
@@ -192,8 +252,6 @@ transition_image :: (
   src_access: VkAccessFlags2,
   dst_access: VkAccessFlags2,
 ) {
-  VK_REMAINING_MIP_LEVELS   :: 4294967295;
-  VK_REMAINING_ARRAY_LAYERS :: 4294967295;
 
   subresource: VkImageSubresourceRange = .{
     aspectMask     = ifx usage & .DEPTH_STENCIL_ATTACHMENT_BIT then .DEPTH_BIT else .COLOR_BIT,
@@ -217,6 +275,45 @@ transition_image :: (
       imageMemoryBarrierCount = 1,
   };
   vkCmdPipelineBarrier2(cmd, *dependency);
+}
+
+queue_submit :: (submit_info: VkSubmitInfo2, fence: VkFence) {
+  assert(!vkQueueSubmit2(graphics_queue, 1, *submit_info, fence));
+}
+
+find_arena_index :: (type_bits: u32, properties: VkMemoryPropertyFlags) -> u32 {
+  result: u32;
+  mp := get_physical_device_memory_properties(physical_device);
+  for 0..mp.memoryTypeCount -1 {
+    if (1 << it & type_bits) != 0 &&
+       mp.memoryTypes[it].propertyFlags & properties == properties {
+      result = xx it;
+      break;
+    }
+  }
+  return result;
+}
+
+allocate_memory :: (memory_type_idx: u32, size: u64) -> VkDeviceMemory {
+  // note(sc): this should be fine to enable all the time if the
+  // VkPhysicalDeviceBufferDeviceAddressFeatures.bufferDeviceAddress is set
+  // which is required.
+  allocate_flags: VkMemoryAllocateFlagsInfo = .{ flags = .DEVICE_ADDRESS_BIT };
+  memory_allocate_info: VkMemoryAllocateInfo = .{
+      pNext = *allocate_flags,
+      allocationSize = size,
+      memoryTypeIndex = memory_type_idx,
+  };
+  result: VkDeviceMemory = ---;
+  assert(!vkAllocateMemory(device, *memory_allocate_info, null, *result));
+  return result;
+}
+
+map_memory :: (device_memory: VkDeviceMemory, size: u32) -> []u8 {
+  result: []u8;
+  assert(!vkMapMemory(device, device_memory, 0, size, 0, xx *result.data));
+  result.count = size;
+  return result;
 }
 
 acquire_next_image :: (smaphore: VkSemaphore) -> next_image: u32, need_swapchain_recreation: bool {
@@ -250,7 +347,7 @@ graphics_queue_submit :: (cmd: VkCommandBuffer, semaphore: VkSemaphore, fence: V
     pCommandBufferInfos      = *buffer_submit_info,
     commandBufferInfoCount   = 1,
   };
-  assert(!vkQueueSubmit2(graphics_queue, 1, *submit_info, fence));
+  queue_submit(submit_info, fence);
 }
 
 present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
@@ -361,6 +458,7 @@ contains_all_extensions :: (prefix: string, extensions: []VkExtensionProperties,
         tf_extension_name := to_string(tf);
         bit := 1 << (i * to_find_slices.count + j);
         if extension_name == tf_extension_name && (bitfind & bit == 0) {
+          log("found: %", extension_name);
           found_extensions += 1;
           bitfind |= bit;
         }
@@ -1056,6 +1154,9 @@ load_instance_procs :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {
   ]);
   return true;
 }
+
+VK_REMAINING_MIP_LEVELS   :: 4294967295;
+VK_REMAINING_ARRAY_LAYERS :: 4294967295;
 
 #import "Basic";
 #import "Vulkan";
