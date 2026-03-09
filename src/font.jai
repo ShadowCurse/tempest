@@ -68,6 +68,10 @@ load_font :: (name: string) -> Font {
   };
 }
 
+scaling_factor :: (font: Font) -> float {
+    return font.size / font.ascent;
+}
+
 #scope_file
 
 // "type":"mtsdf","distanceRange":2,"distanceRangeMiddle":0,"size":32,"width":216,"height":216,"yOrigin":"bottom"
