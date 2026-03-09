@@ -21,7 +21,6 @@ layout(buffer_reference, std430) readonly buffer Quads {
 layout(push_constant) uniform constants {
     Quads quads;
     vec2 screen_size;
-    float v;
 } PushConstants;
 
 void main() {
@@ -33,11 +32,7 @@ void main() {
         // vec4 color = texture(text_texture, inUV * uv_size + uv_offset).rrrr;
         // outFragColor = color;
         float v = texture(text_texture, inUV * uv_size + uv_offset).r;
-        if (PushConstants.v < v) {
-          outFragColor = vec4(1.0);
-        } else {
-          outFragColor = vec4(0.0);
-        }
+        outFragColor = vec4(v);
     }
     if (sq.usage == UI_QUAD_USAGE_COLOR) {
         vec4 color = vec4(sq.uv_offset.xy, sq.uv_size.xy);
