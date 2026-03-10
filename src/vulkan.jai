@@ -473,7 +473,7 @@ get_instance_extensions :: () -> []VkExtensionProperties, VkResult {
     result = vkEnumerateInstanceExtensionProperties(null, *count, null);
     if result return .[], result;
     if count == 0 return .[], .SUCCESS;
-    data = NewArray(count, VkExtensionProperties, initialized = false,, temp);
+    data = NewArray(count, VkExtensionProperties, initialized = false);
     result = vkEnumerateInstanceExtensionProperties(null, *count, data.data);
     return data, result;
 }
@@ -485,7 +485,7 @@ get_instance_layers :: () ->[]VkLayerProperties, VkResult {
   result = vkEnumerateInstanceLayerProperties(*count, null);
   if result return .[], result;
   if count == 0 return .[], .SUCCESS;
-  data = NewArray(count, VkLayerProperties, initialized = false,, temp);
+  data = NewArray(count, VkLayerProperties, initialized = false);
   result = vkEnumerateInstanceLayerProperties(*count, data.data);
   return data, result;
 }
@@ -567,7 +567,7 @@ init_instance :: (enable_validation: bool) {
       return;
   }
 
-  extensions, err := get_instance_extensions();
+  extensions, err := get_instance_extensions(,, temp);
   if err return;
   platform_extensions := platform_vulkan_extensions();
 
@@ -586,7 +586,7 @@ init_instance :: (enable_validation: bool) {
 
   enabled_layers: []*u8;
   if enable_validation {
-      layers, err := get_instance_layers();
+      layers, err := get_instance_layers(,, temp);
       if err return;
       if !contains_all_layers("Instance", layers, VALIDATION_LAYERS_NAMES) return;
       enabled_layers = VALIDATION_LAYERS_NAMES;
@@ -662,7 +662,7 @@ get_physical_devices :: () -> []VkPhysicalDevice, VkResult {
   result = vkEnumeratePhysicalDevices(instance, *count, null);
   if result return .[], result;
   if count == 0 return .[], .SUCCESS;
-  data = NewArray(count, VkPhysicalDevice, initialized = false,, temp);
+  data = NewArray(count, VkPhysicalDevice, initialized = false);
   result = vkEnumeratePhysicalDevices(instance, *count, data.data);
   return data, result;
 }
@@ -674,7 +674,7 @@ get_physical_device_exensions :: (physical_device: VkPhysicalDevice) -> []VkExte
   result = vkEnumerateDeviceExtensionProperties(physical_device, null, *count, null);
   if result return .[], result;
   if count == 0 return .[], .SUCCESS;
-  data = NewArray(count, VkExtensionProperties, initialized = false,, temp);
+  data = NewArray(count, VkExtensionProperties, initialized = false);
   result = vkEnumerateDeviceExtensionProperties(physical_device, null, *count, data.data);
   return data, result;
 }
@@ -686,7 +686,7 @@ get_physical_device_layers :: (physical_device: VkPhysicalDevice) -> []VkLayerPr
   result = vkEnumerateDeviceLayerProperties(physical_device, *count, null);
   if result return .[], result;
   if count == 0 return .[], .SUCCESS;
-  data = NewArray(count, VkLayerProperties, initialized = false,, temp);
+  data = NewArray(count, VkLayerProperties, initialized = false);
   result = vkEnumerateDeviceLayerProperties(physical_device, *count, data.data);
   return data, result;
 }
@@ -696,7 +696,7 @@ get_physical_device_queue_families :: (physical_device: VkPhysicalDevice) -> []V
   data: []VkQueueFamilyProperties = ---;
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device, *count, null);
   if count == 0 return .[];
-  data = NewArray(count, VkQueueFamilyProperties, initialized = false,, temp);
+  data = NewArray(count, VkQueueFamilyProperties, initialized = false);
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device, *count, data.data);
   return data;
 }
@@ -708,7 +708,7 @@ get_physical_device_memory_properties :: (physical_device: VkPhysicalDevice) -> 
 }
 
 select_physical_device :: (enable_validation: bool) {
-    physical_devices, err := get_physical_devices();
+    physical_devices, err := get_physical_devices(,, temp);
     if err return;
 
     for pd: physical_devices {
@@ -756,17 +756,17 @@ DONE
           );
 
         if enable_validation {
-            layers, err := get_physical_device_layers(pd);
+            layers, err := get_physical_device_layers(pd,, temp);
             if err continue;
             if !contains_all_layers(device_name, layers, VALIDATION_LAYERS_NAMES)
               continue;
         }
-        extensions, err := get_physical_device_exensions(pd);
+        extensions, err := get_physical_device_exensions(pd,, temp);
         if err continue;
         if !contains_all_extensions(device_name, extensions, .[DEVICE_EXTENSIONS])
           continue;
 
-        queue_families := get_physical_device_queue_families(pd);
+        queue_families := get_physical_device_queue_families(pd,, temp);
         graphics_queue_family := -1;
         present_queue_family  := -1;
         compute_queue_family  := -1;
@@ -893,7 +893,7 @@ get_swapchain_formats :: () -> []VkSurfaceFormatKHR {
   err = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, null);
   assert(!err);
   if count == 0 return .[];
-  data = NewArray(count, VkSurfaceFormatKHR, initialized = false,, temp);
+  data = NewArray(count, VkSurfaceFormatKHR, initialized = false);
   err = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, data.data);
   assert(!err);
   return data;
@@ -935,7 +935,7 @@ DONE
     surface_capabilities.maxImageExtent.height,
   );
 
-  surface_formats := get_swapchain_formats();
+  surface_formats := get_swapchain_formats(,, temp);
   surface_format_found := false;
   surface_format: VkSurfaceFormatKHR;
   for surface_formats {
