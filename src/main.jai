@@ -14,8 +14,8 @@ main :: () {
   if !vulkan_init(true) return;
 
   for *rc: render_commands rc.* = create_render_command();
-  gpu_memory        = allocate_gpu_memory(.DEVICE_LOCAL_BIT);
-  cpu_to_gpu_memory = allocate_gpu_memory(.HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
+  gpu_memory        = allocate_gpu_memory(64 << 20, .DEVICE_LOCAL_BIT);
+  cpu_to_gpu_memory = allocate_gpu_memory(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
   staging_buffer    = create_and_alloc_buffer(1 << 20,
                                               .TRANSFER_SRC_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
@@ -228,9 +228,8 @@ GpuMemory :: struct {
   used:       u32;
   host_mem:   []u8;
 };
-allocate_gpu_memory :: (flags: VkMemoryPropertyFlags) -> GpuMemory {
+allocate_gpu_memory :: (size: u32, flags: VkMemoryPropertyFlags) -> GpuMemory {
   index  := find_arena_index(~cast(u32)0, flags);
-  size   : u32 = 64 << 20;
   memory := allocate_memory(index, size);
   host_mem := ifx flags & .HOST_VISIBLE_BIT map_memory(memory, size);
   return .{ memory, size, 0, host_mem };
