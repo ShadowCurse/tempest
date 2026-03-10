@@ -169,11 +169,8 @@ main :: () {
     cmd_push_constants(render_command, compute_pipeline, .COMPUTE_BIT, *v);
     cmd_dispatch(render_command, (window_width + 15) / 16, (window_height + 15) / 16, 1);
 
-    cmd_transition_swapchain_image(
+    cmd_barrier(
       render_command,
-      swapchaine_image_index,
-      .GENERAL,
-      .COLOR_ATTACHMENT_OPTIMAL,
       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
       VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT ,
       VK_ACCESS_2_MEMORY_WRITE_BIT,
@@ -208,7 +205,7 @@ main :: () {
     cmd_transition_swapchain_image(
       render_command,
       swapchaine_image_index,
-      .COLOR_ATTACHMENT_OPTIMAL,
+      .GENERAL,
       .PRESENT_SRC_KHR,
       VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,

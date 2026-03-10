@@ -252,7 +252,7 @@ cmd_begin_rendering_to_swapchain :: (cmd: VkCommandBuffer, image_index: u32) {
 
   color_attachment: VkRenderingAttachmentInfo = .{
     imageView          = sc_view,
-    imageLayout        = .COLOR_ATTACHMENT_OPTIMAL,
+    imageLayout        = .GENERAL,
     resolveImageLayout = .UNDEFINED,
     loadOp             = .LOAD,
     clearValue         = .{ color = .{ _float32 = .[ 0.0, 0.0, 0.0, 0.0 ] } },
@@ -283,6 +283,26 @@ cmd_begin_rendering_to_swapchain :: (cmd: VkCommandBuffer, image_index: u32) {
 
 cmd_end_rendering :: (cmd: VkCommandBuffer) {
   vkCmdEndRendering(cmd);
+}
+
+cmd_barrier :: (
+  cmd: VkCommandBuffer,
+  src_stage:  VkPipelineStageFlags2,
+  dst_stage:  VkPipelineStageFlags2,
+  src_access: VkAccessFlags2,
+  dst_access: VkAccessFlags2,
+) {
+  barrier: VkMemoryBarrier2  = .{
+    srcStageMask     = src_stage,
+    srcAccessMask    = src_access,
+    dstStageMask     = dst_stage,
+    dstAccessMask    = dst_access,
+  };
+  dependency: VkDependencyInfo = .{
+    pMemoryBarriers    = *barrier,
+    memoryBarrierCount = 1,
+  };
+  vkCmdPipelineBarrier2(cmd, *dependency);
 }
 
 transition_image :: (
@@ -316,8 +336,8 @@ transition_image :: (
     image            = image,
   };
   dependency: VkDependencyInfo = .{
-      pImageMemoryBarriers    = *barrier,
-      imageMemoryBarrierCount = 1,
+    pImageMemoryBarriers    = *barrier,
+    imageMemoryBarrierCount = 1,
   };
   vkCmdPipelineBarrier2(cmd, *dependency);
 }
