@@ -1,7 +1,5 @@
 Font :: struct {
   size:          float;
-  ascent:        float;
-  decent:        float;
   line_gap:      float;
   char_info:     []CharInfo;
   // kerning_table: []KerningInfo;
@@ -43,10 +41,10 @@ load_font :: (name: string) -> Font {
       x1 := parse_float(*parts[4]);
       y1 := parse_float(*parts[5]);
 
-      u0 := parse_float(*parts[6]);
-      v0 := parse_float(*parts[7]);
-      u1 := parse_float(*parts[8]);
-      v1 := parse_float(*parts[9]);
+      u0 := parse_float(*parts[6]); // left
+      v0 := parse_float(*parts[7]); // bottom
+      u1 := parse_float(*parts[8]); // right
+      v1 := parse_float(*parts[9]); // top
 
       info_index := char_index - ALL_CHARS[0];
       char_info[info_index] = .{ advance, x0, y0, x1, y0, u0, v0, u1, v1 };
@@ -58,18 +56,12 @@ load_font :: (name: string) -> Font {
 
   return .{
     size          = 32,
-    ascent        = 1.069,
-    decent        = -0.292,
     line_gap      = 1.362,
     char_info     = char_info,
     bitmap        = xx bitmap,
     bitmap_width  = 216,
     bitmap_height = 216,
   };
-}
-
-scaling_factor :: (font: Font) -> float {
-    return font.size / font.ascent;
 }
 
 #scope_file

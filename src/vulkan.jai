@@ -117,6 +117,12 @@ create_compute_pipeline :: (create_info: VkComputePipelineCreateInfo) -> VkPipel
   return result;
 }
 
+create_graphics_pipeline :: (create_info: VkGraphicsPipelineCreateInfo) -> VkPipeline {
+  result: VkPipeline = ---;
+  assert(!vkCreateGraphicsPipelines(device, null, 1, *create_info, null, *result));
+  return result;
+}
+
 get_buffer_memory_requirements :: (buffer: VkBuffer) -> VkMemoryRequirements {
   result: VkMemoryRequirements = ---;
   vkGetBufferMemoryRequirements(device, buffer, *result);
@@ -241,6 +247,44 @@ cmd_draw :: (
   vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, first_instance);
 }
 
+cmd_begin_rendering_to_swapchain :: (cmd: VkCommandBuffer, image_index: u32) {
+  sc_view := swapchain_image_views[image_index];
+
+  color_attachment: VkRenderingAttachmentInfo = .{
+    imageView          = sc_view,
+    imageLayout        = .COLOR_ATTACHMENT_OPTIMAL,
+    resolveImageLayout = .UNDEFINED,
+    loadOp             = .LOAD,
+    clearValue         = .{ color = .{ _float32 = .[ 0.0, 0.0, 0.0, 0.0 ] } },
+    storeOp            = .STORE,
+  };
+
+  render_info: VkRenderingInfo = .{
+    pColorAttachments    = *color_attachment,
+    colorAttachmentCount = 1,
+    pDepthAttachment     = null,
+    renderArea           = .{ extent = swapchain_extent },
+    layerCount           = 1,
+  };
+  vkCmdBeginRendering(cmd, *render_info);
+
+  viewport: VkViewport = .{
+    x        = 0.0,
+    y        = 0.0,
+    width    = xx swapchain_extent.width,
+    height   = xx swapchain_extent.height,
+    minDepth = 0.0,
+    maxDepth = 1.0,
+  };
+  vkCmdSetViewport(cmd, 0, 1, *viewport);
+  scissor: VkRect2D = .{ offset = .{ 0, 0 }, extent = swapchain_extent };
+  vkCmdSetScissor(cmd, 0, 1, *scissor);
+}
+
+cmd_end_rendering :: (cmd: VkCommandBuffer) {
+  vkCmdEndRendering(cmd);
+}
+
 transition_image :: (
   cmd:        VkCommandBuffer,
   image:      VkImage,
@@ -252,6 +296,7 @@ transition_image :: (
   src_access: VkAccessFlags2,
   dst_access: VkAccessFlags2,
 ) {
+  assert(image != null, "Trying to transition null VkImage");
 
   subresource: VkImageSubresourceRange = .{
     aspectMask     = ifx usage & .DEPTH_STENCIL_ATTACHMENT_BIT then .DEPTH_BIT else .COLOR_BIT,
@@ -861,7 +906,7 @@ get_swapchain_images :: () -> []VkImage {
   err = vkGetSwapchainImagesKHR(device, swapchain, *count, null);
   assert(!err);
   if count == 0 return .[];
-  data = NewArray(count, VkImage, initialized = false,, temp);
+  data = NewArray(count, VkImage, initialized = false);
   err = vkGetSwapchainImagesKHR(device, swapchain, *count, data.data);
   assert(!err);
   return data;

@@ -8,7 +8,7 @@ platform_init :: () -> success: bool {
       "tempest",
       xx window_width,
       xx window_height,
-      SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE,
+      SDL_WINDOW_VULKAN, // | SDL_WINDOW_RESIZABLE,
   );
   if !window {
     log_error("Cannot create SDL window: %\n", SDL_GetError());

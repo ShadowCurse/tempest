@@ -9,7 +9,7 @@ layout (location = 1) out vec2 outUV;
 layout (location = 2) out int outInstanceId;
 
 layout(buffer_reference, std430) readonly buffer Quads {
-    UiQuad2d quads[];
+    UiQuad quads[];
 };
 
 layout(push_constant) uniform constants {
@@ -19,7 +19,7 @@ layout(push_constant) uniform constants {
 
 void main() {
     UiVertex v = ui_quad_vertices[gl_VertexIndex];
-    UiQuad2d sq = PushConstants.quads.quads[gl_InstanceIndex];
+    UiQuad sq = PushConstants.quads.quads[gl_InstanceIndex];
     vec2 screen_size = PushConstants.screen_size;
 
     vec2 vertex_position = v.position;

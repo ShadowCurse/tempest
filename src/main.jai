@@ -6,6 +6,7 @@ NO_LAST_SWAPCHAIN_INDEX : u32 = ~cast(u32)0;
 gpu_memory: GpuMemory;
 cpu_to_gpu_memory: GpuMemory;
 staging_buffer: Buffer;
+text_buffer: Buffer;
 
 main :: () {
   if !platform_init() return;
@@ -19,7 +20,16 @@ main :: () {
                                               .TRANSFER_SRC_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
+  text_buffer       = create_and_alloc_buffer(size_of(Quad) * 1024,
+                                              .SHADER_DEVICE_ADDRESS_BIT,
+                                              .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
+                                              *cpu_to_gpu_memory);
+
   font := load_font("NotoSans-Regular");
+  text := "example text\nAnother long line";
+  quads := text_layout(text, font, 32, .{700.0, 100.0}, true);
+  memcpy(text_buffer.host_mem.data, quads.data, size_of(Quad) * quads.count);
+
   font_image := create_and_alloc_image(
     font.bitmap_width,
     font.bitmap_height,
@@ -32,7 +42,7 @@ main :: () {
   sampler_create_info: VkSamplerCreateInfo = .{
       magFilter    = .VK_FILTER_LINEAR,
       minFilter    = .VK_FILTER_LINEAR,
-      mipmapMode   = .VK_SAMPLER_MIPMAP_MODE_NEAREST,
+      mipmapMode   = .LINEAR,
       addressModeU = .VK_SAMPLER_ADDRESS_MODE_REPEAT,
       addressModeV = .VK_SAMPLER_ADDRESS_MODE_REPEAT,
       addressModeW = .VK_SAMPLER_ADDRESS_MODE_REPEAT,
@@ -71,12 +81,14 @@ main :: () {
     reset_command_buffer(imm_command);
   }
 
-  pipeline := create_full_screen_effect_comptue_pipeline();
+  compute_pipeline := create_full_screen_effect_comptue_pipeline();
+  text_pipeline    := create_text_pipeline();
 
   v := 1.0;
   need_swapchain_recreation := false;
   last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
   while (!platform_wants_to_exit()) {
+    reset_temporary_storage();
     platform_new_frame();
 
     if need_swapchain_recreation {
@@ -124,7 +136,7 @@ main :: () {
       VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
     );
 
-    cmd_bind_pipeline(render_command, pipeline, .COMPUTE);
+    cmd_bind_pipeline(render_command, compute_pipeline, .COMPUTE);
     image_descriptors: [2]VkDescriptorImageInfo = .[
       .{
         sampler     = null,
@@ -153,16 +165,52 @@ main :: () {
         pImageInfo      = *image_descriptors[1],
       },
     ];
-    cmd_push_descriptors(render_command, pipeline, .COMPUTE, descriptor_sets);
-    cmd_push_constants(render_command, pipeline, .COMPUTE_BIT, *v);
+    cmd_push_descriptors(render_command, compute_pipeline, .COMPUTE, descriptor_sets);
+    cmd_push_constants(render_command, compute_pipeline, .COMPUTE_BIT, *v);
     cmd_dispatch(render_command, (window_width + 15) / 16, (window_height + 15) / 16, 1);
 
     cmd_transition_swapchain_image(
       render_command,
       swapchaine_image_index,
       .GENERAL,
-      .PRESENT_SRC_KHR,
+      .COLOR_ATTACHMENT_OPTIMAL,
       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+      VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT ,
+      VK_ACCESS_2_MEMORY_WRITE_BIT,
+      VK_ACCESS_2_MEMORY_WRITE_BIT,
+    );
+
+    cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
+    {
+      cmd_bind_pipeline(render_command, text_pipeline, .GRAPHICS);
+      image_descriptor: VkDescriptorImageInfo = .{
+        sampler     = font_sampler,
+        imageView   = font_image.view,
+        imageLayout = .GENERAL,
+      };
+      descriptor_set: VkWriteDescriptorSet = .{
+        dstSet          = null,
+        dstBinding      = 0,
+        descriptorCount = 1,
+        descriptorType  = .COMBINED_IMAGE_SAMPLER,
+        pImageInfo      = *image_descriptor,
+      };
+      cmd_push_descriptors(render_command, text_pipeline, .GRAPHICS, .[descriptor_set]);
+      constant: TextPushConstant = .{
+        buffer_address = text_buffer.device_address,
+        screen_size    = .{ xx window_width, xx window_height },
+      };
+      cmd_push_constants(render_command, text_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+      cmd_draw(render_command, 6, xx text.count, 0, 0);
+    }
+    cmd_end_rendering(render_command);
+
+    cmd_transition_swapchain_image(
+      render_command,
+      swapchaine_image_index,
+      .COLOR_ATTACHMENT_OPTIMAL,
+      .PRESENT_SRC_KHR,
+      VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
       VK_ACCESS_2_MEMORY_WRITE_BIT,
       VK_ACCESS_2_MEMORY_READ_BIT,
@@ -369,6 +417,116 @@ create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
   };
 }
 
+TextPushConstant :: struct {
+    buffer_address: VkDeviceAddress;
+    screen_size:    Vector2;
+}
+create_text_pipeline :: () -> Pipeline {
+  binging_layout: VkDescriptorSetLayoutBinding = .{
+    binding         = 0,
+    descriptorCount = 1,
+    descriptorType  = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    stageFlags      = .FRAGMENT_BIT,
+  };
+  layout_create_info: VkDescriptorSetLayoutCreateInfo = .{
+    flags        = .PUSH_DESCRIPTOR_BIT,
+    pBindings    = *binging_layout,
+    bindingCount = 1,
+  };
+  dsl := create_descriptor_set_layout(layout_create_info);
+
+  push_constants: VkPushConstantRange = .{
+    stageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
+    offset     = 0,
+    size       = size_of(TextPushConstant),
+  };
+  pipeline_layout_create_info: VkPipelineLayoutCreateInfo = .{
+    pSetLayouts            = *dsl,
+    setLayoutCount         = 1,
+    pPushConstantRanges    = *push_constants,
+    pushConstantRangeCount = 1,
+  };
+  layout := create_pipeline_layout(pipeline_layout_create_info);
+
+  text_vert_code := platform_read_entire_file("shaders_compiled/text_vert.spv",, temp);
+  text_vert_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx text_vert_code.data,
+    codeSize = xx text_vert_code.count,
+  };
+  text_frag_code := platform_read_entire_file("shaders_compiled/text_frag.spv",, temp);
+  text_frag_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx text_frag_code.data,
+    codeSize = xx text_frag_code.count,
+  };
+  stages: []VkPipelineShaderStageCreateInfo = .[
+    .{ pNext = *text_vert_module_create_info, stage = .VERTEX_BIT,   pName = "main" },
+    .{ pNext = *text_frag_module_create_info, stage = .FRAGMENT_BIT, pName = "main" },
+  ];
+
+  input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
+  rasterization: VkPipelineRasterizationStateCreateInfo = .{
+    polygonMode = .FILL,
+    frontFace   = .COUNTER_CLOCKWISE,
+    lineWidth   = 1.0,
+  };
+  multisampling: VkPipelineMultisampleStateCreateInfo = .{ rasterizationSamples = ._1_BIT };
+  color_attachment_format: VkFormat = .B8G8R8A8_UNORM;
+  rendering: VkPipelineRenderingCreateInfo = .{
+    pColorAttachmentFormats = *color_attachment_format,
+    colorAttachmentCount    = 1,
+    depthAttachmentFormat   = .UNDEFINED,
+    stencilAttachmentFormat = .UNDEFINED,
+  };
+  color_blend_attachment: VkPipelineColorBlendAttachmentState = .{
+    blendEnable         = xx true,
+    srcColorBlendFactor = .SRC_ALPHA,
+    dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+    colorBlendOp        = .ADD,
+    srcAlphaBlendFactor = .ONE,
+    dstAlphaBlendFactor = .ZERO,
+    alphaBlendOp        = .ADD,
+    colorWriteMask      = .R_BIT | .G_BIT | .B_BIT | .A_BIT,
+  };
+
+  viewport: VkPipelineViewportStateCreateInfo = .{ viewportCount = 1, scissorCount = 1 };
+
+  color_blending: VkPipelineColorBlendStateCreateInfo = .{
+    logicOpEnable   = xx false,
+    logicOp         = .COPY,
+    attachmentCount = 1,
+    pAttachments    = *color_blend_attachment,
+  };
+
+  vertex_input: VkPipelineVertexInputStateCreateInfo;
+
+  dynamic_states: []VkDynamicState = .[ .VIEWPORT, .SCISSOR ];
+  dynamic_state_info: VkPipelineDynamicStateCreateInfo = .{
+    pDynamicStates    = dynamic_states.data,
+    dynamicStateCount = xx dynamic_states.count,
+  };
+
+  create_info: VkGraphicsPipelineCreateInfo = .{
+    pNext               = *rendering,
+    stageCount          = xx stages.count,
+    pStages             = stages.data,
+    pVertexInputState   = *vertex_input,
+    pInputAssemblyState = *input_assembly,
+    pViewportState      = *viewport,
+    pRasterizationState = *rasterization,
+    pMultisampleState   = *multisampling,
+    pColorBlendState    = *color_blending,
+    pDynamicState       = *dynamic_state_info,
+    layout              = layout,
+  };
+  pipeline := create_graphics_pipeline(create_info);
+
+  return .{
+    pipeline = pipeline,
+    layout = layout,
+    dsl = dsl,
+  };
+}
+
 RenderCommand :: struct {
   #as cmd:             VkCommandBuffer;
   #as swapchain_semaphore: VkSemaphore;
@@ -422,21 +580,23 @@ cmd_transition_swapchain_image :: (
     src_access:  VkAccessFlags2,
     dst_access:  VkAccessFlags2,
 ) {
-    transition_image(
-        cmd.cmd,
-        swapchain_images[image_index],
-        0,
-        src_layout,
-        dst_layout,
-        src_stage,
-        dst_stage,
-        src_access,
-        dst_access,
-    );
+  transition_image(
+    cmd.cmd,
+    swapchain_images[image_index],
+    0,
+    src_layout,
+    dst_layout,
+    src_stage,
+    dst_stage,
+    src_access,
+    dst_access,
+  );
 }
 
+#import,file "ui.jai";
 #import,file "font.jai";
 #import,file "vulkan.jai";
 #import,file "platform.jai";
+#import "Math";
 #import "Basic";
 #import "Vulkan";

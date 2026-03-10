@@ -1,16 +1,16 @@
-#define UI_QUAD_USAGE_TEXT  0x00000000u
-#define UI_QUAD_USAGE_COLOR 0x00000001u
+#define UI_QUAD_USAGE_COLOR 0x00000000u
+#define UI_QUAD_USAGE_TEXT  0x00000001u
 
-struct UiQuad3d {
-    vec3 position;
-    uint usage;
-    vec2 size;
-    vec2 uv_offset;
-    vec2 uv_size;
-    vec2 _;
-};
+// struct UiQuad3d {
+//     vec3 position;
+//     uint usage;
+//     vec2 size;
+//     vec2 uv_offset;
+//     vec2 uv_size;
+//     vec2 _;
+// };
 
-struct UiQuad2d {
+struct UiQuad {
     vec2 position;
     vec2 size;
     vec2 uv_offset;
