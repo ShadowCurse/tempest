@@ -1,11 +1,12 @@
 Font :: struct {
-  size:          float;
-  line_gap:      float;
-  char_info:     []CharInfo;
+  size:           u32;
+  line_gap:       float;
+  distance_range: u32;
+  char_info:      []CharInfo;
   // kerning_table: []KerningInfo;
-  bitmap:        []u8;
-  bitmap_width:  u32;
-  bitmap_height: u32;
+  bitmap:         []u8;
+  bitmap_width:   u32;
+  bitmap_height:  u32;
 }
 ALL_CHARS :: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 
@@ -23,52 +24,114 @@ KerningInfo :: struct {
 
 load_font :: (name: string) -> Font {
   mtsdf_path := tprint("resources/fonts/%.mtsdf", name);
-  csv_path   := tprint("resources/fonts/%.csv", name);
+  json_path  := tprint("resources/fonts/%.json", name);
 
-  bitmap := platform_read_entire_file(mtsdf_path);
-  csv    := platform_read_entire_file(csv_path,, temp);
+  font: Font;
+  font.bitmap    = xx platform_read_entire_file(mtsdf_path);
+  font.char_info = NewArray(ALL_CHARS.count, CharInfo, initialized = false);
 
-  char_info := NewArray(ALL_CHARS.count, CharInfo, initialized = false);
-  found, left, right := split_from_left(csv, #char "\n");
-  while found {
-    parts := split(left, #char ",",, temp);
-    if parts.count == 10 {
-      char_index := parse_int(*parts[0], u32);
-      advance    := parse_float(*parts[1]);
-
-      x0 := parse_float(*parts[2]);
-      y0 := parse_float(*parts[3]);
-      x1 := parse_float(*parts[4]);
-      y1 := parse_float(*parts[5]);
-
-      u0 := parse_float(*parts[6]); // left
-      v0 := parse_float(*parts[7]); // bottom
-      u1 := parse_float(*parts[8]); // right
-      v1 := parse_float(*parts[9]); // top
-
-      info_index := char_index - ALL_CHARS[0];
-      char_info[info_index] = .{ advance, x0, y0, x1, y0, u0, v0, u1, v1 };
-    } else {
-      log_error("Font CVS contains strange line with % parts, but we expect 10 parts", parts.count);
-    }
-    found, left, right = split_from_left(right, #char "\n");
+  json    := platform_read_entire_file(json_path,, temp);
+  parser: JsonParser = .{ buf = json };
+  next_object_begin(*parser);
+  while true {
+    token := next_token(*parser);
+    if token.kind == .end_of_document break;
+    if token.payload == {
+      case "atlas";
+        while true {
+          field := next_object_field(*parser);
+          if field.kind == .object_end break;
+          if field.payload == {
+            case "distanceRange";
+              number := next_number(*parser);
+              font.distance_range = parse_int(*number.payload, u32);
+            case "size";
+              number := next_number(*parser);
+              font.size = parse_int(*number.payload, u32);
+            case "width";
+              number := next_number(*parser);
+              font.bitmap_width = parse_int(*number.payload, u32);
+            case "height";
+              number := next_number(*parser);
+              font.bitmap_height = parse_int(*number.payload, u32);
+            case;
+          }
+        }
+    case "metrics";
+      while true {
+        field := next_object_field(*parser);
+        if field.kind == .object_end break;
+        if field.payload == {
+          case "lineHeight";
+            number := next_number(*parser);
+            font.line_gap = parse_float(*number.payload);
+        }
+      }
+    case "glyphs";
+      next_array_begin(*parser);
+      char_index: u8;
+      while true {
+        next := next_token(*parser);
+        if next.kind == .array_end break;
+        while true {
+          field := next_object_field(*parser);
+          if field.kind == .object_end break;
+          if field.payload == {
+            case "unicode";
+              number := next_number(*parser);
+              char_index = parse_int(*number.payload, u8) - ALL_CHARS[0];
+            case "advance";
+              number := next_number(*parser);
+              font.char_info[char_index].advance = parse_float(*number.payload);
+            case "planeBounds";
+              while true {
+                plane_field := next_object_field(*parser);
+                if plane_field.kind == .object_end break;
+                if plane_field.payload == {
+                  case "left";
+                      number := next_number(*parser);
+                      font.char_info[char_index].x0 = parse_float(*number.payload);
+                  case "top";
+                      number := next_number(*parser);
+                      font.char_info[char_index].y0 = parse_float(*number.payload);
+                  case "right";
+                      number := next_number(*parser);
+                      font.char_info[char_index].x1 = parse_float(*number.payload);
+                  case "bottom";
+                      number := next_number(*parser);
+                      font.char_info[char_index].y1 = parse_float(*number.payload);
+                }
+              }
+            case "atlasBounds";
+              while true {
+                plane_field := next_object_field(*parser);
+                if plane_field.kind == .object_end break;
+                if plane_field.payload == {
+                  case "left";
+                    number := next_number(*parser);
+                    font.char_info[char_index].u0 = parse_float(*number.payload);
+                  case "top";
+                    number := next_number(*parser);
+                    font.char_info[char_index].v0 = parse_float(*number.payload);
+                  case "right";
+                    number := next_number(*parser);
+                    font.char_info[char_index].u1 = parse_float(*number.payload);
+                  case "bottom";
+                    number := next_number(*parser);
+                    font.char_info[char_index].v1 = parse_float(*number.payload);
+                }
+              }
+            }
+          }
+        }
+      }
   }
-
-  return .{
-    size          = 32,
-    line_gap      = 1.362,
-    char_info     = char_info,
-    bitmap        = xx bitmap,
-    bitmap_width  = 216,
-    bitmap_height = 216,
-  };
+  return font;
 }
 
 #scope_file
 
-// "type":"mtsdf","distanceRange":2,"distanceRangeMiddle":0,"size":32,"width":216,"height":216,"yOrigin":"bottom"
-// "emSize":1,"lineHeight":1.3620000000000001,"ascender":1.069,"descender":-0.29299999999999998,"underlineY":-0.125,"underlineThickness":0.050000000000000003},
-
 #import,file "platform.jai";
+#import "Json";
 #import "Basic";
 #import "String";

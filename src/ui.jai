@@ -14,8 +14,8 @@ QuadUsage :: enum u32 {
 
 
 text_layout :: (text: string, font: Font, size: float, position: Vector2, center: bool) -> []Quad {
-  em_to_pixel := font.size;
-  scale       := size / font.size;
+  em_to_pixel := cast(float)font.size;
+  scale       := size / em_to_pixel;
   font_scale  := scale * em_to_pixel;
   offset: Vector2;
 
