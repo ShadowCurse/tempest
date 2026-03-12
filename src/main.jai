@@ -6,7 +6,10 @@ NO_LAST_SWAPCHAIN_INDEX : u32 = ~cast(u32)0;
 gpu_memory: GpuMemory;
 cpu_to_gpu_memory: GpuMemory;
 staging_buffer: Buffer;
+
 text_buffer: Buffer;
+text_buffer_allocator: BufferAllocator;
+text_buffer_alloc: Allocator;
 
 main :: () {
   if !platform_init() return;
@@ -25,10 +28,10 @@ main :: () {
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
 
+  init(*text_buffer_allocator, text_buffer.host_mem, 4);
+  text_buffer_alloc = .{ proc = buffer_allocator_proc, data = *text_buffer_allocator };
+
   font := load_font("NotoSans-Regular");
-  text := "example text\nAnother long line";
-  quads := text_layout(text, font, 32, .{700.0, 100.0}, true);
-  memcpy(text_buffer.host_mem.data, quads.data, size_of(Quad) * quads.count);
 
   font_image := create_and_alloc_image(
     font.bitmap_width,
@@ -89,12 +92,16 @@ main :: () {
   last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
   while (!platform_wants_to_exit()) {
     reset_temporary_storage();
+    reset(*text_buffer_allocator);
     platform_new_frame();
 
+    text := "example text\nAnother long line";
+    text_layout(text, font, 32, .{700.0, 100.0}, true,, text_buffer_alloc);
+
     if need_swapchain_recreation {
-        if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
-          wait_swapchain_fence(xx last_swapchain_image_index);
-        recreate_swapchain();
+      if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
+        wait_swapchain_fence(xx last_swapchain_image_index);
+      recreate_swapchain();
     }
 
     render_command := *render_commands[current_frame_idx];
@@ -105,22 +112,22 @@ main :: () {
 
     swapchaine_image_index: u32 = 0;
     while (true) {
-        index, need_swapchain_recreation := acquire_next_image(render_command);
-        if !need_swapchain_recreation {
-          swapchaine_image_index = index;
-          break;
-        } else {
-            if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
-              wait_swapchain_fence(xx last_swapchain_image_index);
-            recreate_swapchain();
+      index, need_swapchain_recreation := acquire_next_image(render_command);
+      if !need_swapchain_recreation {
+        swapchaine_image_index = index;
+        break;
+      } else {
+          if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
+            wait_swapchain_fence(xx last_swapchain_image_index);
+          recreate_swapchain();
 
-            // note(sc): for some reason acquiring the image singles the semaphore even on
-            // failure. Maybe there is a way to handle it more reasonably.
-            destroy_semaphore(render_command);
-            render_command.swapchain_semaphore = create_semaphore(.{});
+          // note(sc): for some reason acquiring the image singles the semaphore even on
+          // failure. Maybe there is a way to handle it more reasonably.
+          destroy_semaphore(render_command);
+          render_command.swapchain_semaphore = create_semaphore(.{});
 
-            last_swapchain_image_index = NO_LAST_SWAPCHAIN_INDEX;
-        }
+          last_swapchain_image_index = NO_LAST_SWAPCHAIN_INDEX;
+      }
     }
     last_swapchain_image_index = swapchaine_image_index;
 
@@ -198,7 +205,7 @@ main :: () {
         screen_size    = .{ xx window_width, xx window_height },
       };
       cmd_push_constants(render_command, text_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-      cmd_draw(render_command, 6, xx text.count, 0, 0);
+      cmd_draw(render_command, 6, xx text_buffer_allocator.end / cast(u16)size_of(Quad), 0, 0);
     }
     cmd_end_rendering(render_command);
 
@@ -593,6 +600,7 @@ cmd_transition_swapchain_image :: (
 #import,file "font.jai";
 #import,file "vulkan.jai";
 #import,file "platform.jai";
+#import,file "allocators.jai";
 #import "Math";
 #import "Basic";
 #import "Vulkan";
