@@ -7,9 +7,7 @@ gpu_memory: GpuMemory;
 cpu_to_gpu_memory: GpuMemory;
 staging_buffer: Buffer;
 
-text_buffer: Buffer;
-text_buffer_allocator: BufferAllocator;
-text_buffer_alloc: Allocator;
+ui_buffer: Buffer;
 
 main :: () {
   if !platform_init() return;
@@ -23,13 +21,10 @@ main :: () {
                                               .TRANSFER_SRC_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
-  text_buffer       = create_and_alloc_buffer(size_of(Quad) * 1024,
+  ui_buffer         = create_and_alloc_buffer(size_of(Quad) * 1024,
                                               .SHADER_DEVICE_ADDRESS_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
-
-  init(*text_buffer_allocator, text_buffer.host_mem);
-  text_buffer_alloc = .{ proc = buffer_allocator_proc, data = *text_buffer_allocator };
 
   font := load_font("NotoSans-Regular");
 
@@ -87,16 +82,27 @@ main :: () {
   compute_pipeline := create_full_screen_effect_comptue_pipeline();
   text_pipeline    := create_text_pipeline();
 
+  ui: Context;
+  init(*ui, ui_buffer.host_mem, *font);
+
   v := 1.0;
   need_swapchain_recreation := false;
   last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
-  while (!platform_wants_to_exit()) {
+  while (!quit) {
     reset_temporary_storage();
-    reset(*text_buffer_allocator);
     platform_new_frame();
+    new_frame(*ui);
+    ui.mouse_position = mouse_position;
+    ui.mouse_pressed  = just_pressed(mouse_state, .LMB);
+    ui.mouse_down     = pressed(mouse_state, .LMB);
 
-    text := "example text\nAnother long line";
-    text_layout(text, font, 32, .{700.0, 100.0}, true,, text_buffer_alloc);
+
+    panel_position: Vector2 = .{300.0, 300.0};
+    panel_size:     Vector2 = .{300.0, 300.0};
+    panel_start(*ui, panel_position, panel_size, "Panel");
+    label(*ui, tprint("LMB pressed: %", pressed(mouse_state, .LMB)));
+    label(*ui, tprint("LMB just pressed: %", just_pressed(mouse_state, .LMB)));
+    if button(*ui, "Debug") ui.debug = !ui.debug;
 
     if need_swapchain_recreation {
       if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
@@ -201,11 +207,11 @@ main :: () {
       };
       cmd_push_descriptors(render_command, text_pipeline, .GRAPHICS, .[descriptor_set]);
       constant: TextPushConstant = .{
-        buffer_address = text_buffer.device_address,
+        buffer_address = ui_buffer.device_address,
         screen_size    = .{ xx window_width, xx window_height },
       };
       cmd_push_constants(render_command, text_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-      cmd_draw(render_command, 6, xx text_buffer_allocator.end / cast(u16)size_of(Quad), 0, 0);
+      cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
     }
     cmd_end_rendering(render_command);
 

@@ -72,6 +72,11 @@ buffer_allocator_proc :: (
   }
 }
 
+allocator :: (a: *BufferAllocator) -> Allocator {
+  result: Allocator = .{buffer_allocator_proc, a};
+  return result;
+}
+
 align_of :: ($T: Type) -> s64 #expand {
   return #run -> s64 {
     info := type_info(struct{ p: u8; t: T; });
