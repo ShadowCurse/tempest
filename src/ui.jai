@@ -85,8 +85,8 @@ text_split_in_lines :: (text: string) -> quads: []Quad, lines: [][]Quad {
       }
     }
 
-    lines := NewArray(line_breaks.count, []Quad, initialized = false,, temp);
-    quads := NewArray(total_quads, Quad, initialized = false);
+    lines := new_array(line_breaks.count, []Quad, initialized = false,, temp);
+    quads := new_array(total_quads, Quad, initialized = false);
     quads_offset := 0;
     for line_breaks {
       line_length := ifx it_index == 0 it else it - line_breaks[it_index - 1] - 1;
@@ -97,5 +97,6 @@ text_split_in_lines :: (text: string) -> quads: []Quad, lines: [][]Quad {
 }
 
 #import,file "font.jai";
+#import,file "allocators.jai";
 #import "Math";
 #import "Basic";

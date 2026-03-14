@@ -28,7 +28,7 @@ load_font :: (name: string) -> Font {
 
   font: Font;
   font.bitmap    = xx platform_read_entire_file(mtsdf_path);
-  font.char_info = NewArray(ALL_CHARS.count, CharInfo, initialized = false);
+  font.char_info = new_array(ALL_CHARS.count, CharInfo, initialized = false);
 
   json    := platform_read_entire_file(json_path,, temp);
   parser: JsonParser = .{ buf = json };
@@ -132,6 +132,7 @@ load_font :: (name: string) -> Font {
 #scope_file
 
 #import,file "platform.jai";
+#import,file "allocators.jai";
 #import "Json";
 #import "Basic";
 #import "String";

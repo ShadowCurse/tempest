@@ -28,7 +28,7 @@ main :: () {
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
 
-  init(*text_buffer_allocator, text_buffer.host_mem, 4);
+  init(*text_buffer_allocator, text_buffer.host_mem);
   text_buffer_alloc = .{ proc = buffer_allocator_proc, data = *text_buffer_allocator };
 
   font := load_font("NotoSans-Regular");
