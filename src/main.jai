@@ -86,6 +86,7 @@ main :: () {
   init(*ui, ui_buffer.host_mem, *font);
 
   camera_position: Vector3 = .{ 0.0, -5.0, 5.0 };
+  camera_rotation: Vector2 = .{ 1.2, 0.0 };
 
   v := 1.0;
   need_swapchain_recreation := false;
@@ -98,12 +99,18 @@ main :: () {
     ui.mouse_pressed  = just_pressed(mouse_state, .LMB);
     ui.mouse_down     = pressed(mouse_state, .LMB);
 
-    if pressed(keyboard_state, .W) camera_position.y     += 2.0 * (1.0 / 120.0);
-    if pressed(keyboard_state, .S) camera_position.y     -= 2.0 * (1.0 / 120.0);
-    if pressed(keyboard_state, .A) camera_position.x     += 2.0 * (1.0 / 120.0);
-    if pressed(keyboard_state, .D) camera_position.x     -= 2.0 * (1.0 / 120.0);
-    if pressed(keyboard_state, .LCTRL) camera_position.z += 2.0 * (1.0 / 120.0);
-    if pressed(keyboard_state, .SPACE) camera_position.z -= 2.0 * (1.0 / 120.0);
+    camera_velocity: Vector3;
+    if pressed(keyboard_state, .W)     camera_velocity.z += 1.0;
+    if pressed(keyboard_state, .S)     camera_velocity.z -= 1.0;
+    if pressed(keyboard_state, .A)     camera_velocity.x -= 1.0;
+    if pressed(keyboard_state, .D)     camera_velocity.x += 1.0;
+    if pressed(keyboard_state, .LCTRL) camera_velocity.y -= 1.0;
+    if pressed(keyboard_state, .SPACE) camera_velocity.y += 1.0;
+    if pressed(mouse_state, .LMB) {
+      camera_rotation.y += mouse_movement.x * (1.0 / 120.0);
+      camera_rotation.x += mouse_movement.y * (1.0 / 120.0);
+      camera_rotation.x = clamp(camera_rotation.x, 0, PI);
+    }
 
     panel_position: Vector2 = .{300.0, 300.0};
     panel_size:     Vector2 = .{300.0, 300.0};
@@ -203,7 +210,11 @@ main :: () {
       // grid
       {
 
-        transform := look_at(camera_position, .{ 0.0, 0.0, 0.0 }, .{ 0.0, 0.0, 1.0 });
+        rotation_x := quat_from_axis_angle(.{ x = 1.0 }, camera_rotation.x);
+        rotation_z := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
+        rotation := rotation_z * rotation_x;
+        camera_position += rotate(camera_velocity * 5.0 * (1.0 / 120.0), rotation);
+        transform := quat_to_mat4(rotation);
         translate(*transform, camera_position);
 
         projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
