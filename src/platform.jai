@@ -1250,8 +1250,8 @@ SDLKeyboardScancode :: enum u32 {
 };
 
 #import,file "utils.jai";
+#import,file "math.jai";
 #import,file "static_bitset.jai";
-#import "Math";
 #import "SDL3";
 #import "File";
 #import "Basic";

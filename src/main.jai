@@ -27,7 +27,6 @@ main :: () {
                                               *cpu_to_gpu_memory);
 
   font := load_font("NotoSans-Regular");
-
   font_image := create_and_alloc_image(
     font.bitmap_width,
     font.bitmap_height,
@@ -81,9 +80,12 @@ main :: () {
 
   compute_pipeline := create_full_screen_effect_comptue_pipeline();
   text_pipeline    := create_text_pipeline();
+  grid_pipeline    := create_grid_pipeline();
 
   ui: Context;
   init(*ui, ui_buffer.host_mem, *font);
+
+  camera_position: Vector3 = .{ 0.0, -5.0, 5.0 };
 
   v := 1.0;
   need_swapchain_recreation := false;
@@ -96,6 +98,12 @@ main :: () {
     ui.mouse_pressed  = just_pressed(mouse_state, .LMB);
     ui.mouse_down     = pressed(mouse_state, .LMB);
 
+    if pressed(keyboard_state, .W) camera_position.y     += 2.0 * (1.0 / 120.0);
+    if pressed(keyboard_state, .S) camera_position.y     -= 2.0 * (1.0 / 120.0);
+    if pressed(keyboard_state, .A) camera_position.x     += 2.0 * (1.0 / 120.0);
+    if pressed(keyboard_state, .D) camera_position.x     -= 2.0 * (1.0 / 120.0);
+    if pressed(keyboard_state, .LCTRL) camera_position.z += 2.0 * (1.0 / 120.0);
+    if pressed(keyboard_state, .SPACE) camera_position.z -= 2.0 * (1.0 / 120.0);
 
     panel_position: Vector2 = .{300.0, 300.0};
     panel_size:     Vector2 = .{300.0, 300.0};
@@ -192,26 +200,51 @@ main :: () {
 
     cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
     {
-      cmd_bind_pipeline(render_command, text_pipeline, .GRAPHICS);
-      image_descriptor: VkDescriptorImageInfo = .{
-        sampler     = font_sampler,
-        imageView   = font_image.view,
-        imageLayout = .GENERAL,
-      };
-      descriptor_set: VkWriteDescriptorSet = .{
-        dstSet          = null,
-        dstBinding      = 0,
-        descriptorCount = 1,
-        descriptorType  = .COMBINED_IMAGE_SAMPLER,
-        pImageInfo      = *image_descriptor,
-      };
-      cmd_push_descriptors(render_command, text_pipeline, .GRAPHICS, .[descriptor_set]);
-      constant: TextPushConstant = .{
-        buffer_address = ui_buffer.device_address,
-        screen_size    = .{ xx window_width, xx window_height },
-      };
-      cmd_push_constants(render_command, text_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-      cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
+      // grid
+      {
+
+        transform := look_at(camera_position, .{ 0.0, 0.0, 0.0 }, .{ 0.0, 0.0, 1.0 });
+        translate(*transform, camera_position);
+
+        projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
+        _, view    := inverse_lengyel(transform);
+        limits     := Vector4.{ 16.0, -16.0, 16.0, -16.0 };
+        scale      := 10.0;
+
+        cmd_bind_pipeline(render_command, grid_pipeline, .GRAPHICS);
+        constant: GridPushConstant = .{
+          projection,
+          view,
+          limits,
+          scale,
+        };
+        cmd_push_constants(render_command, grid_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+        cmd_draw(render_command, 3, 1, 0, 0);
+      }
+
+      // text
+      {
+        cmd_bind_pipeline(render_command, text_pipeline, .GRAPHICS);
+        image_descriptor: VkDescriptorImageInfo = .{
+          sampler     = font_sampler,
+          imageView   = font_image.view,
+          imageLayout = .GENERAL,
+        };
+        descriptor_set: VkWriteDescriptorSet = .{
+          dstSet          = null,
+          dstBinding      = 0,
+          descriptorCount = 1,
+          descriptorType  = .COMBINED_IMAGE_SAMPLER,
+          pImageInfo      = *image_descriptor,
+        };
+        cmd_push_descriptors(render_command, text_pipeline, .GRAPHICS, .[descriptor_set]);
+        constant: TextPushConstant = .{
+          buffer_address = ui_buffer.device_address,
+          screen_size    = .{ xx window_width, xx window_height },
+        };
+        cmd_push_constants(render_command, text_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+        cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
+      }
     }
     cmd_end_rendering(render_command);
 
@@ -536,6 +569,102 @@ create_text_pipeline :: () -> Pipeline {
   };
 }
 
+GridPushConstant :: struct {
+    projection: Matrix4;
+    view:       Matrix4;
+    limits:     Vector4;
+    scale:      float;
+}
+create_grid_pipeline :: () -> Pipeline {
+  push_constants: VkPushConstantRange = .{
+    stageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
+    offset     = 0,
+    size       = size_of(GridPushConstant),
+  };
+  pipeline_layout_create_info: VkPipelineLayoutCreateInfo = .{
+    pPushConstantRanges    = *push_constants,
+    pushConstantRangeCount = 1,
+  };
+  layout := create_pipeline_layout(pipeline_layout_create_info);
+
+  vert_code := platform_read_entire_file("shaders_compiled/grid_vert.spv",, temp);
+  vert_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx vert_code.data,
+    codeSize = xx vert_code.count,
+  };
+  frag_code := platform_read_entire_file("shaders_compiled/grid_frag.spv",, temp);
+  frag_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx frag_code.data,
+    codeSize = xx frag_code.count,
+  };
+  stages: []VkPipelineShaderStageCreateInfo = .[
+    .{ pNext = *vert_module_create_info, stage = .VERTEX_BIT,   pName = "main" },
+    .{ pNext = *frag_module_create_info, stage = .FRAGMENT_BIT, pName = "main" },
+  ];
+
+  input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
+  rasterization: VkPipelineRasterizationStateCreateInfo = .{
+    polygonMode = .FILL,
+    frontFace   = .COUNTER_CLOCKWISE,
+    lineWidth   = 1.0,
+  };
+  multisampling: VkPipelineMultisampleStateCreateInfo = .{ rasterizationSamples = ._1_BIT };
+  color_attachment_format: VkFormat = .B8G8R8A8_UNORM;
+  rendering: VkPipelineRenderingCreateInfo = .{
+    pColorAttachmentFormats = *color_attachment_format,
+    colorAttachmentCount    = 1,
+    depthAttachmentFormat   = .UNDEFINED,
+    stencilAttachmentFormat = .UNDEFINED,
+  };
+  color_blend_attachment: VkPipelineColorBlendAttachmentState = .{
+    blendEnable         = xx true,
+    srcColorBlendFactor = .SRC_ALPHA,
+    dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+    colorBlendOp        = .ADD,
+    srcAlphaBlendFactor = .ONE,
+    dstAlphaBlendFactor = .ZERO,
+    alphaBlendOp        = .ADD,
+    colorWriteMask      = .R_BIT | .G_BIT | .B_BIT | .A_BIT,
+  };
+
+  viewport: VkPipelineViewportStateCreateInfo = .{ viewportCount = 1, scissorCount = 1 };
+
+  color_blending: VkPipelineColorBlendStateCreateInfo = .{
+    logicOpEnable   = xx false,
+    logicOp         = .COPY,
+    attachmentCount = 1,
+    pAttachments    = *color_blend_attachment,
+  };
+
+  vertex_input: VkPipelineVertexInputStateCreateInfo;
+
+  dynamic_states: []VkDynamicState = .[ .VIEWPORT, .SCISSOR ];
+  dynamic_state_info: VkPipelineDynamicStateCreateInfo = .{
+    pDynamicStates    = dynamic_states.data,
+    dynamicStateCount = xx dynamic_states.count,
+  };
+
+  create_info: VkGraphicsPipelineCreateInfo = .{
+    pNext               = *rendering,
+    stageCount          = xx stages.count,
+    pStages             = stages.data,
+    pVertexInputState   = *vertex_input,
+    pInputAssemblyState = *input_assembly,
+    pViewportState      = *viewport,
+    pRasterizationState = *rasterization,
+    pMultisampleState   = *multisampling,
+    pColorBlendState    = *color_blending,
+    pDynamicState       = *dynamic_state_info,
+    layout              = layout,
+  };
+  pipeline := create_graphics_pipeline(create_info);
+
+  return .{
+    pipeline = pipeline,
+    layout = layout,
+  };
+}
+
 RenderCommand :: struct {
   #as cmd:             VkCommandBuffer;
   #as swapchain_semaphore: VkSemaphore;
@@ -603,10 +732,10 @@ cmd_transition_swapchain_image :: (
 }
 
 #import,file "ui.jai";
+#import,file "math.jai";
 #import,file "font.jai";
 #import,file "vulkan.jai";
 #import,file "platform.jai";
 #import,file "allocators.jai";
-#import "Math";
 #import "Basic";
 #import "Vulkan";

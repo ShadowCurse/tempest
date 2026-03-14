@@ -360,8 +360,8 @@ text_split_in_lines :: (text: string) -> quads: []Quad, lines: [][]Quad {
 
 #scope_file
 
+#import,file "math.jai";
 #import,file "font.jai";
 #import,file "utils.jai";
 #import,file "allocators.jai";
-#import "Math";
 #import "Basic";
