@@ -3,8 +3,9 @@ window:         *SDL_Window;
 window_width :  u32 = 1600;
 window_height:  u32 = 800;
 mouse_position: Vector2;
-keyboard_state: KeyboardState;
+mouse_movement: Vector2;
 mouse_state:    MouseState;
+keyboard_state: KeyboardState;
 
 platform_init :: () -> success: bool {
   SDL_Init(SDL_INIT_AUDIO);
@@ -57,6 +58,7 @@ platform_new_frame :: () {
   if !SDL_GetWindowSize(window, xx *window_width, xx *window_height)
     log_error("Cannot get window size. Error: %\n", to_string(SDL_GetError()));
   SDL_GetMouseState(*mouse_position.x, *mouse_position.y);
+  mouse_movement = .{};
 
   new_frame(*keyboard_state);
   new_frame(*mouse_state);
@@ -85,6 +87,7 @@ platform_new_frame :: () {
           key := key_from_scancode(xx event.key.key);
           set_released(*keyboard_state, xx key);
       case xx SDL_EventType.MOUSE_MOTION;
+          mouse_movement = .{ event.motion.xrel, event.motion.yrel };
       case xx SDL_EventType.MOUSE_BUTTON_DOWN;
           set_pressed(*mouse_state, xx event.button.button);
       case xx SDL_EventType.MOUSE_BUTTON_UP;
