@@ -13,21 +13,22 @@ DEVICE_EXTENSIONS := *u8.[
     "VK_KHR_push_descriptor",
     // "VK_KHR_unified_image_layouts",
 ];
-WANTED_API_VERSION := #run api_version(0, 1, 4, 0);
+MINIMAL_API_VERSION := #run api_version(0, 1, 3, 0);
 
-instance: VkInstance;
-debug_messanger: VkDebugUtilsMessengerEXT;
-surface: VkSurfaceKHR;
-physical_device: VkPhysicalDevice;
-device: VkDevice;
+instance:              VkInstance;
+instance_version:      ApiVersion;
+debug_messanger:       VkDebugUtilsMessengerEXT;
+surface:               VkSurfaceKHR;
+physical_device:       VkPhysicalDevice;
+device:                VkDevice;
 graphics_queue_family: u32;
-graphics_queue: VkQueue;
-present_queue_family: u32;
-present_queue: VkQueue;
-compute_queue_family: u32;
-compute_queue: VkQueue;
+graphics_queue:        VkQueue;
+present_queue_family:  u32;
+present_queue:         VkQueue;
+compute_queue_family:  u32;
+compute_queue:         VkQueue;
 transfer_queue_family: u32;
-transfer_queue: VkQueue;
+transfer_queue:        VkQueue;
 
 swapchain_pool: Flat_Pool;
 swapchain: VkSwapchainKHR;
@@ -221,7 +222,7 @@ cmd_push_descriptors :: (
   bind_point:      VkPipelineBindPoint,
   descriptors:     []VkWriteDescriptorSet,
 ) {
-  vkCmdPushDescriptorSet(cmd, bind_point, pipeline_layout, 0, xx descriptors.count, descriptors.data);
+  vkCmdPushDescriptorSetKHR(cmd, bind_point, pipeline_layout, 0, xx descriptors.count, descriptors.data);
 }
 
 cmd_push_constants :: (
@@ -578,11 +579,11 @@ init_instance :: (enable_validation: bool) {
   );
   log(
       "Wanted vulkan version: %.%.%",
-      api_version_major(WANTED_API_VERSION),
-      api_version_minor(WANTED_API_VERSION),
-      api_version_patch(WANTED_API_VERSION),
+      api_version_major(MINIMAL_API_VERSION),
+      api_version_minor(MINIMAL_API_VERSION),
+      api_version_patch(MINIMAL_API_VERSION),
   );
-  if current_version < WANTED_API_VERSION {
+  if current_version < MINIMAL_API_VERSION {
       log_error("Wanted vulkan api version is above the supported version");
       return;
   }
@@ -612,12 +613,13 @@ init_instance :: (enable_validation: bool) {
       enabled_layers = VALIDATION_LAYERS_NAMES;
   }
 
+  instance_version = current_version;
   app_info := VkApplicationInfo.{
       pApplicationName   = "shiver",
       applicationVersion = xx api_version(0, 0, 0, 1),
       pEngineName        = "tempest",
       engineVersion      = xx api_version(0, 0, 0, 1),
-      apiVersion         = xx WANTED_API_VERSION,
+      apiVersion         = xx current_version,
   };
   instance_create_info := VkInstanceCreateInfo.{
       pApplicationInfo        = *app_info,
@@ -808,7 +810,7 @@ DONE
             }
         }
 
-        if properties.deviceType == .DISCRETE_GPU &&
+        if (properties.deviceType == .DISCRETE_GPU || properties.deviceType == .INTEGRATED_GPU) &&
             graphics_queue_family != -1 &&
             present_queue_family != -1 &&
             compute_queue_family != -1 &&
@@ -860,23 +862,36 @@ init_device :: () {
       pQueuePriorities = *queue_priority,
     };
   }
+
+  unified_image_layouts: VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR;
+  physical_device_features_1_4: VkPhysicalDeviceVulkan14Features;
+  maintenance5: VkPhysicalDeviceMaintenance5Features;
+
   swapchain_maintenance1: VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR = .{
     swapchainMaintenance1 = xx true,
   };
-  unified_image_layouts: VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR = .{
-    pNext               = *swapchain_maintenance1,
-    unifiedImageLayouts = xx true,
-  };
-  physical_device_features_1_4: VkPhysicalDeviceVulkan14Features = .{
-    pNext          = *unified_image_layouts,
-    maintenance5   = xx true,
-    pushDescriptor = xx true,
-  };
   physical_device_features_1_3: VkPhysicalDeviceVulkan13Features = .{
-    pNext            = *physical_device_features_1_4,
     dynamicRendering = xx true,
     synchronization2 = xx true,
   };
+  if api_version(0, 1, 4, 0) <= instance_version {
+    unified_image_layouts = .{
+      pNext               = *swapchain_maintenance1,
+      unifiedImageLayouts = xx true,
+    };
+    physical_device_features_1_4 = .{
+      pNext          = *unified_image_layouts,
+      maintenance5   = xx true,
+      pushDescriptor = xx true,
+    };
+    physical_device_features_1_3.pNext = *physical_device_features_1_4;
+  } else {
+    maintenance5 = .{
+      pNext        = *swapchain_maintenance1,
+      maintenance5 = xx true,
+    };
+    physical_device_features_1_3.pNext = *maintenance5;
+  }
   physical_device_features_1_2: VkPhysicalDeviceVulkan12Features = .{
     pNext               = *physical_device_features_1_3,
     bufferDeviceAddress = xx true,
@@ -969,7 +984,7 @@ DONE
   if surface_format_found {
     swapchain_format = surface_format.format;
     swapchain_extent = surface_capabilities.currentExtent;
-    if swapchain_extent.width == ~0 {
+    if swapchain_extent.width == 0xffff_ffff {
       swapchain_extent.width = min(
           max(width, surface_capabilities.minImageExtent.width),
           surface_capabilities.maxImageExtent.width,
@@ -1127,7 +1142,7 @@ vkCreateComputePipelines:                  PFN_vkCreateComputePipelines         
 vkCreateGraphicsPipelines:                 PFN_vkCreateGraphicsPipelines                 = ---;
 vkCmdBindPipeline:                         PFN_vkCmdBindPipeline                         = ---;
 vkCmdDispatch:                             PFN_vkCmdDispatch                             = ---;
-vkCmdPushDescriptorSet:                    PFN_vkCmdPushDescriptorSet                    = ---;
+vkCmdPushDescriptorSetKHR:                 PFN_vkCmdPushDescriptorSetKHR                 = ---;
 vkCmdPushConstants:                        PFN_vkCmdPushConstants                        = ---;
 vkCreateDescriptorSetLayout:               PFN_vkCreateDescriptorSetLayout               = ---;
 vkCreateBuffer:                            PFN_vkCreateBuffer                            = ---;
@@ -1196,7 +1211,7 @@ load_instance_procs :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {
     "vkCreateGraphicsPipelines",
     "vkCmdBindPipeline",
     "vkCmdDispatch",
-    "vkCmdPushDescriptorSet",
+    "vkCmdPushDescriptorSetKHR",
     "vkCmdPushConstants",
     "vkCreateDescriptorSetLayout",
     "vkCreateBuffer",
