@@ -15,6 +15,7 @@ layout(buffer_reference, std430) readonly buffer Quads {
 layout(push_constant) uniform constants {
     Quads quads;
     vec2 screen_size;
+    float scaling;
 } PushConstants;
 
 void main() {

@@ -252,6 +252,7 @@ main :: () {
         constant: TextPushConstant = .{
           buffer_address = ui_buffer.device_address,
           screen_size    = .{ xx window_width, xx window_height },
+          scaling        = ui.font_size / font.size * font.distance_range,
         };
         cmd_push_constants(render_command, text_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
         cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
@@ -473,6 +474,7 @@ create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
 TextPushConstant :: struct {
     buffer_address: VkDeviceAddress;
     screen_size:    Vector2;
+    scaling:        float;
 }
 create_text_pipeline :: () -> Pipeline {
   binging_layout: VkDescriptorSetLayoutBinding = .{

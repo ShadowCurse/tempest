@@ -21,6 +21,7 @@ layout(buffer_reference, std430) readonly buffer Quads {
 layout(push_constant) uniform constants {
     Quads quads;
     vec2 screen_size;
+    float scaling;
 } PushConstants;
 
 #define bg_color      vec4(0.0)
@@ -38,8 +39,8 @@ void main() {
         vec2 uv_size = sq.uv_size / size;
         vec4 mtsdf = texture(text_texture, inUV * uv_size + uv_offset);
 
-        float d = median(mtsdf.r, mtsdf.g, mtsdf.b) - 0.5;
-        float screen_px_distance = d * 2.0; // distance field range in output pixels defaults to 2
+        float d = median(mtsdf.r, mtsdf.g, mtsdf.b);
+        float screen_px_distance = PushConstants.scaling * (d - 0.5);
         float opacity = clamp(screen_px_distance + 0.5, 0.0, 1.0);
         vec4 color = mix(bg_color, fg_color, opacity);
 
