@@ -9,6 +9,17 @@ staging_buffer: Buffer;
 
 ui_buffer: Buffer;
 
+Timestamp :: enum u8 {
+  COMPUTE_START :: 0;
+  COMPUTE_END;
+  GRID_START;
+  GRID_END;
+  UI_START;
+  UI_END;
+};
+timestamp_array: EnumArray(Timestamp, u64);
+timestamp_pool:  VkQueryPool;
+
 main :: () {
   if !platform_init() return;
   defer platform_quit();
@@ -25,6 +36,12 @@ main :: () {
                                               .SHADER_DEVICE_ADDRESS_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
+
+  pool_create_info: VkQueryPoolCreateInfo = .{
+    queryType  = .TIMESTAMP,
+    queryCount = xx timestamp_array.values.count,
+  };
+  timestamp_pool = create_query_pool(pool_create_info);
 
   font := load_font("NotoSans-Regular");
   font_image := create_and_alloc_image(
@@ -112,9 +129,22 @@ main :: () {
       camera_rotation.x = clamp(camera_rotation.x, 0, PI);
     }
 
+
+    // note(sc): the caller will get one frame old data
+    get_query_pool_results(timestamp_pool, timestamp_array.values);
+    compute_ns := timestamp_array[Timestamp.COMPUTE_END] - timestamp_array[Timestamp.COMPUTE_START];
+    compute_ms := cast(float)compute_ns / 1000_000.0;
+    grid_ns    := timestamp_array[Timestamp.GRID_END] - timestamp_array[Timestamp.GRID_START];
+    grid_ms    := cast(float)grid_ns / 1000_000.0;
+    ui_ns      := timestamp_array[Timestamp.UI_END] - timestamp_array[Timestamp.UI_START];
+    ui_ms      := cast(float)ui_ns / 1000_000.0;
+
     panel_position: Vector2 = .{300.0, 300.0};
     panel_size:     Vector2 = .{300.0, 300.0};
     panel_start(*ui, panel_position, panel_size, "Panel");
+    label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
+    label(*ui, tprint("GPU GRID ms: %", grid_ms));
+    label(*ui, tprint("GPU UI ms: %", ui_ms));
     label(*ui, tprint("LMB pressed: %", pressed(mouse_state, .LMB)));
     label(*ui, tprint("LMB just pressed: %", just_pressed(mouse_state, .LMB)));
     if button(*ui, "Debug") ui.debug = !ui.debug;
@@ -153,6 +183,8 @@ main :: () {
     last_swapchain_image_index = swapchaine_image_index;
 
     begin_render_command(render_command);
+    cmd_reset_query_pool(render_command, timestamp_pool, xx timestamp_array.values.count);
+
     cmd_transition_swapchain_image(
       render_command,
       swapchaine_image_index,
@@ -164,38 +196,43 @@ main :: () {
       VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
     );
 
-    cmd_bind_pipeline(render_command, compute_pipeline, .COMPUTE);
-    image_descriptors: [2]VkDescriptorImageInfo = .[
-      .{
-        sampler     = null,
-        imageView   = swapchain_image_views[swapchaine_image_index],
-        imageLayout = .GENERAL,
-      },
-      .{
-        sampler     = font_sampler,
-        imageView   = font_image.view,
-        imageLayout = .GENERAL,
-      },
-    ];
-    descriptor_sets: [2]VkWriteDescriptorSet = .[
-      .{
-        dstSet          = null,
-        dstBinding      = 0,
-        descriptorCount = 1,
-        descriptorType  = .STORAGE_IMAGE,
-        pImageInfo      = *image_descriptors[0],
-      },
-      .{
-        dstSet          = null,
-        dstBinding      = 1,
-        descriptorCount = 1,
-        descriptorType  = .COMBINED_IMAGE_SAMPLER,
-        pImageInfo      = *image_descriptors[1],
-      },
-    ];
-    cmd_push_descriptors(render_command, compute_pipeline, .COMPUTE, descriptor_sets);
-    cmd_push_constants(render_command, compute_pipeline, .COMPUTE_BIT, *v);
-    cmd_dispatch(render_command, (window_width + 15) / 16, (window_height + 15) / 16, 1);
+    {
+      cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.COMPUTE_START);
+      defer cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.COMPUTE_END);
+
+      cmd_bind_pipeline(render_command, compute_pipeline, .COMPUTE);
+      image_descriptors: [2]VkDescriptorImageInfo = .[
+        .{
+          sampler     = null,
+          imageView   = swapchain_image_views[swapchaine_image_index],
+          imageLayout = .GENERAL,
+        },
+        .{
+          sampler     = font_sampler,
+          imageView   = font_image.view,
+          imageLayout = .GENERAL,
+        },
+      ];
+      descriptor_sets: [2]VkWriteDescriptorSet = .[
+        .{
+          dstSet          = null,
+          dstBinding      = 0,
+          descriptorCount = 1,
+          descriptorType  = .STORAGE_IMAGE,
+          pImageInfo      = *image_descriptors[0],
+        },
+        .{
+          dstSet          = null,
+          dstBinding      = 1,
+          descriptorCount = 1,
+          descriptorType  = .COMBINED_IMAGE_SAMPLER,
+          pImageInfo      = *image_descriptors[1],
+        },
+      ];
+      cmd_push_descriptors(render_command, compute_pipeline, .COMPUTE, descriptor_sets);
+      cmd_push_constants(render_command, compute_pipeline, .COMPUTE_BIT, *v);
+      cmd_dispatch(render_command, (window_width + 15) / 16, (window_height + 15) / 16, 1);
+    }
 
     cmd_barrier(
       render_command,
@@ -209,6 +246,8 @@ main :: () {
     {
       // grid
       {
+        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_START);
+        defer cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_END);
 
         rotation_x := quat_from_axis_angle(.{ x = 1.0 }, camera_rotation.x);
         rotation_z := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
@@ -230,8 +269,11 @@ main :: () {
         cmd_draw(render_command, 3, 1, 0, 0);
       }
 
-      // text
+      // ui
       {
+        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_START);
+        defer cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_END);
+
         cmd_bind_pipeline(render_command, text_pipeline, .GRAPHICS);
         image_descriptor: VkDescriptorImageInfo = .{
           sampler     = font_sampler,
@@ -746,5 +788,6 @@ cmd_transition_swapchain_image :: (
 #import,file "vulkan.jai";
 #import,file "platform.jai";
 #import,file "allocators.jai";
+#import,file "enum_array.jai";
 #import "Basic";
 #import "Vulkan";

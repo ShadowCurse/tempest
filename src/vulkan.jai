@@ -124,6 +124,27 @@ create_graphics_pipeline :: (create_info: VkGraphicsPipelineCreateInfo) -> VkPip
   return result;
 }
 
+create_query_pool :: (create_info: VkQueryPoolCreateInfo) -> VkQueryPool {
+  result: VkQueryPool = ---;
+  assert(!vkCreateQueryPool(device, *create_info, null, *result));
+  return result;
+}
+
+get_query_pool_results :: (pool: VkQueryPool, data: []u64, wait := true) {
+  r := vkGetQueryPoolResults(
+      device,
+      pool,
+      0,
+      xx data.count,
+      xx (data.count * size_of(u64)),
+      data.data,
+      size_of(u64),
+      ._64_BIT | ifx wait VkQueryResultFlags.WAIT_BIT else 0,
+  );
+  // The very first call to this will fail because query is not reset. This is fine.
+  // assert(r == .SUCCESS || r == .NOT_READY);
+}
+
 get_buffer_memory_requirements :: (buffer: VkBuffer) -> VkMemoryRequirements {
   result: VkMemoryRequirements = ---;
   vkGetBufferMemoryRequirements(device, buffer, *result);
@@ -232,6 +253,19 @@ cmd_push_constants :: (
   constants:       *$T,
 ) {
   vkCmdPushConstants(cmd, pipeline_layout, stage_flags, 0, size_of(T), constants);
+}
+
+cmd_reset_query_pool :: (cmd: VkCommandBuffer, pool: VkQueryPool, size: u32) {
+  vkCmdResetQueryPool(cmd, pool, 0, size);
+}
+
+cmd_write_timestamp :: (
+  cmd:   VkCommandBuffer,
+  pool:  VkQueryPool,
+  stage: VkPipelineStageFlags,
+  idx:   u32,
+) {
+  vkCmdWriteTimestamp(cmd, stage, pool, idx);
 }
 
 cmd_dispatch :: (cmd: VkCommandBuffer, group_count_x: u32,  group_count_y: u32, group_count_z: u32) {
