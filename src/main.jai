@@ -219,15 +219,12 @@ main :: () {
 
         projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
         _, view    := inverse_lengyel(transform);
-        limits     := Vector4.{ 16.0, -16.0, 16.0, -16.0 };
-        scale      := 10.0;
 
         cmd_bind_pipeline(render_command, grid_pipeline, .GRAPHICS);
         constant: GridPushConstant = .{
           projection,
           view,
-          limits,
-          scale,
+          camera_position,
         };
         cmd_push_constants(render_command, grid_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
         cmd_draw(render_command, 3, 1, 0, 0);
@@ -583,10 +580,9 @@ create_text_pipeline :: () -> Pipeline {
 }
 
 GridPushConstant :: struct {
-    projection: Matrix4;
-    view:       Matrix4;
-    limits:     Vector4;
-    scale:      float;
+    projection:      Matrix4;
+    view:            Matrix4;
+    camera_position: Vector3;
 }
 create_grid_pipeline :: () -> Pipeline {
   push_constants: VkPushConstantRange = .{

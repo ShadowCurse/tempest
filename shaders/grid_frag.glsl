@@ -8,42 +8,77 @@ layout (location = 0) out vec4 out_color;
 layout(push_constant) uniform constants {
     mat4 projection;
     mat4 view;
-    vec4 limits;
-    float scale;
+    vec3 camera_position;
 } PushConstants;
 
-#define AXIS_LINE_WIDTH 1.0
-#define DEFAULT_LINE_COLOR vec3(0.2, 0.2, 0.2)
+#define LINE_WIDTH 2.0
+#define LINE_COLOR vec3(0.2, 0.2, 0.2)
+#define FADE_DISTANCE 100.0
 
 // world_pos - world position of the fragment
 // scale - distance between lines, high == more distance
 vec4 grid_point_color(vec3 world_pos, float scale) {
+  // scale world by the `scale`
   vec2 coord = world_pos.xy / scale;
 
-  float limit_x = PushConstants.limits.x;
-  float limit_neg_x = PushConstants.limits.y;
-  float limit_y = PushConstants.limits.z;
-  float limit_neg_y = PushConstants.limits.w;
-  if (coord.x < limit_neg_x || limit_x < coord.x || coord.y < limit_neg_y || limit_y < coord.y)
-    return vec4(0.0);
+  // calculate how did the `coord` change over neighbouring pixels
+  // since we use `coord` and not `world_pos`, the diff is also scaled
+  // by the `scale` factor
+  // The multiplication by the `LINE_WIDTH`, changes the .. line width
+  vec2 d = LINE_WIDTH * fwidth(coord);
 
-  // calculate the sum of derivatives for x and y for both coords
-  vec2 d = fwidth(coord);
-  // subtract 0.5 from coord to shift grid for half the square size
-  // then subtract 0.5 again to move value into -0.5..0.5 range
-  // take only positive side with abs() (so basically only original 0.5..1.0 values remain and
-  // are mapped to 0.0..0.5 range)
-  vec2 grid = abs(fract(coord - 0.5) - 0.5) / d;
+  vec4 axis_colors = vec4(0.0);
+  if (-d.y / 2.0 < coord.y && coord.y < d.y / 2.0)
+      axis_colors.r = 1.0;
+  if (-d.x / 2.0 < coord.x && coord.x < d.x / 2.0)
+      axis_colors.g = 1.0;
+
+  // move the world by half the square, so the lines will align
+  // with x/y lines
+  coord -= 0.5;
+  // after scaling by `scale`, the `coord` still is unbounded.
+  // using `fract` moves any `coord` into 0..1 scale
+  coord = fract(coord);
+  // now move 0..1 into -0.5..0.5
+  coord -= 0.5;
+  // this clamps -0.5..0.5 into just 0..0.5
+  // this makes values which were close to 0 or 1 to be close to 0.5, while
+  // everythin in bettween gets values lower than 0.5
+  // 1.0 -> 0.5
+  // .   -> 0.0
+  // -----------
+  // .   -> 0.0
+  // 0.0 -> 0.5
+  coord = abs(coord);
+
+  // now the `coord` will already look like a grid in some sence. If `min(coord.x, coord.y)`
+  // is used as a final color, the grid will look like a bunch of pyramids with dark at the
+  // edges and grey at the centers.
+  // The devision by some number will make this pyramid higher or lower (edges will be more or less
+  // vertical). To create a grid instead, the pyramid needs to be super high, so basically all of
+  // it's surface is above 1.0 and only edges will be still near 0.0. The devision by very small
+  // number can do the trick (like 0.005). This will produce sharp grid near the camera. But it
+  // will result in artifacts in areas far from the camera. This is where `d` comes into the picture.
+  // `d` will be small near the camera (because objects near camera take up more pixels, so there
+  // is less change between those pixels for the same distance), but for further objects it will be
+  // bigger.
+  // Using `d` directly will result in very thin grid lines. In order to make them a bit wider,
+  // we can divide the result (or pre multipy `d`) by the desired line width constant.
+  vec2 grid = coord / d;
+
+  // now tha we have sharp grid, we need to understand if the pixel falls into the valley between
+  // these very tall pyramids in X or in Y direction. This is done by simply taking the smallest
+  // value of `grid`.
   float line = min(grid.x, grid.y);
-  float min_x = min(d.x, 1.0);
-  float min_y = min(d.y, 1.0);
-  vec4 color = vec4(DEFAULT_LINE_COLOR, 1.0 - min(line, 1.0));
-  // x axis
-  if(-AXIS_LINE_WIDTH * min_y < world_pos.y && world_pos.y < AXIS_LINE_WIDTH * min_y)
-      color.x = 1.0;
-  // y axis
-  if(-AXIS_LINE_WIDTH * min_x < world_pos.x && world_pos.x < AXIS_LINE_WIDTH * min_x)
-      color.y = 1.0;
+
+  // sinse pyramids are very tall, their values range from 0.0 at the edge to some positive value
+  // at the top. To draw actual lines, the pyramid value needs to be clamped to be maxumum of 1.0
+  // and inverted (1.0 - value)
+  vec4 color = vec4(LINE_COLOR, 1.0 - min(line, 1.0));
+
+  // add colors of axis if any
+  color += axis_colors;
+
   return color;
 }
 
@@ -57,24 +92,31 @@ void main() {
     vec3 world_pos = in_near + t * (in_far - in_near);
     float depth = depth(world_pos);
 
-    // view[3] is camera position in world space
-    float dist = length(world_pos - PushConstants.view[3].xyz);
-    float lod_level = max(1.0, log(dist) / log(10.0));
-    float lod_fade = fract(lod_level);
+    float height = in_near.z;
+    float e = max(1.0, log(height) / log(4.0));
+    float power = floor(e);
+    float grid_size = pow(2.0, power);
+    float lod_fade = fract(e);
+
+    float fade = smoothstep(
+        0.0,
+        1.0,
+        (FADE_DISTANCE - length(world_pos - PushConstants.camera_position)) / FADE_DISTANCE
+    );
 
     // high dencity
-    float lod_0 = pow(10.0, floor(lod_level)) / PushConstants.scale;
+    float grid_size_0 = grid_size;
     // low dencity
-    float lod_1 = lod_0 * PushConstants.scale;
+    float grid_size_1 = grid_size * 2.0;
 
-    vec4 lod_0_color = grid_point_color(world_pos, lod_0);
-    lod_0_color.a *= 1.0 - lod_fade;
+    vec4 lod_0_color = grid_point_color(world_pos, grid_size_0);
+    lod_0_color.a *= (1.0 - lod_fade) * fade;
 
-    vec4 lod_1_color = grid_point_color(world_pos, lod_1);
-    lod_1_color.a *= lod_fade;
+    vec4 lod_1_color = grid_point_color(world_pos, grid_size_1);
+    lod_1_color.a *= lod_fade * fade;
 
-    vec4 color = (lod_0_color + lod_1_color) * float(t > 0.0);
-    color.a *= depth * 100.0;
+    // the `0.0 < t` prevents mirroring the grid in the upper part of the screen
+    vec4 color = (lod_0_color + lod_1_color) * float(0.0 < t);
 
     gl_FragDepth = depth;
     out_color = color;

@@ -6,8 +6,7 @@ layout (location = 1) out vec3 out_far;
 layout(push_constant) uniform constants {
     mat4 projection;
     mat4 view;
-    vec4 limits;
-    float scale;
+    vec3 camera_position;
 } PushConstants;
 
 vec2 grid_triangle[3] = vec2[](
