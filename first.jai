@@ -67,34 +67,11 @@ compile :: (binary_name: string, path: string) {
 }
 
 compile_shaders :: () {
-  EXT :: ".glsl";
-  TARGET_DIR :: "shaders_compiled";
-
-  if !make_directory_if_it_does_not_exist(TARGET_DIR) {
-    print("Cannot create \"%\" directroy\n", TARGET_DIR);
+  if !make_directory_if_it_does_not_exist(SHADER_TARGET_DIR) {
+    print("Cannot create \"%\" directroy\n", SHADER_TARGET_DIR);
     return;
   }
-  for file_list("./shaders") {
-    if ends_with(it, EXT) {
-      index := find_index_from_right(it, #char "/");
-      file_name: string = .{ data = it.data + index, count = it.count - index };
-      base_name: string = .{ data = file_name.data,  count = file_name.count - EXT.count };
-
-      shader_type := ifx ends_with(base_name, "_frag") "-fshader-stage=fragment" else
-                     ifx ends_with(base_name, "_vert") "-fshader-stage=vertex"   else
-                     ifx ends_with(base_name, "_comp") "-fshader-stage=compute"  else
-                     "invalid";
-      if shader_type == "invalid" continue;
-
-      output_path_bulider : String_Builder;
-      print_to_builder(*output_path_bulider, "%%.spv", TARGET_DIR, base_name);
-      output_path := builder_to_string(*output_path_bulider);
-      print("Running command: glsl % % -o %\n", shader_type, it, output_path);
-      cmd := string.["glslc", shader_type, it, "-o", output_path];
-      process_result, output_string, error_string := run_command(..cmd);
-      if process_result.exit_code != 0 print("Failet to run: % error type: %\n", cmd, process_result.type);
-    }
-  }
+  for file_list("./shaders") if ends_with(it, SHADER_EXT) compile_shader(it);
 }
 
 Struct :: struct {
@@ -201,6 +178,7 @@ type_to_glsl_type :: (type: string) -> string {
 
 #run build();
 
+#import,file "src/shaders.jai";
 #import "File";
 #import "Basic";
 #import "POSIX";

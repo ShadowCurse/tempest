@@ -1,3 +1,13 @@
+WATCHED_FILES :: string.[
+  "shaders/gradient_comp.glsl",
+  "shaders/grid_frag.glsl",
+  "shaders/grid_vert.glsl",
+  "shaders/text_frag.glsl",
+  "shaders/text_vert.glsl",
+];
+
+file_watcher: FileWatcher;
+
 FRAMES :: 2;
 current_frame_idx: u8 = 0;
 render_commands: [FRAMES]RenderCommand = ---;
@@ -24,6 +34,13 @@ main :: () {
   if !platform_init() return;
   defer platform_quit();
   if !vulkan_init(true) return;
+
+  if init(*file_watcher) {
+    for WATCHED_FILES {
+      if !add_file(*file_watcher, it) log_error("Cannot setup watch for file: %", it);
+    }
+    log("Watcher: %", file_watcher);
+  }
 
   for *rc: render_commands rc.* = create_render_command();
   gpu_memory        = allocate_gpu_memory(64 << 20, .DEVICE_LOCAL_BIT);
@@ -112,6 +129,50 @@ main :: () {
     reset_temporary_storage();
     platform_new_frame();
     new_frame(*ui);
+
+    rebuild_gradient_shader := false;
+    rebuild_ui_shader := false;
+    rebuild_grid_shader := false;
+    while changed_file := has_event(*file_watcher) {
+      log("Found changed file: %", changed_file);
+      if changed_file == {
+        case "shaders/gradient_comp.glsl";
+          rebuild_gradient_shader = true;
+        case "shaders/text_frag.glsl"; #through;
+        case "shaders/text_vert.glsl";
+          rebuild_ui_shader = true;
+        case "shaders/grid_frag.glsl"; #through;
+        case "shaders/grid_vert.glsl";
+          rebuild_grid_shader = true;
+      }
+    }
+    if rebuild_gradient_shader {
+      log("Rebuiding GRADIENT pipeline");
+      compile_shader("shaders/gradient_comp.glsl");
+
+      device_wait_idle();
+      destroy_pipeline(compute_pipeline);
+      compute_pipeline = create_full_screen_effect_comptue_pipeline();
+    }
+    if rebuild_ui_shader {
+      log("Rebuiding UI pipeline");
+      compile_shader("shaders/text_frag.glsl");
+      compile_shader("shaders/text_vert.glsl");
+
+      device_wait_idle();
+      destroy_pipeline(text_pipeline);
+      text_pipeline = create_text_pipeline();
+    }
+    if rebuild_grid_shader {
+      log("Rebuiding GRID pipeline");
+      compile_shader("shaders/grid_frag.glsl");
+      compile_shader("shaders/grid_vert.glsl");
+
+      device_wait_idle();
+      destroy_pipeline(grid_pipeline);
+      grid_pipeline = create_grid_pipeline();
+    }
+
     ui.mouse_position = mouse_position;
     ui.mouse_pressed  = just_pressed(mouse_state, .LMB);
     ui.mouse_down     = pressed(mouse_state, .LMB);
@@ -716,6 +777,12 @@ create_grid_pipeline :: () -> Pipeline {
   };
 }
 
+destroy_pipeline :: (pipeline: Pipeline) {
+  if pipeline.dsl destroy_descriptor_set_layout(pipeline.dsl);
+  if pipeline.layout destroy_pipeline_layout(pipeline.layout);
+  if pipeline.pipeline destroy_pipeline(pipeline.pipeline);
+}
+
 RenderCommand :: struct {
   #as cmd:             VkCommandBuffer;
   #as swapchain_semaphore: VkSemaphore;
@@ -786,7 +853,9 @@ cmd_transition_swapchain_image :: (
 #import,file "math.jai";
 #import,file "font.jai";
 #import,file "vulkan.jai";
+#import,file "shaders.jai";
 #import,file "platform.jai";
+#import,file "file_watch.jai";
 #import,file "allocators.jai";
 #import,file "enum_array.jai";
 #import "Basic";

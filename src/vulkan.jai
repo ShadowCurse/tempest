@@ -182,6 +182,10 @@ reset_command_buffer :: (cmd: VkCommandBuffer) {
   assert(!vkResetCommandBuffer(cmd, 0));
 }
 
+device_wait_idle :: () {
+  vkDeviceWaitIdle(device);
+}
+
 destroy_image_view :: (view: VkImageView) {
   vkDestroyImageView(device, view, null);
 }
@@ -196,6 +200,18 @@ destroy_fence :: (fence: VkFence) {
 
 destroy_swapchain :: (swapchain: VkSwapchainKHR) {
   vkDestroySwapchainKHR(device, swapchain, null);
+}
+
+destroy_descriptor_set_layout :: (layout: VkDescriptorSetLayout) {
+  vkDestroyDescriptorSetLayout(device, layout, null);
+}
+
+destroy_pipeline_layout :: (layout: VkPipelineLayout) {
+  vkDestroyPipelineLayout(device, layout, null);
+}
+
+destroy_pipeline :: (pipeline: VkPipeline) {
+  vkDestroyPipeline(device, pipeline, null);
 }
 
 begin_command_buffer :: (cmd: VkCommandBuffer, begin_info: VkCommandBufferBeginInfo) {
@@ -1143,6 +1159,7 @@ vkEnumerateDeviceLayerProperties:          PFN_vkEnumerateDeviceLayerProperties 
 vkEnumerateDeviceExtensionProperties:      PFN_vkEnumerateDeviceExtensionProperties      = ---;
 vkGetPhysicalDeviceQueueFamilyProperties:  PFN_vkGetPhysicalDeviceQueueFamilyProperties  = ---;
 vkGetPhysicalDeviceSurfaceSupportKHR:      PFN_vkGetPhysicalDeviceSurfaceSupportKHR      = ---;
+vkDeviceWaitIdle:                          PFN_vkDeviceWaitIdle                          = ---;
 vkCreateDevice:                            PFN_vkCreateDevice                            = ---;
 vkDestroyDevice:                           PFN_vkDestroyDevice                           = ---;
 vkGetDeviceQueue:                          PFN_vkGetDeviceQueue                          = ---;
@@ -1174,13 +1191,16 @@ vkQueueSubmit2:                            PFN_vkQueueSubmit2                   
 vkQueuePresentKHR:                         PFN_vkQueuePresentKHR                         = ---;
 vkAcquireNextImageKHR:                     PFN_vkAcquireNextImageKHR                     = ---;
 vkCreatePipelineLayout:                    PFN_vkCreatePipelineLayout                    = ---;
+vkDestroyPipelineLayout:                   PFN_vkDestroyPipelineLayout                   = ---;
 vkCreateComputePipelines:                  PFN_vkCreateComputePipelines                  = ---;
 vkCreateGraphicsPipelines:                 PFN_vkCreateGraphicsPipelines                 = ---;
+vkDestroyPipeline:                         PFN_vkDestroyPipeline                         = ---;
 vkCmdBindPipeline:                         PFN_vkCmdBindPipeline                         = ---;
 vkCmdDispatch:                             PFN_vkCmdDispatch                             = ---;
 vkCmdPushDescriptorSetKHR:                 PFN_vkCmdPushDescriptorSetKHR                 = ---;
 vkCmdPushConstants:                        PFN_vkCmdPushConstants                        = ---;
 vkCreateDescriptorSetLayout:               PFN_vkCreateDescriptorSetLayout               = ---;
+vkDestroyDescriptorSetLayout:              PFN_vkDestroyDescriptorSetLayout              = ---;
 vkCreateBuffer:                            PFN_vkCreateBuffer                            = ---;
 vkBindBufferMemory:                        PFN_vkBindBufferMemory                        = ---;
 vkGetBufferMemoryRequirements:             PFN_vkGetBufferMemoryRequirements             = ---;
@@ -1212,6 +1232,7 @@ load_instance_procs :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {
     "vkEnumerateDeviceExtensionProperties",
     "vkGetPhysicalDeviceQueueFamilyProperties",
     "vkGetPhysicalDeviceSurfaceSupportKHR",
+    "vkDeviceWaitIdle",
     "vkCreateDevice",
     "vkDestroyDevice",
     "vkGetDeviceQueue",
@@ -1243,13 +1264,16 @@ load_instance_procs :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {
     "vkQueuePresentKHR",
     "vkAcquireNextImageKHR",
     "vkCreatePipelineLayout",
+    "vkDestroyPipelineLayout",
     "vkCreateComputePipelines",
     "vkCreateGraphicsPipelines",
+    "vkDestroyPipeline",
     "vkCmdBindPipeline",
     "vkCmdDispatch",
     "vkCmdPushDescriptorSetKHR",
     "vkCmdPushConstants",
     "vkCreateDescriptorSetLayout",
+    "vkDestroyDescriptorSetLayout",
     "vkCreateBuffer",
     "vkBindBufferMemory",
     "vkGetBufferMemoryRequirements",
