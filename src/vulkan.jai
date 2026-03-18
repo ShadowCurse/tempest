@@ -931,7 +931,9 @@ init_device :: () {
     bufferDeviceAddress = xx true,
     descriptorIndexing  = xx true,
   };
-  physical_device_features: VkPhysicalDeviceFeatures;
+  physical_device_features: VkPhysicalDeviceFeatures = .{
+    shaderInt64 = xx true,
+  };
 
   create_info: VkDeviceCreateInfo = .{
     pNext                   = *physical_device_features_1_2,

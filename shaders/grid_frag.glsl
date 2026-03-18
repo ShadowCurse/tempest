@@ -5,10 +5,10 @@ layout (location = 1) in vec3 in_far;
 
 layout (location = 0) out vec4 out_color;
 
+#include "types.glsl"
+
 layout(push_constant) uniform constants {
-    mat4 projection;
-    mat4 view;
-    vec3 camera_position;
+  GridPushConstant data;
 } PushConstants;
 
 #define LINE_WIDTH 2.0
@@ -83,7 +83,7 @@ vec4 grid_point_color(vec3 world_pos, float scale) {
 }
 
 float depth(vec3 world_pos) {
-  vec4 clip = PushConstants.projection * PushConstants.view * vec4(world_pos, 1.0);
+  vec4 clip = PushConstants.data.projection * PushConstants.data.view * vec4(world_pos, 1.0);
   return clip.z / clip.w;
 }
 
@@ -101,7 +101,7 @@ void main() {
     float fade = smoothstep(
         0.0,
         1.0,
-        (FADE_DISTANCE - length(world_pos - PushConstants.camera_position)) / FADE_DISTANCE
+        (FADE_DISTANCE - length(world_pos - PushConstants.data.camera_position)) / FADE_DISTANCE
     );
 
     // high dencity

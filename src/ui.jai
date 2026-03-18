@@ -3,9 +3,9 @@ Quad :: struct {
     size:      Vector2;
     uv_offset: Vector2;
     uv_size:   Vector2;
-    usage:     QuadUsage;
+    usage:     QuadUsage; @u32
     _: u32 =  0;
-}
+} @ShaderType
 
 QuadUsage :: enum u32 {
   color :: 0;

@@ -1,23 +1,21 @@
 #define UI_QUAD_USAGE_COLOR 0x00000000u
 #define UI_QUAD_USAGE_TEXT  0x00000001u
 
-// struct UiQuad3d {
-//     vec3 position;
-//     uint usage;
-//     vec2 size;
-//     vec2 uv_offset;
-//     vec2 uv_size;
-//     vec2 _;
-// };
+#extension GL_EXT_buffer_reference : require
 
-struct UiQuad {
-    vec2 position;
-    vec2 size;
-    vec2 uv_offset;
-    vec2 uv_size;
-    uint usage;
-    uint _;
+#include "types.glsl"
+
+layout(buffer_reference, std430) readonly buffer Quads {
+    Quad quads[];
 };
+
+layout(push_constant) uniform constants {
+    TextPushConstant data;
+} PushConstants;
+
+Quad get_quad(uint idx) {
+  return Quads(PushConstants.data.quads).quads[idx];
+}
 
 struct UiVertex {
     vec2 position;

@@ -289,9 +289,9 @@ main :: () {
         };
         cmd_push_descriptors(render_command, text_pipeline, .GRAPHICS, .[descriptor_set]);
         constant: TextPushConstant = .{
-          buffer_address = ui_buffer.device_address,
-          screen_size    = .{ xx window_width, xx window_height },
-          scaling        = ui.font_size / font.size * font.distance_range,
+          quads       = ui_buffer.device_address,
+          screen_size = .{ xx window_width, xx window_height },
+          scaling     = ui.font_size / font.size * font.distance_range,
         };
         cmd_push_constants(render_command, text_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
         cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
@@ -511,10 +511,10 @@ create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
 }
 
 TextPushConstant :: struct {
-    buffer_address: VkDeviceAddress;
-    screen_size:    Vector2;
-    scaling:        float;
-}
+  quads:       VkDeviceAddress;
+  screen_size: Vector2;
+  scaling:     float;
+} @ShaderType
 create_text_pipeline :: () -> Pipeline {
   binging_layout: VkDescriptorSetLayoutBinding = .{
     binding         = 0,
@@ -622,10 +622,10 @@ create_text_pipeline :: () -> Pipeline {
 }
 
 GridPushConstant :: struct {
-    projection:      Matrix4;
-    view:            Matrix4;
-    camera_position: Vector3;
-}
+  projection:      Matrix4;
+  view:            Matrix4;
+  camera_position: Vector3;
+} @ShaderType
 create_grid_pipeline :: () -> Pipeline {
   push_constants: VkPushConstantRange = .{
     stageFlags = .VERTEX_BIT | .FRAGMENT_BIT,

@@ -3,10 +3,10 @@
 layout (location = 0) out vec3 out_near;
 layout (location = 1) out vec3 out_far;
 
+#include "types.glsl"
+
 layout(push_constant) uniform constants {
-    mat4 projection;
-    mat4 view;
-    vec3 camera_position;
+  GridPushConstant data;
 } PushConstants;
 
 vec2 grid_triangle[3] = vec2[](
@@ -16,8 +16,8 @@ vec2 grid_triangle[3] = vec2[](
 );
 
 vec3 clip_to_world(vec3 point) {
-  mat4 inv_view = inverse(PushConstants.view);
-  mat4 inv_proj = inverse(PushConstants.projection);
+  mat4 inv_view = inverse(PushConstants.data.view);
+  mat4 inv_proj = inverse(PushConstants.data.projection);
   vec4 world = inv_view * inv_proj * vec4(point, 1.0);
   return world.xyz / world.w;
 }
