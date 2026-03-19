@@ -1,10 +1,13 @@
 #version 460
+#extension GL_EXT_buffer_reference : require
+#include "types.glsl"
 
 layout (location = 0) out vec3 out_near;
 layout (location = 1) out vec3 out_far;
 
-#include "types.glsl"
-
+layout(buffer_reference, std430) readonly buffer SceneRef {
+    Scene data;
+};
 layout(push_constant) uniform constants {
   GridPushConstant data;
 } PushConstants;
@@ -16,9 +19,10 @@ vec2 grid_triangle[3] = vec2[](
 );
 
 vec3 clip_to_world(vec3 point) {
-  mat4 inv_view = inverse(PushConstants.data.view);
-  mat4 inv_proj = inverse(PushConstants.data.projection);
-  vec4 world = inv_view * inv_proj * vec4(point, 1.0);
+  SceneRef scene = SceneRef(PushConstants.data.scene_buffer);
+  mat4 view_inv = scene.data.camera_view_inv;
+  mat4 proj_inv = inverse(scene.data.camera_projection);
+  vec4 world = view_inv * proj_inv * vec4(point, 1.0);
   return world.xyz / world.w;
 }
 

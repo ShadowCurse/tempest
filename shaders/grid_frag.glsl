@@ -1,12 +1,14 @@
 #version 460
+#extension GL_EXT_buffer_reference : require
+#include "types.glsl"
 
 layout (location = 0) in vec3 in_near;
 layout (location = 1) in vec3 in_far;
-
 layout (location = 0) out vec4 out_color;
 
-#include "types.glsl"
-
+layout(buffer_reference, std430) readonly buffer SceneRef {
+    Scene data;
+};
 layout(push_constant) uniform constants {
   GridPushConstant data;
 } PushConstants;
@@ -83,7 +85,8 @@ vec4 grid_point_color(vec3 world_pos, float scale) {
 }
 
 float depth(vec3 world_pos) {
-  vec4 clip = PushConstants.data.projection * PushConstants.data.view * vec4(world_pos, 1.0);
+  SceneRef scene = SceneRef(PushConstants.data.scene_buffer);
+  vec4 clip = scene.data.camera_projection *  scene.data.camera_view * vec4(world_pos, 1.0);
   return clip.z / clip.w;
 }
 
@@ -98,10 +101,11 @@ void main() {
     float grid_size = pow(2.0, power);
     float lod_fade = fract(e);
 
+    SceneRef scene = SceneRef(PushConstants.data.scene_buffer);
     float fade = smoothstep(
         0.0,
         1.0,
-        (FADE_DISTANCE - length(world_pos - PushConstants.data.camera_position)) / FADE_DISTANCE
+        (FADE_DISTANCE - length(world_pos - scene.data.camera_view_inv[3].xyz)) / FADE_DISTANCE
     );
 
     // high dencity

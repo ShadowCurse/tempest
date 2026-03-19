@@ -22,9 +22,7 @@ struct MeshPushConstant {
 };
 
 struct GridPushConstant {
-    mat4 projection;
-    mat4 view;
-    vec3 camera_position;
+    uint64_t scene_buffer;
 };
 
 struct TextPushConstant {

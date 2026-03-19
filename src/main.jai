@@ -377,18 +377,18 @@ main :: () {
 
       projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
       _, view    := inverse_lengyel(transform);
+      scene := cast(*Scene)scene_buffer.host_mem.data;
+      scene.* = .{
+        camera_view       = view,
+        camera_view_inv   = transform,
+        camera_projection = projection,
+      };
 
       // mesh
       {
         cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.MESH_START);
         defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.MESH_END);
 
-        scene := cast(*Scene)scene_buffer.host_mem.data;
-        scene.* = .{
-          camera_view       = view,
-          camera_view_inv   = transform,
-          camera_projection = projection,
-        };
         cmd_bind_pipeline(render_command, mesh_pipeline, .GRAPHICS);
         constant: MeshPushConstant = .{
           mesh_buffer.device_address,
@@ -412,9 +412,7 @@ main :: () {
 
         cmd_bind_pipeline(render_command, grid_pipeline, .GRAPHICS);
         constant: GridPushConstant = .{
-          projection,
-          view,
-          camera_position,
+          scene_buffer.device_address
         };
         cmd_push_constants(render_command, grid_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
         cmd_draw(render_command, 3, 1, 0, 0);
@@ -816,9 +814,7 @@ create_text_pipeline :: () -> Pipeline {
 }
 
 GridPushConstant :: struct {
-  projection:      Matrix4;
-  view:            Matrix4;
-  camera_position: Vector3;
+  scene_buffer:    VkDeviceAddress;
 } @ShaderType
 create_grid_pipeline :: () -> Pipeline {
   push_constants: VkPushConstantRange = .{
