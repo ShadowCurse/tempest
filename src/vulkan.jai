@@ -253,6 +253,10 @@ cmd_bind_pipeline :: (cmd: VkCommandBuffer, pipeline: VkPipeline, bind_point: Vk
   vkCmdBindPipeline(cmd, bind_point, pipeline);
 }
 
+cmd_bind_index_buffer :: (cmd: VkCommandBuffer, buffer: VkBuffer, offset: u32, index_type: VkIndexType) {
+  vkCmdBindIndexBuffer(cmd, buffer, offset, index_type);
+}
+
 cmd_push_descriptors :: (
   cmd:             VkCommandBuffer,
   pipeline_layout: VkPipelineLayout,
@@ -296,6 +300,17 @@ cmd_draw :: (
   first_instance: u32,
 ) {
   vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, first_instance);
+}
+
+cmd_draw_indexed :: (
+  cmd:            VkCommandBuffer,
+  index_count:    u32,
+  instance_count: u32,
+  first_index:    u32,
+  vertex_offset:  u32,
+  first_instance: u32,
+) {
+  vkCmdDrawIndexed(cmd, index_count, instance_count, first_index, xx vertex_offset, first_instance);
 }
 
 cmd_begin_rendering_to_swapchain :: (cmd: VkCommandBuffer, image_index: u32) {
@@ -1196,6 +1211,7 @@ vkCreateComputePipelines:                  PFN_vkCreateComputePipelines         
 vkCreateGraphicsPipelines:                 PFN_vkCreateGraphicsPipelines                 = ---;
 vkDestroyPipeline:                         PFN_vkDestroyPipeline                         = ---;
 vkCmdBindPipeline:                         PFN_vkCmdBindPipeline                         = ---;
+vkCmdBindIndexBuffer:                      PFN_vkCmdBindIndexBuffer                      = ---;
 vkCmdDispatch:                             PFN_vkCmdDispatch                             = ---;
 vkCmdPushDescriptorSetKHR:                 PFN_vkCmdPushDescriptorSetKHR                 = ---;
 vkCmdPushConstants:                        PFN_vkCmdPushConstants                        = ---;
@@ -1214,6 +1230,7 @@ vkMapMemory:                               PFN_vkMapMemory                      
 vkCmdCopyBufferToImage:                    PFN_vkCmdCopyBufferToImage                    = ---;
 vkCmdCopyBuffer:                           PFN_vkCmdCopyBuffer                           = ---;
 vkCmdDraw:                                 PFN_vkCmdDraw                                 = ---;
+vkCmdDrawIndexed:                          PFN_vkCmdDrawIndexed                          = ---;
 vkCreateQueryPool:                         PFN_vkCreateQueryPool                         = ---;
 vkGetQueryPoolResults:                     PFN_vkGetQueryPoolResults                     = ---;
 vkCmdResetQueryPool:                       PFN_vkCmdResetQueryPool                       = ---;
@@ -1269,6 +1286,7 @@ load_instance_procs :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {
     "vkCreateGraphicsPipelines",
     "vkDestroyPipeline",
     "vkCmdBindPipeline",
+    "vkCmdBindIndexBuffer",
     "vkCmdDispatch",
     "vkCmdPushDescriptorSetKHR",
     "vkCmdPushConstants",
@@ -1287,6 +1305,7 @@ load_instance_procs :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {
     "vkCmdCopyBufferToImage",
     "vkCmdCopyBuffer",
     "vkCmdDraw",
+    "vkCmdDrawIndexed",
     "vkCreateQueryPool",
     "vkGetQueryPoolResults",
     "vkCmdResetQueryPool",

@@ -17,18 +17,24 @@ gpu_memory: GpuMemory;
 cpu_to_gpu_memory: GpuMemory;
 staging_buffer: Buffer;
 
+mesh_buffer: Buffer;
 ui_buffer: Buffer;
+scene_buffer: Buffer;
 
 Timestamp :: enum u8 {
   COMPUTE_START :: 0;
   COMPUTE_END;
   GRID_START;
   GRID_END;
+  MESH_START;
+  MESH_END;
   UI_START;
   UI_END;
 };
 timestamp_array: EnumArray(Timestamp, u64);
 timestamp_pool:  VkQueryPool;
+
+cube_mesh_info: GpuMeshInfo;
 
 main :: () {
   if !platform_init() return;
@@ -49,7 +55,15 @@ main :: () {
                                               .TRANSFER_SRC_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
+  mesh_buffer       = create_and_alloc_buffer(1 << 20,
+                                              .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT,
+                                              .DEVICE_LOCAL_BIT,
+                                              *gpu_memory);
   ui_buffer         = create_and_alloc_buffer(size_of(Quad) * 1024,
+                                              .SHADER_DEVICE_ADDRESS_BIT,
+                                              .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
+                                              *cpu_to_gpu_memory);
+  scene_buffer         = create_and_alloc_buffer(size_of(Scene),
                                               .SHADER_DEVICE_ADDRESS_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
@@ -69,7 +83,6 @@ main :: () {
     .DEVICE_LOCAL_BIT,
     *gpu_memory,
   );
-  memcpy(staging_buffer.host_mem.data, font.bitmap.data, font.bitmap_width * font.bitmap_height * 4);
   sampler_create_info: VkSamplerCreateInfo = .{
       magFilter    = .VK_FILTER_LINEAR,
       minFilter    = .VK_FILTER_LINEAR,
@@ -84,37 +97,54 @@ main :: () {
 
   {
     imm_command := *render_commands[0];
-    begin_render_command(imm_command);
-    transition_image(
-      imm_command,
-      font_image.image,
-      font_image.usage,
-      .UNDEFINED,
-      .GENERAL,
-      VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-      VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
-      VK_ACCESS_2_NONE,
-      VK_ACCESS_2_MEMORY_WRITE_BIT,
-    );
-    cmd_copy_buffer_to_image(imm_command, staging_buffer.buffer, font_image.image, .{
-      width  = font.bitmap_width,
-      height = font.bitmap_height,
-      depth  = 1,
-    });
-    end_render_command(imm_command);
-    buffer_submit_info: VkCommandBufferSubmitInfo =.{ commandBuffer = imm_command };
-    submit_info: VkSubmitInfo2 = .{ commandBufferInfoCount = 1, pCommandBufferInfos = *buffer_submit_info };
 
+    memcpy(staging_buffer.host_mem.data, font.bitmap.data, font.bitmap_width * font.bitmap_height * 4);
+    {
+      begin_render_command(imm_command);
+      defer end_render_command(imm_command);
 
-    reset_fences(.[imm_command]);
-    queue_submit(submit_info, imm_command);
-    wait_for_fence(imm_command);
-    reset_command_buffer(imm_command);
+      transition_image(
+        imm_command,
+        font_image.image,
+        font_image.usage,
+        .UNDEFINED,
+        .GENERAL,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+        VK_ACCESS_2_NONE,
+        VK_ACCESS_2_MEMORY_WRITE_BIT,
+      );
+      cmd_copy_buffer_to_image(imm_command, staging_buffer.buffer, font_image.image, .{
+        width  = font.bitmap_width,
+        height = font.bitmap_height,
+        depth  = 1,
+      });
+    }
+    submit_wait_reset(imm_command);
+
+    vertices_bytes := Cube.vertices.count * size_of(Vertex);
+    indices_bytes  := Cube.indices.count * size_of(u32);
+    assert(vertices_bytes + indices_bytes < staging_buffer.host_mem.count);
+    memcpy(staging_buffer.host_mem.data, Cube.vertices.data, vertices_bytes);
+    memcpy(staging_buffer.host_mem.data + vertices_bytes, Cube.indices.data, indices_bytes);
+    cube_mesh_info = .{ 0, xx vertices_bytes, xx Cube.indices.count, xx Cube.vertices.count };
+    {
+      begin_render_command(imm_command);
+      defer end_render_command(imm_command);
+
+      cmd_copy_buffer_to_buffer(imm_command, mesh_buffer.buffer, staging_buffer.buffer, .{
+        srcOffset = 0,
+        dstOffset = 0,
+        size      = xx (vertices_bytes + indices_bytes),
+      });
+    }
+    submit_wait_reset(imm_command);
   }
 
   compute_pipeline := create_full_screen_effect_comptue_pipeline();
   text_pipeline    := create_text_pipeline();
   grid_pipeline    := create_grid_pipeline();
+  mesh_pipeline    := create_mesh_pipeline();
 
   ui: Context;
   init(*ui, ui_buffer.host_mem, *font);
@@ -305,20 +335,20 @@ main :: () {
 
     cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
     {
+      rotation_x := quat_from_axis_angle(.{ x = 1.0 }, camera_rotation.x);
+      rotation_z := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
+      rotation := rotation_z * rotation_x;
+      camera_position += rotate(camera_velocity * 5.0 * (1.0 / 120.0), rotation);
+      transform := quat_to_mat4(rotation);
+      translate(*transform, camera_position);
+
+      projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
+      _, view    := inverse_lengyel(transform);
+
       // grid
       {
         cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_START);
         defer cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_END);
-
-        rotation_x := quat_from_axis_angle(.{ x = 1.0 }, camera_rotation.x);
-        rotation_z := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
-        rotation := rotation_z * rotation_x;
-        camera_position += rotate(camera_velocity * 5.0 * (1.0 / 120.0), rotation);
-        transform := quat_to_mat4(rotation);
-        translate(*transform, camera_position);
-
-        projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
-        _, view    := inverse_lengyel(transform);
 
         cmd_bind_pipeline(render_command, grid_pipeline, .GRAPHICS);
         constant: GridPushConstant = .{
@@ -328,6 +358,33 @@ main :: () {
         };
         cmd_push_constants(render_command, grid_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
         cmd_draw(render_command, 3, 1, 0, 0);
+      }
+
+      // mesh
+      {
+        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.MESH_START);
+        defer cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.MESH_END);
+
+        scene := cast(*Scene)scene_buffer.host_mem.data;
+        scene.* = .{
+          camera_view       = view,
+          camera_view_inv   = transform,
+          camera_projection = projection,
+        };
+        cmd_bind_pipeline(render_command, mesh_pipeline, .GRAPHICS);
+        constant: MeshPushConstant = .{
+          mesh_buffer.device_address,
+          scene_buffer.device_address,
+          xx cube_mesh_info.vertices_buffer_offset,
+        };
+        cmd_push_constants(render_command, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+        cmd_bind_index_buffer(
+          render_command,
+          mesh_buffer.buffer,
+          cube_mesh_info.indices_buffer_offset,
+          .UINT32
+        );
+        cmd_draw_indexed(render_command, cube_mesh_info.index_count, 1, 0, 0, 0);
       }
 
       // ui
@@ -417,7 +474,8 @@ bind_buffer_memory :: (buffer: VkBuffer, props: VkMemoryPropertyFlags, gpu_memor
   bind_buffer_memory(buffer, gpu_memory, start);
   gpu_memory.used = end;
 
-  host_mem: []u8 = .{ data = gpu_memory.host_mem.data + start, count = size };
+  host_mem: []u8;
+  if gpu_memory.host_mem host_mem = .{ data = gpu_memory.host_mem.data + start, count = size };
   return host_mem;
 }
 
@@ -777,6 +835,117 @@ create_grid_pipeline :: () -> Pipeline {
   };
 }
 
+MeshPushConstant :: struct {
+  mesh_buffer:     VkDeviceAddress;
+  scene_buffer:    VkDeviceAddress;
+  vertices_offset: u32;
+} @ShaderType
+create_mesh_pipeline :: () -> Pipeline {
+  // binging_layout: VkDescriptorSetLayoutBinding = .{
+  //   binding         = 0,
+  //   descriptorCount = 1,
+  //   descriptorType  = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+  //   stageFlags      = .FRAGMENT_BIT,
+  // };
+  // layout_create_info: VkDescriptorSetLayoutCreateInfo = .{
+  //   flags        = .PUSH_DESCRIPTOR_BIT,
+  //   pBindings    = *binging_layout,
+  //   bindingCount = 1,
+  // };
+  // dsl := create_descriptor_set_layout(layout_create_info);
+
+  push_constants: VkPushConstantRange = .{
+    stageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
+    offset     = 0,
+    size       = size_of(MeshPushConstant),
+  };
+  pipeline_layout_create_info: VkPipelineLayoutCreateInfo = .{
+    // pSetLayouts            = *dsl,
+    // setLayoutCount         = 1,
+    pPushConstantRanges    = *push_constants,
+    pushConstantRangeCount = 1,
+  };
+  layout := create_pipeline_layout(pipeline_layout_create_info);
+
+  text_vert_code := platform_read_entire_file("shaders_compiled/mesh_vert.spv",, temp);
+  text_vert_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx text_vert_code.data,
+    codeSize = xx text_vert_code.count,
+  };
+  text_frag_code := platform_read_entire_file("shaders_compiled/mesh_frag.spv",, temp);
+  text_frag_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx text_frag_code.data,
+    codeSize = xx text_frag_code.count,
+  };
+  stages: []VkPipelineShaderStageCreateInfo = .[
+    .{ pNext = *text_vert_module_create_info, stage = .VERTEX_BIT,   pName = "main" },
+    .{ pNext = *text_frag_module_create_info, stage = .FRAGMENT_BIT, pName = "main" },
+  ];
+
+  input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
+  rasterization: VkPipelineRasterizationStateCreateInfo = .{
+    polygonMode = .FILL,
+    frontFace   = .COUNTER_CLOCKWISE,
+    lineWidth   = 1.0,
+  };
+  multisampling: VkPipelineMultisampleStateCreateInfo = .{ rasterizationSamples = ._1_BIT };
+  color_attachment_format: VkFormat = .B8G8R8A8_UNORM;
+  rendering: VkPipelineRenderingCreateInfo = .{
+    pColorAttachmentFormats = *color_attachment_format,
+    colorAttachmentCount    = 1,
+    depthAttachmentFormat   = .UNDEFINED,
+    stencilAttachmentFormat = .UNDEFINED,
+  };
+  color_blend_attachment: VkPipelineColorBlendAttachmentState = .{
+    blendEnable         = xx true,
+    srcColorBlendFactor = .SRC_ALPHA,
+    dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+    colorBlendOp        = .ADD,
+    srcAlphaBlendFactor = .ONE,
+    dstAlphaBlendFactor = .ZERO,
+    alphaBlendOp        = .ADD,
+    colorWriteMask      = .R_BIT | .G_BIT | .B_BIT | .A_BIT,
+  };
+
+  viewport: VkPipelineViewportStateCreateInfo = .{ viewportCount = 1, scissorCount = 1 };
+
+  color_blending: VkPipelineColorBlendStateCreateInfo = .{
+    logicOpEnable   = xx false,
+    logicOp         = .COPY,
+    attachmentCount = 1,
+    pAttachments    = *color_blend_attachment,
+  };
+
+  vertex_input: VkPipelineVertexInputStateCreateInfo;
+
+  dynamic_states: []VkDynamicState = .[ .VIEWPORT, .SCISSOR ];
+  dynamic_state_info: VkPipelineDynamicStateCreateInfo = .{
+    pDynamicStates    = dynamic_states.data,
+    dynamicStateCount = xx dynamic_states.count,
+  };
+
+  create_info: VkGraphicsPipelineCreateInfo = .{
+    pNext               = *rendering,
+    stageCount          = xx stages.count,
+    pStages             = stages.data,
+    pVertexInputState   = *vertex_input,
+    pInputAssemblyState = *input_assembly,
+    pViewportState      = *viewport,
+    pRasterizationState = *rasterization,
+    pMultisampleState   = *multisampling,
+    pColorBlendState    = *color_blending,
+    pDynamicState       = *dynamic_state_info,
+    layout              = layout,
+  };
+  pipeline := create_graphics_pipeline(create_info);
+
+  return .{
+    pipeline = pipeline,
+    layout = layout,
+    // dsl = dsl,
+  };
+}
+
 destroy_pipeline :: (pipeline: Pipeline) {
   if pipeline.dsl destroy_descriptor_set_layout(pipeline.dsl);
   if pipeline.layout destroy_pipeline_layout(pipeline.layout);
@@ -821,6 +990,16 @@ end_render_command :: (cmd: RenderCommand) {
   end_command_buffer(cmd);
 }
 
+submit_wait_reset :: (cmd: RenderCommand) {
+  buffer_submit_info: VkCommandBufferSubmitInfo =.{ commandBuffer = cmd };
+  submit_info: VkSubmitInfo2 = .{ commandBufferInfoCount = 1, pCommandBufferInfos = *buffer_submit_info };
+
+  reset_fences(.[cmd]);
+  queue_submit(submit_info, cmd);
+  wait_for_fence(cmd);
+  reset_command_buffer(cmd);
+}
+
 wait_for_cmd :: (cmd: RenderCommand) {
   wait_for_fence(cmd.render_fence);
   reset_fences(.[cmd.render_fence]);
@@ -849,6 +1028,244 @@ cmd_transition_swapchain_image :: (
   );
 }
 
+Scene :: struct {
+  camera_view:       Matrix4;
+  camera_view_inv:   Matrix4;
+  camera_projection: Matrix4;
+} @ShaderType
+
+Vertex :: struct {
+  position: Vector3;
+  uv_x:     float;
+  normal:   Vector3;
+  uv_y:     float;
+  color:    Vector3;
+  _:        float;
+} @ShaderType
+
+Mesh :: struct {
+  indices:  []u32;
+  vertices: []Vertex;
+}
+
+GpuMeshInfo :: struct {
+  vertices_buffer_offset: u64;
+  indices_buffer_offset:  u32;
+  index_count:            u32;
+  vertex_count:           u32;
+}
+
+Cube :: Mesh.{
+  indices = u32.[
+    1,
+    14,
+    20,
+    1,
+    20,
+    7,
+    10,
+    6,
+    19,
+    10,
+    19,
+    23,
+    21,
+    18,
+    12,
+    21,
+    12,
+    15,
+    16,
+    3,
+    9,
+    16,
+    9,
+    22,
+    5,
+    2,
+    8,
+    5,
+    8,
+    11,
+    17,
+    13,
+    0,
+    17,
+    0,
+    4,
+  ],
+  vertices = Vertex.[
+    .{
+      position = .{ 1.0, 1.0, -1.0 },
+      normal = .{ 0.0, 0.0, -1.0 },
+      uv_x = 6.25e-1,
+      uv_y = 5.0e-1,
+      color = .{ 0.0, 0.0, -1.0 },
+    },
+    .{
+      position = .{ 1.0, 1.0, -1.0 },
+      normal = .{ 0.0, 1.0, -0.0 },
+      uv_x = 6.25e-1,
+      uv_y = 5.0e-1,
+      color = .{ 0.0, 1.0, -0.0 },
+    },
+    .{
+      position = .{ 1.0, 1.0, -1.0 },
+      normal = .{ 1.0, 0.0, -0.0 },
+      uv_x = 6.25e-1,
+      uv_y = 5.0e-1,
+      color = .{ 1.0, 0.0, -0.0 },
+    },
+    .{
+      position = .{ 1.0, -1.0, -1.0 },
+      normal = .{ 0.0, -1.0, -0.0 },
+      uv_x = 3.75e-1,
+      uv_y = 5.0e-1,
+      color = .{ 0.0, -1.0, -0.0 },
+    },
+    .{
+      position = .{ 1.0, -1.0, -1.0 },
+      normal = .{ 0.0, 0.0, -1.0 },
+      uv_x = 3.75e-1,
+      uv_y = 5.0e-1,
+      color = .{ 0.0, 0.0, -1.0 },
+    },
+    .{
+      position = .{ 1.0, -1.0, -1.0 },
+      normal = .{ 1.0, 0.0, -0.0 },
+      uv_x = 3.75e-1,
+      uv_y = 5.0e-1,
+      color = .{ 1.0, 0.0, -0.0 },
+    },
+    .{
+      position = .{ 1.0, 1.0, 1.0 },
+      normal = .{ 0.0, 0.0, 1.0 },
+      uv_x = 6.25e-1,
+      uv_y = 2.5e-1,
+      color = .{ 0.0, 0.0, 1.0 },
+    },
+    .{
+      position = .{ 1.0, 1.0, 1.0 },
+      normal = .{ 0.0, 1.0, -0.0 },
+      uv_x = 6.25e-1,
+      uv_y = 2.5e-1,
+      color = .{ 0.0, 1.0, -0.0 },
+    },
+    .{
+      position = .{ 1.0, 1.0, 1.0 },
+      normal = .{ 1.0, 0.0, -0.0 },
+      uv_x = 6.25e-1,
+      uv_y = 2.5e-1,
+      color = .{ 1.0, 0.0, -0.0 },
+    },
+    .{
+      position = .{ 1.0, -1.0, 1.0 },
+      normal = .{ 0.0, -1.0, -0.0 },
+      uv_x = 3.75e-1,
+      uv_y = 2.5e-1,
+      color = .{ 0.0, -1.0, -0.0 },
+    },
+    .{
+      position = .{ 1.0, -1.0, 1.0 },
+      normal = .{ 0.0, 0.0, 1.0 },
+      uv_x = 3.75e-1,
+      uv_y = 2.5e-1,
+      color = .{ 0.0, 0.0, 1.0 },
+    },
+    .{
+      position = .{ 1.0, -1.0, 1.0 },
+      normal = .{ 1.0, 0.0, -0.0 },
+      uv_x = 3.75e-1,
+      uv_y = 2.5e-1,
+      color = .{ 1.0, 0.0, -0.0 },
+    },
+    .{
+      position = .{ -1.0, 1.0, -1.0 },
+      normal = .{ -1.0, 0.0, -0.0 },
+      uv_x = 6.25e-1,
+      uv_y = 7.5e-1,
+      color = .{ -1.0, 0.0, -0.0 },
+    },
+    .{
+      position = .{ -1.0, 1.0, -1.0 },
+      normal = .{ 0.0, 0.0, -1.0 },
+      uv_x = 6.25e-1,
+      uv_y = 7.5e-1,
+      color = .{ 0.0, 0.0, -1.0 },
+    },
+    .{
+      position = .{ -1.0, 1.0, -1.0 },
+      normal = .{ 0.0, 1.0, -0.0 },
+      uv_x = 8.75e-1,
+      uv_y = 5.0e-1,
+      color = .{ 0.0, 1.0, -0.0 },
+    },
+    .{
+      position = .{ -1.0, -1.0, -1.0 },
+      normal = .{ -1.0, 0.0, -0.0 },
+      uv_x = 3.75e-1,
+      uv_y = 7.5e-1,
+      color = .{ -1.0, 0.0, -0.0 },
+    },
+    .{
+      position = .{ -1.0, -1.0, -1.0 },
+      normal = .{ 0.0, -1.0, -0.0 },
+      uv_x = 1.25e-1,
+      uv_y = 5.0e-1,
+      color = .{ 0.0, -1.0, -0.0 },
+    },
+    .{
+      position = .{ -1.0, -1.0, -1.0 },
+      normal = .{ 0.0, 0.0, -1.0 },
+      uv_x = 3.75e-1,
+      uv_y = 7.5e-1,
+      color = .{ 0.0, 0.0, -1.0 },
+    },
+    .{
+      position = .{ -1.0, 1.0, 1.0 },
+      normal = .{ -1.0, 0.0, -0.0 },
+      uv_x = 6.25e-1,
+      uv_y = 1.0,
+      color = .{ -1.0, 0.0, -0.0 },
+    },
+    .{
+      position = .{ -1.0, 1.0, 1.0 },
+      normal = .{ 0.0, 0.0, 1.0 },
+      uv_x = 6.25e-1,
+      uv_y = 0.0,
+      color = .{ 0.0, 0.0, 1.0 },
+    },
+    .{
+      position = .{ -1.0, 1.0, 1.0 },
+      normal = .{ 0.0, 1.0, -0.0 },
+      uv_x = 8.75e-1,
+      uv_y = 2.5e-1,
+      color = .{ 0.0, 1.0, -0.0 },
+    },
+    .{
+      position = .{ -1.0, -1.0, 1.0 },
+      normal = .{ -1.0, 0.0, -0.0 },
+      uv_x = 3.75e-1,
+      uv_y = 1.0,
+      color = .{ -1.0, 0.0, -0.0 },
+    },
+    .{
+      position = .{ -1.0, -1.0, 1.0 },
+      normal = .{ 0.0, -1.0, -0.0 },
+      uv_x = 1.25e-1,
+      uv_y = 2.5e-1,
+      color = .{ 0.0, -1.0, -0.0 },
+    },
+    .{
+      position = .{ -1.0, -1.0, 1.0 },
+      normal = .{ 0.0, 0.0, 1.0 },
+      uv_x = 3.75e-1,
+      uv_y = 0.0,
+      color = .{ 0.0, 0.0, 1.0 },
+    },
+  ],
+};
+
 #import,file "ui.jai";
 #import,file "math.jai";
 #import,file "font.jai";
@@ -860,3 +1277,4 @@ cmd_transition_swapchain_image :: (
 #import,file "enum_array.jai";
 #import "Basic";
 #import "Vulkan";
+#import "cgltf";
