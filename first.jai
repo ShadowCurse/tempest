@@ -2,6 +2,7 @@ Targets :: struct {
   tempest         :: "src/main.jai";
   sdl3_bindings   :: "sdl3_bindings_gen.jai";
   vulkan_bindings :: "vulkan_bindings_gen.jai";
+  cgltf_bindings  :: "cgltf_bindings_gen.jai";
 }
 
 build :: () {
@@ -16,6 +17,7 @@ build :: () {
       compiler_add_library_search_directory(it);
     }
   }
+  compiler_add_library_search_directory("modules");
 
   w := compiler_create_workspace("Tempest workspace");
   if !w {
