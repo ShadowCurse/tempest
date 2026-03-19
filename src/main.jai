@@ -227,6 +227,8 @@ main :: () {
     compute_ms := cast(float)compute_ns / 1000_000.0;
     grid_ns    := timestamp_array[Timestamp.GRID_END] - timestamp_array[Timestamp.GRID_START];
     grid_ms    := cast(float)grid_ns / 1000_000.0;
+    mesh_ns    := timestamp_array[Timestamp.MESH_END] - timestamp_array[Timestamp.MESH_START];
+    mesh_ms    := cast(float)mesh_ns / 1000_000.0;
     ui_ns      := timestamp_array[Timestamp.UI_END] - timestamp_array[Timestamp.UI_START];
     ui_ms      := cast(float)ui_ns / 1000_000.0;
 
@@ -235,6 +237,7 @@ main :: () {
     panel_start(*ui, panel_position, panel_size, "Panel");
     label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
     label(*ui, tprint("GPU GRID ms: %", grid_ms));
+    label(*ui, tprint("GPU MESH ms: %", mesh_ms));
     label(*ui, tprint("GPU UI ms: %", ui_ms));
     label(*ui, tprint("LMB pressed: %", pressed(mouse_state, .LMB)));
     label(*ui, tprint("LMB just pressed: %", just_pressed(mouse_state, .LMB)));
@@ -289,7 +292,7 @@ main :: () {
 
     {
       cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.COMPUTE_START);
-      defer cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.COMPUTE_END);
+      defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.COMPUTE_END);
 
       cmd_bind_pipeline(render_command, compute_pipeline, .COMPUTE);
       image_descriptors: [2]VkDescriptorImageInfo = .[
@@ -348,7 +351,7 @@ main :: () {
       // grid
       {
         cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_START);
-        defer cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_END);
+        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.GRID_END);
 
         cmd_bind_pipeline(render_command, grid_pipeline, .GRAPHICS);
         constant: GridPushConstant = .{
@@ -363,7 +366,7 @@ main :: () {
       // mesh
       {
         cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.MESH_START);
-        defer cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.MESH_END);
+        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.MESH_END);
 
         scene := cast(*Scene)scene_buffer.host_mem.data;
         scene.* = .{
@@ -390,7 +393,7 @@ main :: () {
       // ui
       {
         cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_START);
-        defer cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_END);
+        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.UI_END);
 
         cmd_bind_pipeline(render_command, text_pipeline, .GRAPHICS);
         image_descriptor: VkDescriptorImageInfo = .{
