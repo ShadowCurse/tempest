@@ -19,7 +19,7 @@ cpu_to_gpu_memory: GpuMemory;
 staging_buffer: Buffer;
 
 mesh_buffer: Buffer;
-ui_buffer: Buffer;
+ui_buffers: [FRAMES]Buffer;
 scene_buffer: Buffer;
 
 Timestamp :: enum u8 {
@@ -61,10 +61,12 @@ main :: () {
                                               .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT,
                                               .DEVICE_LOCAL_BIT,
                                               *gpu_memory);
-  ui_buffer         = create_and_alloc_buffer(size_of(Quad) * 1024,
+
+  for * ui_buffers it.* = create_and_alloc_buffer(size_of(Quad) * 1024,
                                               .SHADER_DEVICE_ADDRESS_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
+
   scene_buffer      = create_and_alloc_buffer(size_of(Scene),
                                               .SHADER_DEVICE_ADDRESS_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
@@ -174,7 +176,7 @@ main :: () {
   mesh_pipeline    := create_mesh_pipeline();
 
   ui: Context;
-  init(*ui, ui_buffer.host_mem, *font);
+  init(*ui, *font);
 
   camera_position: Vector3 = .{ 0.0, -5.0, 5.0 };
   camera_rotation: Vector2 = .{ 1.2, 0.0 };
@@ -185,7 +187,7 @@ main :: () {
   while (!quit) {
     reset_temporary_storage();
     platform_new_frame();
-    new_frame(*ui);
+    new_frame(*ui, ui_buffers[current_frame_idx].host_mem);
 
     rebuild_gradient_shader := false;
     rebuild_ui_shader := false;
@@ -443,7 +445,7 @@ main :: () {
         };
         cmd_push_descriptors(render_command, text_pipeline, .GRAPHICS, .[descriptor_set]);
         constant: TextPushConstant = .{
-          quads       = ui_buffer.device_address,
+          quads       = ui_buffers[current_frame_idx].device_address,
           screen_size = .{ xx window_width, xx window_height },
           scaling     = ui.font_size / font.size * font.distance_range,
         };

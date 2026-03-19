@@ -70,14 +70,13 @@ Layout :: struct {
   current_y_offset: float;
 }
 
-init :: (c: *Context, buffer: []u8, font: *Font) {
-  init(*c.draw_buffer, buffer);
+init :: (c: *Context, font: *Font) {
   c.colors = *DefaultColors;
   c.font   = font;
 }
 
-new_frame :: (c: *Context) {
-  reset(*c.draw_buffer);
+new_frame :: (c: *Context, buffer: []u8) {
+  init(*c.draw_buffer, buffer);
   c.frame += 1;
   c.mouse_pressed = false;
   c.old_mouse_position = c.mouse_position;
