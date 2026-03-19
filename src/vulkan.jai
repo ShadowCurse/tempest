@@ -186,6 +186,10 @@ device_wait_idle :: () {
   vkDeviceWaitIdle(device);
 }
 
+destroy_image :: (image: VkImage) {
+  vkDestroyImage(device, image, null);
+}
+
 destroy_image_view :: (view: VkImageView) {
   vkDestroyImageView(device, view, null);
 }
@@ -313,7 +317,11 @@ cmd_draw_indexed :: (
   vkCmdDrawIndexed(cmd, index_count, instance_count, first_index, xx vertex_offset, first_instance);
 }
 
-cmd_begin_rendering_to_swapchain :: (cmd: VkCommandBuffer, image_index: u32) {
+cmd_begin_rendering_to_swapchain :: (
+  cmd: VkCommandBuffer,
+  image_index: u32,
+  depth_image_view: VkImageView = null
+) {
   sc_view := swapchain_image_views[image_index];
 
   color_attachment: VkRenderingAttachmentInfo = .{
@@ -325,10 +333,21 @@ cmd_begin_rendering_to_swapchain :: (cmd: VkCommandBuffer, image_index: u32) {
     storeOp            = .STORE,
   };
 
+  depth_attachment: VkRenderingAttachmentInfo;
+  if depth_image_view {
+    depth_attachment = .{
+      imageView   = depth_image_view,
+      imageLayout = .GENERAL,
+      loadOp      = .CLEAR,
+      storeOp     = .STORE,
+      clearValue  = .{ depthStencil = .{ depth = 0.0 } },
+    };
+  }
+
   render_info: VkRenderingInfo = .{
     pColorAttachments    = *color_attachment,
     colorAttachmentCount = 1,
-    pDepthAttachment     = null,
+    pDepthAttachment     = ifx depth_image_view then *depth_attachment,
     renderArea           = .{ extent = swapchain_extent },
     layerCount           = 1,
   };
@@ -1184,6 +1203,7 @@ vkCreateSwapchainKHR:                      PFN_vkCreateSwapchainKHR             
 vkDestroySwapchainKHR:                     PFN_vkDestroySwapchainKHR                     = ---;
 vkGetSwapchainImagesKHR:                   PFN_vkGetSwapchainImagesKHR                   = ---;
 vkCreateImageView:                         PFN_vkCreateImageView                         = ---;
+vkDestroyImage:                            PFN_vkDestroyImage                            = ---;
 vkDestroyImageView:                        PFN_vkDestroyImageView                        = ---;
 vkCreateCommandPool:                       PFN_vkCreateCommandPool                       = ---;
 vkDestroyCommandPool:                      PFN_vkDestroyCommandPool                      = ---;
@@ -1259,6 +1279,7 @@ load_instance_procs :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {
     "vkDestroySwapchainKHR",
     "vkGetSwapchainImagesKHR",
     "vkCreateImageView",
+    "vkDestroyImage",
     "vkDestroyImageView",
     "vkCreateCommandPool",
     "vkDestroyCommandPool",

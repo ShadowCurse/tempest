@@ -10,7 +10,8 @@ file_watcher: FileWatcher;
 
 FRAMES :: 2;
 current_frame_idx: u8 = 0;
-render_commands: [FRAMES]RenderCommand = ---;
+// note(sc): create one additional command for immediate actions
+render_commands: [FRAMES + 1]RenderCommand = ---;
 NO_LAST_SWAPCHAIN_INDEX : u32 = ~cast(u32)0;
 
 gpu_memory: GpuMemory;
@@ -35,6 +36,7 @@ timestamp_array: EnumArray(Timestamp, u64);
 timestamp_pool:  VkQueryPool;
 
 cube_mesh_info: GpuMeshInfo;
+depth_buffer: Image;
 
 main :: () {
   if !platform_init() return;
@@ -63,7 +65,7 @@ main :: () {
                                               .SHADER_DEVICE_ADDRESS_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
-  scene_buffer         = create_and_alloc_buffer(size_of(Scene),
+  scene_buffer      = create_and_alloc_buffer(size_of(Scene),
                                               .SHADER_DEVICE_ADDRESS_BIT,
                                               .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
                                               *cpu_to_gpu_memory);
@@ -95,8 +97,33 @@ main :: () {
   };
   font_sampler := create_sampler(sampler_create_info);
 
+  depth_buffer      = create_and_alloc_image(window_width,
+                                             window_height,
+                                             .D32_SFLOAT,
+                                             .DEPTH_STENCIL_ATTACHMENT_BIT,
+                                             .DEVICE_LOCAL_BIT,
+                                             *gpu_memory);
+
   {
-    imm_command := *render_commands[0];
+    imm_command := *render_commands[FRAMES];
+    {
+      begin_render_command(imm_command);
+      defer end_render_command(imm_command);
+
+      transition_image(
+        imm_command,
+        depth_buffer.image,
+        depth_buffer.usage,
+        .UNDEFINED,
+        .GENERAL,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+        VK_ACCESS_2_NONE,
+        VK_ACCESS_2_MEMORY_WRITE_BIT,
+      );
+    }
+    submit_wait_reset(imm_command);
+
 
     memcpy(staging_buffer.host_mem.data, font.bitmap.data, font.bitmap_width * font.bitmap_height * 4);
     {
@@ -247,6 +274,7 @@ main :: () {
       if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
         wait_swapchain_fence(xx last_swapchain_image_index);
       recreate_swapchain();
+      recreate_depth_buffer();
     }
 
     render_command := *render_commands[current_frame_idx];
@@ -265,6 +293,7 @@ main :: () {
           if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
             wait_swapchain_fence(xx last_swapchain_image_index);
           recreate_swapchain();
+          recreate_depth_buffer();
 
           // note(sc): for some reason acquiring the image singles the semaphore even on
           // failure. Maybe there is a way to handle it more reasonably.
@@ -336,8 +365,9 @@ main :: () {
       VK_ACCESS_2_MEMORY_WRITE_BIT,
     );
 
-    cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
     {
+      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_buffer.view);
+
       rotation_x := quat_from_axis_angle(.{ x = 1.0 }, camera_rotation.x);
       rotation_z := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
       rotation := rotation_z * rotation_x;
@@ -347,21 +377,6 @@ main :: () {
 
       projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
       _, view    := inverse_lengyel(transform);
-
-      // grid
-      {
-        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_START);
-        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.GRID_END);
-
-        cmd_bind_pipeline(render_command, grid_pipeline, .GRAPHICS);
-        constant: GridPushConstant = .{
-          projection,
-          view,
-          camera_position,
-        };
-        cmd_push_constants(render_command, grid_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-        cmd_draw(render_command, 3, 1, 0, 0);
-      }
 
       // mesh
       {
@@ -390,6 +405,26 @@ main :: () {
         cmd_draw_indexed(render_command, cube_mesh_info.index_count, 1, 0, 0, 0);
       }
 
+      // grid
+      {
+        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_START);
+        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.GRID_END);
+
+        cmd_bind_pipeline(render_command, grid_pipeline, .GRAPHICS);
+        constant: GridPushConstant = .{
+          projection,
+          view,
+          camera_position,
+        };
+        cmd_push_constants(render_command, grid_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+        cmd_draw(render_command, 3, 1, 0, 0);
+      }
+
+    }
+    cmd_end_rendering(render_command);
+
+    cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
+    {
       // ui
       {
         cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_START);
@@ -437,6 +472,36 @@ main :: () {
   }
 }
 
+recreate_depth_buffer :: () {
+  free_image_memory(depth_buffer.image, *gpu_memory);
+  destroy_image_view(depth_buffer.view);
+  destroy_image(depth_buffer.image);
+  depth_buffer = create_and_alloc_image(window_width,
+                                        window_height,
+                                        .D32_SFLOAT,
+                                        .DEPTH_STENCIL_ATTACHMENT_BIT,
+                                        .DEVICE_LOCAL_BIT,
+                                        *gpu_memory);
+  imm_command := *render_commands[FRAMES];
+  {
+    begin_render_command(imm_command);
+    defer end_render_command(imm_command);
+
+    transition_image(
+      imm_command,
+      depth_buffer.image,
+      depth_buffer.usage,
+      .UNDEFINED,
+      .GENERAL,
+      VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+      VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+      VK_ACCESS_2_NONE,
+      VK_ACCESS_2_MEMORY_WRITE_BIT,
+    );
+  }
+  submit_wait_reset(imm_command);
+}
+
 GpuMemory :: struct {
   #as memory: VkDeviceMemory;
   size:       u32;
@@ -448,6 +513,13 @@ allocate_gpu_memory :: (size: u32, flags: VkMemoryPropertyFlags) -> GpuMemory {
   memory := allocate_memory(index, size);
   host_mem := ifx flags & .HOST_VISIBLE_BIT map_memory(memory, size);
   return .{ memory, size, 0, host_mem };
+}
+
+// note(sc): assume this is the last thing allocated from this arena
+free_image_memory :: (image: VkImage, gpu_memory: *GpuMemory) {
+  requirements := get_image_memory_requirements(image);
+  assert(requirements.size < gpu_memory.used);
+  gpu_memory.used -= xx requirements.size;
 }
 
 bind_image_memory :: (image: VkImage, props: VkMemoryPropertyFlags, gpu_memory: *GpuMemory) {
@@ -786,7 +858,7 @@ create_grid_pipeline :: () -> Pipeline {
   rendering: VkPipelineRenderingCreateInfo = .{
     pColorAttachmentFormats = *color_attachment_format,
     colorAttachmentCount    = 1,
-    depthAttachmentFormat   = .UNDEFINED,
+    depthAttachmentFormat   = .D32_SFLOAT,
     stencilAttachmentFormat = .UNDEFINED,
   };
   color_blend_attachment: VkPipelineColorBlendAttachmentState = .{
@@ -801,6 +873,15 @@ create_grid_pipeline :: () -> Pipeline {
   };
 
   viewport: VkPipelineViewportStateCreateInfo = .{ viewportCount = 1, scissorCount = 1 };
+
+  depth_stencil_state: VkPipelineDepthStencilStateCreateInfo = .{
+    depthTestEnable       = xx true,
+    depthWriteEnable      = xx true,
+    depthCompareOp        = .GREATER,
+    depthBoundsTestEnable = xx false,
+    minDepthBounds        = 0,
+    maxDepthBounds        = 1.0,
+  };
 
   color_blending: VkPipelineColorBlendStateCreateInfo = .{
     logicOpEnable   = xx false,
@@ -826,6 +907,7 @@ create_grid_pipeline :: () -> Pipeline {
     pViewportState      = *viewport,
     pRasterizationState = *rasterization,
     pMultisampleState   = *multisampling,
+    pDepthStencilState  = *depth_stencil_state,
     pColorBlendState    = *color_blending,
     pDynamicState       = *dynamic_state_info,
     layout              = layout,
@@ -844,27 +926,12 @@ MeshPushConstant :: struct {
   vertices_offset: u32;
 } @ShaderType
 create_mesh_pipeline :: () -> Pipeline {
-  // binging_layout: VkDescriptorSetLayoutBinding = .{
-  //   binding         = 0,
-  //   descriptorCount = 1,
-  //   descriptorType  = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-  //   stageFlags      = .FRAGMENT_BIT,
-  // };
-  // layout_create_info: VkDescriptorSetLayoutCreateInfo = .{
-  //   flags        = .PUSH_DESCRIPTOR_BIT,
-  //   pBindings    = *binging_layout,
-  //   bindingCount = 1,
-  // };
-  // dsl := create_descriptor_set_layout(layout_create_info);
-
   push_constants: VkPushConstantRange = .{
     stageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
     offset     = 0,
     size       = size_of(MeshPushConstant),
   };
   pipeline_layout_create_info: VkPipelineLayoutCreateInfo = .{
-    // pSetLayouts            = *dsl,
-    // setLayoutCount         = 1,
     pPushConstantRanges    = *push_constants,
     pushConstantRangeCount = 1,
   };
@@ -896,7 +963,7 @@ create_mesh_pipeline :: () -> Pipeline {
   rendering: VkPipelineRenderingCreateInfo = .{
     pColorAttachmentFormats = *color_attachment_format,
     colorAttachmentCount    = 1,
-    depthAttachmentFormat   = .UNDEFINED,
+    depthAttachmentFormat   = .D32_SFLOAT,
     stencilAttachmentFormat = .UNDEFINED,
   };
   color_blend_attachment: VkPipelineColorBlendAttachmentState = .{
@@ -911,6 +978,15 @@ create_mesh_pipeline :: () -> Pipeline {
   };
 
   viewport: VkPipelineViewportStateCreateInfo = .{ viewportCount = 1, scissorCount = 1 };
+
+  depth_stencil_state: VkPipelineDepthStencilStateCreateInfo = .{
+    depthTestEnable       = xx true,
+    depthWriteEnable      = xx true,
+    depthCompareOp        = .GREATER,
+    depthBoundsTestEnable = xx false,
+    minDepthBounds        = 0,
+    maxDepthBounds        = 1.0,
+  };
 
   color_blending: VkPipelineColorBlendStateCreateInfo = .{
     logicOpEnable   = xx false,
@@ -936,6 +1012,7 @@ create_mesh_pipeline :: () -> Pipeline {
     pViewportState      = *viewport,
     pRasterizationState = *rasterization,
     pMultisampleState   = *multisampling,
+    pDepthStencilState  = *depth_stencil_state,
     pColorBlendState    = *color_blending,
     pDynamicState       = *dynamic_state_info,
     layout              = layout,
@@ -945,7 +1022,6 @@ create_mesh_pipeline :: () -> Pipeline {
   return .{
     pipeline = pipeline,
     layout = layout,
-    // dsl = dsl,
   };
 }
 
