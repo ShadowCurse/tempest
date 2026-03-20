@@ -75,8 +75,8 @@ init :: (c: *Context, font: *Font) {
   c.font   = font;
 }
 
-new_frame :: (c: *Context, buffer: []u8) {
-  init(*c.draw_buffer, buffer);
+new_frame :: (c: *Context, buffer: []Quad) {
+  init(*c.draw_buffer, .{ data = cast(*u8)buffer.data, count = buffer.count * size_of(Quad) });
   c.frame += 1;
   c.mouse_pressed = false;
   c.old_mouse_position = c.mouse_position;

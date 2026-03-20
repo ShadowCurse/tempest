@@ -16,13 +16,17 @@ current_frame_idx: u8 = 0;
 render_commands: [FRAMES + 1]RenderCommand = ---;
 NO_LAST_SWAPCHAIN_INDEX : u32 = ~cast(u32)0;
 
-gpu_memory: GpuMemory;
-cpu_to_gpu_memory: GpuMemory;
-staging_buffer: Buffer;
+cpu_to_gpu_buffer_arena: GpuBufferArena;
+staging_buffer:          GpuBufferSlice(u8);
+ui_buffers:              [FRAMES]GpuBufferSlice(Quad);
+scene_buffer:            GpuBufferSlice(Scene);
 
-mesh_buffer: Buffer;
-ui_buffers: [FRAMES]Buffer;
-scene_buffer: Buffer;
+gpu_buffer_arena: GpuBufferArena;
+mesh_buffer:      GpuBufferSlice(u8);
+
+gpu_image_arena: GpuImageArena;
+font_image:      GpuImage;
+depth_image:     GpuImage;
 
 Timestamp :: enum u8 {
   COMPUTE_START :: 0;
@@ -37,14 +41,12 @@ Timestamp :: enum u8 {
 timestamp_array: EnumArray(Timestamp, u64);
 timestamp_pool:  VkQueryPool;
 
-cube_mesh_info: GpuMeshInfo;
-depth_buffer: Image;
-
 compute_pipeline: Pipeline;
 text_pipeline:    Pipeline;
 grid_pipeline:    Pipeline;
 mesh_pipeline:    Pipeline;
 
+cube_mesh_info: GpuMeshInfo;
 crystal: Model;
 crystal_mesh_info: GpuMeshInfo;
 
@@ -61,26 +63,15 @@ main :: () {
   }
 
   for *rc: render_commands rc.* = create_render_command();
-  gpu_memory        = allocate_gpu_memory(64 << 20, .DEVICE_LOCAL_BIT);
-  cpu_to_gpu_memory = allocate_gpu_memory(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
-  staging_buffer    = create_and_alloc_buffer(1 << 20,
-                                              .TRANSFER_SRC_BIT,
-                                              .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
-                                              *cpu_to_gpu_memory);
-  mesh_buffer       = create_and_alloc_buffer(1 << 20,
-                                              .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT,
-                                              .DEVICE_LOCAL_BIT,
-                                              *gpu_memory);
+  cpu_to_gpu_memory := allocate_gpu_memory(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
+  init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, .TRANSFER_SRC_BIT | .SHADER_DEVICE_ADDRESS_BIT);
+  staging_buffer        = push(*cpu_to_gpu_buffer_arena, u8, 1 << 20);
+  for * ui_buffers it.* = push(*cpu_to_gpu_buffer_arena, Quad, 1024);
+  scene_buffer          = push(*cpu_to_gpu_buffer_arena, Scene);
 
-  for * ui_buffers it.* = create_and_alloc_buffer(size_of(Quad) * 1024,
-                                              .SHADER_DEVICE_ADDRESS_BIT,
-                                              .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
-                                              *cpu_to_gpu_memory);
-
-  scene_buffer      = create_and_alloc_buffer(size_of(Scene),
-                                              .SHADER_DEVICE_ADDRESS_BIT,
-                                              .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT,
-                                              *cpu_to_gpu_memory);
+  gpu_memory := allocate_gpu_memory(64 << 20, .DEVICE_LOCAL_BIT);
+  init(*gpu_buffer_arena, gpu_memory, .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
+  mesh_buffer = push(*gpu_buffer_arena, u8, 1 << 20);
 
   pool_create_info: VkQueryPoolCreateInfo = .{
     queryType  = .TIMESTAMP,
@@ -89,14 +80,24 @@ main :: () {
   timestamp_pool = create_query_pool(pool_create_info);
 
   font := load_font("NotoSans-Regular");
-  font_image := create_and_alloc_image(
+
+  gpu_image_memory := allocate_gpu_memory(64 << 20, .DEVICE_LOCAL_BIT);
+  init(*gpu_image_arena, gpu_image_memory);
+  font_image = push(
+    *gpu_image_arena,
     font.bitmap_width,
     font.bitmap_height,
     .R8G8B8A8_UNORM,
     .SAMPLED_BIT  | .TRANSFER_DST_BIT,
-    .DEVICE_LOCAL_BIT,
-    *gpu_memory,
   );
+  depth_image = push(
+    *gpu_image_arena,
+    window_width,
+    window_height,
+    .D32_SFLOAT,
+    .DEPTH_STENCIL_ATTACHMENT_BIT,
+  );
+
   sampler_create_info: VkSamplerCreateInfo = .{
       magFilter    = .VK_FILTER_LINEAR,
       minFilter    = .VK_FILTER_LINEAR,
@@ -109,12 +110,6 @@ main :: () {
   };
   font_sampler := create_sampler(sampler_create_info);
 
-  depth_buffer      = create_and_alloc_image(window_width,
-                                             window_height,
-                                             .D32_SFLOAT,
-                                             .DEPTH_STENCIL_ATTACHMENT_BIT,
-                                             .DEVICE_LOCAL_BIT,
-                                             *gpu_memory);
   crystal, ok := load_model("crystal");
   assert(ok);
 
@@ -126,8 +121,8 @@ main :: () {
 
       transition_image(
         imm_command,
-        depth_buffer.image,
-        depth_buffer.usage,
+        depth_image.image,
+        depth_image.usage,
         .UNDEFINED,
         .GENERAL,
         VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
@@ -138,8 +133,8 @@ main :: () {
     }
     submit_wait_reset(imm_command);
 
-
-    memcpy(staging_buffer.host_mem.data, font.bitmap.data, font.bitmap_width * font.bitmap_height * 4);
+    staging_buffer_host_mem := host_memory(staging_buffer);
+    memcpy(staging_buffer_host_mem.data, font.bitmap.data, font.bitmap_width * font.bitmap_height * 4);
     {
       begin_render_command(imm_command);
       defer end_render_command(imm_command);
@@ -167,28 +162,30 @@ main :: () {
     {
       vertices_bytes := Cube.vertices.count * size_of(Vertex);
       indices_bytes  := Cube.indices.count * size_of(u32);
-      assert(vertices_bytes + indices_bytes < staging_buffer.host_mem.count);
-      memcpy(staging_buffer.host_mem.data, Cube.vertices.data, vertices_bytes);
-      memcpy(staging_buffer.host_mem.data + vertices_bytes, Cube.indices.data, indices_bytes);
+      total_bytes    := vertices_bytes + indices_bytes;
+      assert(vertices_bytes + indices_bytes < staging_buffer_host_mem.count);
+      memcpy(staging_buffer_host_mem.data, Cube.vertices.data, vertices_bytes);
+      memcpy(staging_buffer_host_mem.data + vertices_bytes, Cube.indices.data, indices_bytes);
       cube_mesh_info = .{ 0, xx vertices_bytes, xx Cube.indices.count, xx Cube.vertices.count };
       begin_render_command(imm_command);
       defer end_render_command(imm_command);
 
-      cmd_copy_buffer_to_buffer(imm_command, mesh_buffer.buffer, staging_buffer.buffer, .{
-        srcOffset = 0,
-        dstOffset = 0,
-        size      = xx (vertices_bytes + indices_bytes),
-      });
-      mesh_buffer_offset += vertices_bytes + indices_bytes;
+      cmd_copy_buffer_slice_to_buffer_slice(
+        imm_command,
+        slice(mesh_buffer,    cast(u32)mesh_buffer_offset, cast(u32)(mesh_buffer_offset + total_bytes)),
+        slice(staging_buffer, 0,                           cast(u32)total_bytes)
+      );
+      mesh_buffer_offset += total_bytes;
     }
     submit_wait_reset(imm_command);
 
     {
       vertices_bytes := crystal.mesh.vertices.count * size_of(Vertex);
       indices_bytes  := crystal.mesh.indices.count * size_of(u32);
-      assert(vertices_bytes + indices_bytes < staging_buffer.host_mem.count);
-      memcpy(staging_buffer.host_mem.data, crystal.mesh.vertices.data, vertices_bytes);
-      memcpy(staging_buffer.host_mem.data + vertices_bytes, crystal.mesh.indices.data, indices_bytes);
+      total_bytes    := vertices_bytes + indices_bytes;
+      assert(vertices_bytes + indices_bytes < staging_buffer_host_mem.count);
+      memcpy(staging_buffer_host_mem.data, crystal.mesh.vertices.data, vertices_bytes);
+      memcpy(staging_buffer_host_mem.data + vertices_bytes, crystal.mesh.indices.data, indices_bytes);
       mesh_buffer_offset = align_up(mesh_buffer_offset, 4);
       crystal_mesh_info = .{
         cast(u64)mesh_buffer_offset,
@@ -199,11 +196,11 @@ main :: () {
       begin_render_command(imm_command);
       defer end_render_command(imm_command);
 
-      cmd_copy_buffer_to_buffer(imm_command, mesh_buffer.buffer, staging_buffer.buffer, .{
-        srcOffset = 0,
-        dstOffset = xx mesh_buffer_offset,
-        size      = xx (vertices_bytes + indices_bytes),
-      });
+      cmd_copy_buffer_slice_to_buffer_slice(
+        imm_command,
+        slice(mesh_buffer,    cast(u32)mesh_buffer_offset, cast(u32)(mesh_buffer_offset + total_bytes)),
+        slice(staging_buffer, 0,                           cast(u32)total_bytes)
+      );
       mesh_buffer_offset += vertices_bytes + indices_bytes;
     }
     submit_wait_reset(imm_command);
@@ -228,7 +225,7 @@ main :: () {
   while !quit {
     reset_temporary_storage();
     platform_new_frame();
-    new_frame(*ui, ui_buffers[current_frame_idx].host_mem);
+    new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
 
     rebuild_pipelines_if_needed();
 
@@ -278,7 +275,7 @@ main :: () {
       if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
         wait_swapchain_fence(xx last_swapchain_image_index);
       recreate_swapchain();
-      recreate_depth_buffer();
+      recreate_depth_image();
     }
 
     render_command := *render_commands[current_frame_idx];
@@ -297,7 +294,7 @@ main :: () {
           if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
             wait_swapchain_fence(xx last_swapchain_image_index);
           recreate_swapchain();
-          recreate_depth_buffer();
+          recreate_depth_image();
 
           // note(sc): for some reason acquiring the image singles the semaphore even on
           // failure. Maybe there is a way to handle it more reasonably.
@@ -370,7 +367,7 @@ main :: () {
     );
 
     {
-      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_buffer.view);
+      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_image.view);
 
       world_rotation_z  := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
       camera_rotation_x := quat_from_axis_angle(.{ x = -1.0 }, PI - camera_rotation.x);
@@ -386,7 +383,7 @@ main :: () {
       translate(*view_inv, camera_position);
 
       projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
-      scene := cast(*Scene)scene_buffer.host_mem.data;
+      scene := scene_buffer.host_ptr;
       scene.* = .{
         camera_view       = view,
         camera_view_inv   = view_inv,
@@ -497,16 +494,15 @@ main :: () {
   }
 }
 
-recreate_depth_buffer :: () {
-  free_image_memory(depth_buffer.image, *gpu_memory);
-  destroy_image_view(depth_buffer.view);
-  destroy_image(depth_buffer.image);
-  depth_buffer = create_and_alloc_image(window_width,
-                                        window_height,
-                                        .D32_SFLOAT,
-                                        .DEPTH_STENCIL_ATTACHMENT_BIT,
-                                        .DEVICE_LOCAL_BIT,
-                                        *gpu_memory);
+recreate_depth_image :: () {
+  pop(*gpu_image_arena, depth_image);
+  depth_image = push(
+    *gpu_image_arena,
+    window_width,
+    window_height,
+    .D32_SFLOAT,
+    .DEPTH_STENCIL_ATTACHMENT_BIT,
+  );
   imm_command := *render_commands[FRAMES];
   {
     begin_render_command(imm_command);
@@ -514,8 +510,8 @@ recreate_depth_buffer :: () {
 
     transition_image(
       imm_command,
-      depth_buffer.image,
-      depth_buffer.usage,
+      depth_image.image,
+      depth_image.usage,
       .UNDEFINED,
       .GENERAL,
       VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
@@ -525,143 +521,6 @@ recreate_depth_buffer :: () {
     );
   }
   submit_wait_reset(imm_command);
-}
-
-GpuMemory :: struct {
-  #as memory: VkDeviceMemory;
-  size:       u32;
-  used:       u32;
-  host_mem:   []u8;
-};
-allocate_gpu_memory :: (size: u32, flags: VkMemoryPropertyFlags) -> GpuMemory {
-  index  := find_arena_index(~cast(u32)0, flags);
-  memory := allocate_memory(index, size);
-  host_mem := ifx flags & .HOST_VISIBLE_BIT map_memory(memory, size);
-  return .{ memory, size, 0, host_mem };
-}
-
-// note(sc): assume this is the last thing allocated from this arena
-free_image_memory :: (image: VkImage, gpu_memory: *GpuMemory) {
-  requirements := get_image_memory_requirements(image);
-  assert(requirements.size < gpu_memory.used);
-  gpu_memory.used -= xx requirements.size;
-}
-
-bind_image_memory :: (image: VkImage, props: VkMemoryPropertyFlags, gpu_memory: *GpuMemory) {
-  requirements := get_image_memory_requirements(image);
-
-  alignment: u32 = xx requirements.alignment;
-  size     : u32 = xx requirements.size;
-  start := (gpu_memory.used + alignment) & ~(alignment - 1);
-  assert(start < gpu_memory.size);
-  end   := start + size;
-  assert(end < gpu_memory.size);
-
-  bind_image_memory(image, gpu_memory, start);
-  gpu_memory.used = end;
-}
-
-bind_buffer_memory :: (buffer: VkBuffer, props: VkMemoryPropertyFlags, gpu_memory: *GpuMemory) -> []u8 {
-  requirements := get_buffer_memory_requirements(buffer);
-
-  alignment: u32 = xx requirements.alignment;
-  size     : u32 = xx requirements.size;
-  start := (gpu_memory.used + alignment) & ~(alignment - 1);
-  assert(start < gpu_memory.size);
-  end   := start + size;
-  assert(end < gpu_memory.size);
-
-  bind_buffer_memory(buffer, gpu_memory, start);
-  gpu_memory.used = end;
-
-  host_mem: []u8;
-  if gpu_memory.host_mem host_mem = .{ data = gpu_memory.host_mem.data + start, count = size };
-  return host_mem;
-}
-
-Image :: struct {
-  image:  VkImage;
-  view:   VkImageView;
-  extent: VkExtent3D;
-  format: VkFormat;
-  usage:  VkImageUsageFlags;
-  props:  VkMemoryPropertyFlags;
-};
-create_and_alloc_image :: (
-    width:  u32,
-    height: u32,
-    format: VkFormat,
-    usage:  VkImageUsageFlags,
-    props:  VkMemoryPropertyFlags,
-    gpu_memory: *GpuMemory,
-) -> Image {
-  extent: VkExtent3D = .{
-    width = width,
-    height = height,
-    depth = 1,
-  };
-  image_create_info: VkImageCreateInfo = .{
-    imageType = ._2D,
-    format = format,
-    extent = extent,
-    usage = usage,
-    mipLevels = 1,
-    arrayLayers = 1,
-    samples = ._1_BIT,
-    tiling = .OPTIMAL,
-    initialLayout = .UNDEFINED,
-    sharingMode = .EXCLUSIVE,
-  };
-
-  image := create_image(image_create_info);
-  bind_image_memory(image, props, gpu_memory);
-
-  view_create_info: VkImageViewCreateInfo = .{
-    image = image,
-    viewType = ._2D,
-    format = image_create_info.format,
-    components = .{ .IDENTITY, .IDENTITY, .IDENTITY, .IDENTITY },
-    subresourceRange = .{
-      aspectMask = ifx usage & .DEPTH_STENCIL_ATTACHMENT_BIT then .DEPTH_BIT else .COLOR_BIT,
-      baseMipLevel = 0,
-      levelCount = 1,
-      baseArrayLayer = 0,
-      layerCount = 1,
-    },
-  };
-  view := create_image_view(view_create_info);
-
-  return .{
-    image  = image,
-    view   = view,
-    extent = extent,
-    format = format,
-    usage = usage,
-    props = props,
-  };
-}
-
-Buffer :: struct {
-  buffer:         VkBuffer;
-  device_address: VkDeviceAddress;
-  host_mem:       []u8;
-}
-create_and_alloc_buffer :: (
-  size: u32,
-  usage: VkBufferUsageFlags,
-  props: VkMemoryPropertyFlags,
-  gpu_memory: *GpuMemory,
-) -> Buffer {
-  result: Buffer = .{};
-  buffer_create_info: VkBufferCreateInfo = .{
-      size        = size,
-      usage       = usage,
-      sharingMode = .EXCLUSIVE,
-  };
-  buffer         := create_buffer(buffer_create_info);
-  host_mem       := bind_buffer_memory(buffer, props, gpu_memory);
-  device_address := ifx usage & .SHADER_DEVICE_ADDRESS_BIT get_buffer_address(buffer);
-  return .{ buffer, device_address, host_mem };
 }
 
 Pipeline :: struct {
