@@ -40,6 +40,11 @@ timestamp_pool:  VkQueryPool;
 cube_mesh_info: GpuMeshInfo;
 depth_buffer: Image;
 
+compute_pipeline: Pipeline;
+text_pipeline:    Pipeline;
+grid_pipeline:    Pipeline;
+mesh_pipeline:    Pipeline;
+
 main :: () {
   if !platform_init() return;
   defer platform_quit();
@@ -172,10 +177,10 @@ main :: () {
     submit_wait_reset(imm_command);
   }
 
-  compute_pipeline := create_full_screen_effect_comptue_pipeline();
-  text_pipeline    := create_text_pipeline();
-  grid_pipeline    := create_grid_pipeline();
-  mesh_pipeline    := create_mesh_pipeline();
+  compute_pipeline = create_full_screen_effect_comptue_pipeline();
+  text_pipeline    = create_text_pipeline();
+  grid_pipeline    = create_grid_pipeline();
+  mesh_pipeline    = create_mesh_pipeline();
 
   ui: Context;
   init(*ui, *font);
@@ -191,58 +196,7 @@ main :: () {
     platform_new_frame();
     new_frame(*ui, ui_buffers[current_frame_idx].host_mem);
 
-    rebuild_gradient_shader := false;
-    rebuild_ui_shader := false;
-    rebuild_mesh_shader := false;
-    rebuild_grid_shader := false;
-    while changed_file := has_event(*file_watcher) {
-      log("Found changed file: %", changed_file);
-      if changed_file == {
-        case "shaders/gradient_comp.glsl";
-          rebuild_gradient_shader = true;
-        case "shaders/text_frag.glsl"; #through;
-        case "shaders/text_vert.glsl";
-          rebuild_ui_shader = true;
-        case "shaders/mesh_frag.glsl"; #through;
-        case "shaders/mesh_vert.glsl";
-          rebuild_mesh_shader = true;
-        case "shaders/grid_frag.glsl"; #through;
-        case "shaders/grid_vert.glsl";
-          rebuild_grid_shader = true;
-      }
-    }
-    if rebuild_gradient_shader {
-      log("Rebuiding GRADIENT pipeline");
-      if compile_shader("shaders/gradient_comp.glsl") {
-        device_wait_idle();
-        destroy_pipeline(compute_pipeline);
-        compute_pipeline = create_full_screen_effect_comptue_pipeline();
-      } else log_error("Failed to rebuild GRADIENT pipeline");
-    }
-    if rebuild_ui_shader {
-      log("Rebuiding UI pipeline");
-      if compile_shader("shaders/text_frag.glsl") && compile_shader("shaders/text_vert.glsl") {
-        device_wait_idle();
-        destroy_pipeline(text_pipeline);
-        text_pipeline = create_text_pipeline();
-      } else log_error("Failed to rebuild UI pipeline");
-    }
-    if rebuild_mesh_shader {
-      log("Rebuiding MESH pipeline");
-      if compile_shader("shaders/mesh_frag.glsl") && compile_shader("shaders/mesh_vert.glsl") {
-        device_wait_idle();
-        destroy_pipeline(mesh_pipeline);
-        mesh_pipeline = create_mesh_pipeline();
-      } else log_error("Failed to rebuild MESH pipeline");
-    }
-    if rebuild_grid_shader {
-      log("Rebuiding GRID pipeline");
-      if compile_shader("shaders/grid_frag.glsl") && compile_shader("shaders/grid_vert.glsl") {
-        device_wait_idle();
-        destroy_pipeline(grid_pipeline);
-        grid_pipeline = create_grid_pipeline();
-      } else log_error("Failed to rebuild GRID pipeline");
-    }
+    rebuild_pipelines_if_needed();
 
     ui.mouse_position = mouse_position;
     ui.mouse_pressed  = just_pressed(mouse_state, .LMB);
@@ -1039,6 +993,61 @@ destroy_pipeline :: (pipeline: Pipeline) {
   if pipeline.dsl destroy_descriptor_set_layout(pipeline.dsl);
   if pipeline.layout destroy_pipeline_layout(pipeline.layout);
   if pipeline.pipeline destroy_pipeline(pipeline.pipeline);
+}
+
+rebuild_pipelines_if_needed :: () {
+  rebuild_gradient_shader := false;
+  rebuild_ui_shader := false;
+  rebuild_mesh_shader := false;
+  rebuild_grid_shader := false;
+  while changed_file := has_event(*file_watcher) {
+    log("Found changed file: %", changed_file);
+    if changed_file == {
+      case "shaders/gradient_comp.glsl";
+        rebuild_gradient_shader = true;
+      case "shaders/text_frag.glsl"; #through;
+      case "shaders/text_vert.glsl";
+        rebuild_ui_shader = true;
+      case "shaders/mesh_frag.glsl"; #through;
+      case "shaders/mesh_vert.glsl";
+        rebuild_mesh_shader = true;
+      case "shaders/grid_frag.glsl"; #through;
+      case "shaders/grid_vert.glsl";
+        rebuild_grid_shader = true;
+    }
+  }
+  if rebuild_gradient_shader {
+    log("Rebuiding GRADIENT pipeline");
+    if compile_shader("shaders/gradient_comp.glsl") {
+      device_wait_idle();
+      destroy_pipeline(compute_pipeline);
+      compute_pipeline = create_full_screen_effect_comptue_pipeline();
+    } else log_error("Failed to rebuild GRADIENT pipeline");
+  }
+  if rebuild_ui_shader {
+    log("Rebuiding UI pipeline");
+    if compile_shader("shaders/text_frag.glsl") && compile_shader("shaders/text_vert.glsl") {
+      device_wait_idle();
+      destroy_pipeline(text_pipeline);
+      text_pipeline = create_text_pipeline();
+    } else log_error("Failed to rebuild UI pipeline");
+  }
+  if rebuild_mesh_shader {
+    log("Rebuiding MESH pipeline");
+    if compile_shader("shaders/mesh_frag.glsl") && compile_shader("shaders/mesh_vert.glsl") {
+      device_wait_idle();
+      destroy_pipeline(mesh_pipeline);
+      mesh_pipeline = create_mesh_pipeline();
+    } else log_error("Failed to rebuild MESH pipeline");
+  }
+  if rebuild_grid_shader {
+    log("Rebuiding GRID pipeline");
+    if compile_shader("shaders/grid_frag.glsl") && compile_shader("shaders/grid_vert.glsl") {
+      device_wait_idle();
+      destroy_pipeline(grid_pipeline);
+      grid_pipeline = create_grid_pipeline();
+    } else log_error("Failed to rebuild GRID pipeline");
+  }
 }
 
 RenderCommand :: struct {
