@@ -1,3 +1,19 @@
+// The world space is right handed Z up
+//   ^ z
+//   |
+//   |---> y
+// /
+// x
+//
+// The camera space is right handed Z into the screen (same as default Vulkan NDC)
+//      z
+//    /
+//   |---> x
+//   |
+//   y
+//
+// Default camera orientation is looking down the -Z
+
 look_at :: (position: Vector3, target: Vector3, up: Vector3) -> Matrix4 {
   forward := normalize(target - position);
   right   := normalize(cross(forward, up));
@@ -22,7 +38,7 @@ perspective :: (fovy: float, aspect: float, near: float, far: float) -> Matrix4 
   k := near / (near - far);
   return .{
     _11 = g / aspect, _12 = 0.0, _13 = 0.0,      _14 = 0.0,
-    _21 = 0.0,        _22 = -g,   _23 = 0.0,      _24 = 0.0,
+    _21 = 0.0,        _22 = g,   _23 = 0.0,      _24 = 0.0,
     _31 = 0.0,        _32 = 0.0, _33 = k,        _34 = 1.0,
     _41 = 0.0,        _42 = 0.0, _43 = -far * k, _44 = 0.0,
   };
@@ -37,6 +53,66 @@ quat_from_axis_angle :: (axis: Vector3, angle: float) -> Quaternion {
     z = axis.z * s,
     w = c,
   };
+}
+
+quat_from_rotation_axis :: (x_axis: Vector3, y_axis: Vector3, z_axis: Vector3) -> Quaternion {
+  m00 := x_axis.x;
+  m01 := x_axis.y;
+  m02 := x_axis.z;
+
+  m10 := y_axis.x;
+  m11 := y_axis.y;
+  m12 := y_axis.z;
+
+  m20 := z_axis.x;
+  m21 := z_axis.y;
+  m22 := z_axis.z;
+
+  if m22 <= 0.0 {
+    d := m11 - m00;
+    n := 1.0 - m22;
+    if d <= 0.0 {
+      f   := n - d;
+      inv := 0.5 / sqrt(f);
+      return .{
+        x = f * inv,
+        y = (m01 + m10) * inv,
+        z = (m02 + m20) * inv,
+        w = (m12 - m21) * inv,
+      };
+    } else {
+      f   := n + d;
+      inv := 0.5 / sqrt(f);
+      return .{
+        x = (m01 + m10) * inv,
+        y = f * inv,
+        z = (m12 + m21) * inv,
+        w = (m20 - m02) * inv,
+      };
+    }
+  } else {
+    d := m11 + m00;
+    n := 1.0 + m22;
+    if d <= 0.0 {
+      f   := n - d;
+      inv := 0.5 / sqrt(f);
+      return .{
+        x = (m02 + m20) * inv,
+        y = (m12 + m21) * inv,
+        z = f * inv,
+        w = (m01 - m10) * inv,
+      };
+    } else {
+      f   := n + d;
+      inv := 0.5 / sqrt(f);
+      return .{
+        z = (m12 - m21) * inv,
+        w = (m20 - m02) * inv,
+        x = (m01 - m10) * inv,
+        y = f * inv,
+      };
+    }
+  }
 }
 
 quat_to_mat4 :: (quat: Quaternion) -> Matrix4 {

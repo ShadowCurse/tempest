@@ -186,7 +186,7 @@ main :: () {
   init(*ui, *font);
 
   camera_position: Vector3 = .{ 0.0, -5.0, 5.0 };
-  camera_rotation: Vector2 = .{ 1.2, 0.0 };
+  camera_rotation: Vector2 = .{ 0.78, 0.0 };
 
   v := 1.0;
   need_swapchain_recreation := false;
@@ -207,14 +207,13 @@ main :: () {
     if pressed(keyboard_state, .S)     camera_velocity.z -= 1.0;
     if pressed(keyboard_state, .A)     camera_velocity.x -= 1.0;
     if pressed(keyboard_state, .D)     camera_velocity.x += 1.0;
-    if pressed(keyboard_state, .LCTRL) camera_velocity.y -= 1.0;
-    if pressed(keyboard_state, .SPACE) camera_velocity.y += 1.0;
+    if pressed(keyboard_state, .LCTRL) camera_velocity.y += 1.0;
+    if pressed(keyboard_state, .SPACE) camera_velocity.y -= 1.0;
     if pressed(mouse_state, .LMB) {
-      camera_rotation.y += mouse_movement.x * (1.0 / 120.0);
-      camera_rotation.x += mouse_movement.y * (1.0 / 120.0);
+      camera_rotation.y -= mouse_movement.x * (1.0 / 120.0);
+      camera_rotation.x -= mouse_movement.y * (1.0 / 120.0);
       camera_rotation.x = clamp(camera_rotation.x, 0, PI);
     }
-
 
     // note(sc): the caller will get one frame old data
     get_query_pool_results(timestamp_pool, timestamp_array.values);
@@ -228,7 +227,7 @@ main :: () {
     ui_ms      := cast(float)ui_ns / 1000_000.0;
 
     panel_position: Vector2 = .{300.0, 300.0};
-    panel_size:     Vector2 = .{300.0, 300.0};
+    panel_size:     Vector2 = .{300.0, 600.0};
     panel_start(*ui, panel_position, panel_size, "Panel");
     label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
     label(*ui, tprint("GPU GRID ms: %", grid_ms));
@@ -236,6 +235,8 @@ main :: () {
     label(*ui, tprint("GPU UI ms: %", ui_ms));
     label(*ui, tprint("LMB pressed: %", pressed(mouse_state, .LMB)));
     label(*ui, tprint("LMB just pressed: %", just_pressed(mouse_state, .LMB)));
+    label(*ui, tprint("pos: %", camera_position));
+    label(*ui, tprint("rot: %", camera_rotation));
     if button(*ui, "Debug") ui.debug = !ui.debug;
 
     if need_swapchain_recreation {
@@ -336,19 +337,24 @@ main :: () {
     {
       cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_buffer.view);
 
-      rotation_x := quat_from_axis_angle(.{ x = 1.0 }, camera_rotation.x);
-      rotation_z := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
-      rotation := rotation_z * rotation_x;
-      camera_position += rotate(camera_velocity * 5.0 * (1.0 / 120.0), rotation);
-      transform := quat_to_mat4(rotation);
-      translate(*transform, camera_position);
+      world_rotation_z  := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
+      camera_rotation_x := quat_from_axis_angle(.{ x = -1.0 }, PI - camera_rotation.x);
+      camera_to_world_rotation := world_rotation_z * camera_rotation_x;
+      world_to_camera_rotation := conjugate(camera_to_world_rotation);
+
+      camera_position += rotate(camera_velocity * 5.0 * (1.0 / 120.0), camera_to_world_rotation);
+
+      view := quat_to_mat4(world_to_camera_rotation);
+      translate(*view, rotate(-camera_position, world_to_camera_rotation));
+
+      view_inv := quat_to_mat4(camera_to_world_rotation);
+      translate(*view_inv, camera_position);
 
       projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
-      _, view    := inverse_lengyel(transform);
       scene := cast(*Scene)scene_buffer.host_mem.data;
       scene.* = .{
         camera_view       = view,
-        camera_view_inv   = transform,
+        camera_view_inv   = view_inv,
         camera_projection = projection,
       };
 
