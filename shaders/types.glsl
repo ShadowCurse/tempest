@@ -1,14 +1,5 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
-struct Vertex {
-    vec3 position;
-    float uv_x;
-    vec3 normal;
-    float uv_y;
-    vec3 color;
-    float _;
-};
-
 struct Scene {
     mat4 camera_view;
     mat4 camera_view_inv;
@@ -29,6 +20,15 @@ struct TextPushConstant {
     uint64_t quads;
     vec2 screen_size;
     float scaling;
+};
+
+struct Vertex {
+    vec3 position;
+    float uv_x;
+    vec3 normal;
+    float uv_y;
+    vec3 color;
+    float _;
 };
 
 struct Quad {
