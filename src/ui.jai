@@ -247,7 +247,7 @@ label :: (c: *Context, text: string) {
 }
 
 button :: (c: *Context, text: string) -> bool {
-  button_id        : u32 = 5;
+  button_id := create_id(xx text);
   current_position := current_placement(c.current_layout);
   button_position  := current_position + .{ c.all_margin, c.all_margin };
   button_size: Vector2 = .{ max_width(c.current_layout) - c.all_margin * 2.0, c.font_size };
