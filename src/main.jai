@@ -229,23 +229,6 @@ main :: () {
 
     rebuild_pipelines_if_needed();
 
-    ui.mouse_position = mouse_position;
-    ui.mouse_just_pressed  = just_pressed(mouse_state, .LMB);
-    ui.mouse_down     = pressed(mouse_state, .LMB);
-
-    camera_velocity: Vector3;
-    if pressed(keyboard_state, .W)     camera_velocity.z += 1.0;
-    if pressed(keyboard_state, .S)     camera_velocity.z -= 1.0;
-    if pressed(keyboard_state, .A)     camera_velocity.x -= 1.0;
-    if pressed(keyboard_state, .D)     camera_velocity.x += 1.0;
-    if pressed(keyboard_state, .LCTRL) camera_velocity.y += 1.0;
-    if pressed(keyboard_state, .SPACE) camera_velocity.y -= 1.0;
-    if pressed(mouse_state, .LMB) {
-      camera_rotation.y -= mouse_movement.x * (1.0 / 120.0);
-      camera_rotation.x -= mouse_movement.y * (1.0 / 120.0);
-      camera_rotation.x = clamp(camera_rotation.x, 0, PI);
-    }
-
     // note(sc): the caller will get one frame old data
     get_query_pool_results(timestamp_pool, timestamp_array.values);
     compute_ns := timestamp_array[Timestamp.COMPUTE_END] - timestamp_array[Timestamp.COMPUTE_START];
@@ -258,24 +241,47 @@ main :: () {
     ui_ms      := cast(float)ui_ns / 1000_000.0;
 
     {
-      panel_start(*ui, "Panel", .{ 300.0, 400.0 }, .{ 200.0, 200.0 });
-      defer panel_end(*ui);
+      ui.mouse_position = mouse_position;
+      ui.mouse_just_pressed  = just_pressed(mouse_state, .LMB);
+      ui.mouse_down     = pressed(mouse_state, .LMB);
 
-      label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
-      label(*ui, tprint("GPU GRID ms: %", grid_ms));
-      label(*ui, tprint("GPU MESH ms: %", mesh_ms));
-      label(*ui, tprint("GPU UI ms: %", ui_ms));
-      label(*ui, tprint("LMB pressed: %", pressed(mouse_state, .LMB)));
-      label(*ui, tprint("LMB just pressed: %", just_pressed(mouse_state, .LMB)));
-      label(*ui, tprint("pos: %", camera_position));
-      label(*ui, tprint("rot: %", camera_rotation));
-      label(*ui, tprint("pressed_id: %", ui.pressed_id));
-      label(*ui, tprint("hover_id: %", ui.hover_id));
-      if button(*ui, "Draw Cube")    draw_cube    = !draw_cube;
-      if button(*ui, "Draw Crystal") draw_crystal = !draw_crystal;
+      {
+        panel_start(*ui, "Panel", .{ 300.0, 400.0 }, .{ 200.0, 200.0 });
+        defer panel_end(*ui);
+
+        label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
+        label(*ui, tprint("GPU GRID ms: %", grid_ms));
+        label(*ui, tprint("GPU MESH ms: %", mesh_ms));
+        label(*ui, tprint("GPU UI ms: %", ui_ms));
+        label(*ui, tprint("LMB pressed: %", pressed(mouse_state, .LMB)));
+        label(*ui, tprint("LMB just pressed: %", just_pressed(mouse_state, .LMB)));
+        label(*ui, tprint("pos: %", camera_position));
+        label(*ui, tprint("rot: %", camera_rotation));
+        label(*ui, tprint("pressed_id: %", ui.pressed_id));
+        label(*ui, tprint("hover_id: %", ui.hover_id));
+        if button(*ui, "Draw Cube")    draw_cube    = !draw_cube;
+        if button(*ui, "Draw Crystal") draw_crystal = !draw_crystal;
+      }
+
+      finish_widgets(*ui);
     }
 
-    finish_widgets(*ui);
+    camera_velocity: Vector3;
+    if !ui.consumed_keyboard_event {
+      if pressed(keyboard_state, .W)     camera_velocity.z += 1.0;
+      if pressed(keyboard_state, .S)     camera_velocity.z -= 1.0;
+      if pressed(keyboard_state, .A)     camera_velocity.x -= 1.0;
+      if pressed(keyboard_state, .D)     camera_velocity.x += 1.0;
+      if pressed(keyboard_state, .LCTRL) camera_velocity.y += 1.0;
+      if pressed(keyboard_state, .SPACE) camera_velocity.y -= 1.0;
+    }
+    if !ui.consumed_mouse_event {
+      if pressed(mouse_state, .LMB) {
+        camera_rotation.y -= mouse_movement.x * (1.0 / 120.0);
+        camera_rotation.x -= mouse_movement.y * (1.0 / 120.0);
+        camera_rotation.x = clamp(camera_rotation.x, 0, PI);
+      }
+    }
 
     if need_swapchain_recreation {
       if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX

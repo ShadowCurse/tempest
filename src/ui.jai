@@ -41,21 +41,17 @@ Context :: struct {
   font_size: float = 20.0;
   font:      *Font;
 
-  // all_border: float = 2.0;
-  // all_margin: float = 5.0;
-
   hover_id:       u32;
   pressed_id:     u32;
-  // panels_pool:    [8]Panel;
-  // current_layout: Layout;
 
   frame:              u32;
   mouse_position:     Vector2;
   old_mouse_position: Vector2;
   mouse_down:         bool;
-  mouse_just_pressed:      bool;
+  mouse_just_pressed: bool;
 
-  // debug:             bool;
+  consumed_mouse_event:    bool;
+  consumed_keyboard_event: bool;
 
   global_parent:     Widget;
   global_parent.border = 2.0;
@@ -76,7 +72,8 @@ init :: (c: *Context, font: *Font) {
 new_frame :: (c: *Context, buffer: []Quad) {
   init(*c.draw_buffer, .{ data = cast(*u8)buffer.data, count = buffer.count * size_of(Quad) });
   c.frame += 1;
-  // c.mouse_just_pressed = false;
+  c.consumed_mouse_event    = false;
+  c.consumed_keyboard_event = false;
   c.old_mouse_position = c.mouse_position;
   frame_reset(*c.global_parent);
 }
@@ -330,6 +327,7 @@ check_rect_interaction :: (c: *Context, id: u32, position: Vector2, size: Vector
   if point_in_rect(position, size, c.mouse_position) hovered = true;
   if hovered && !c.mouse_just_pressed c.hover_id = id;
   if c.pressed_id == id {
+    c.consumed_mouse_event = true;
     if !hovered && c.mouse_just_pressed c.pressed_id = 0;
     if !c.mouse_down                    c.pressed_id = 0;
   }
