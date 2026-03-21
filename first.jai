@@ -113,7 +113,12 @@ write_shader_structs :: (structs: []Struct) {
   builder: String_Builder;
   print_to_builder(
     *builder,
-    "#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require\n\n"
+#string DONE
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+#define VkDeviceAddress uint64_t
+
+DONE
   );
   for structs print_struct(*builder, it);
   code := builder_to_string(*builder);
@@ -134,38 +139,45 @@ print_struct :: (builder: *String_Builder, s: Struct) {
     return;
   }
 
-  print_to_builder(builder, "struct % {\n", s.name);
+  Field :: struct { type: string; name: string; };
+  fields: [..]Field;
+  Alias :: struct { from: string; to: string; };
+  aliases: [..]Alias;
+
   if c.block {
     for c.block.statements {
       if it.node_flags & .CREATED_BY_DESUGARING continue;
       if it.kind == it.kind.DECLARATION {
         decl := cast(*Code_Declaration)it;
-        found_type: string;
-        if decl.notes {
-          found_type = decl.notes[0].text;
-        } else {
-          if decl.type_inst {
-            if decl.type_inst.type_valued_expression.kind == .IDENT {
-              ident := cast(*Code_Ident)decl.type_inst.type_valued_expression;
-              found_type = ident.name;
+        type: string;
+        if decl.type_inst {
+          if decl.type_inst.type_valued_expression.kind == .IDENT {
+            ident := cast(*Code_Ident)decl.type_inst.type_valued_expression;
+            if decl.notes{
+              type = ident.name;
+              glsl_type := type_to_glsl_type(decl.notes[0].text);
+              array_add(*aliases, .{ ident.name, glsl_type });
+            } else {
+              type = type_to_glsl_type(ident.name);
             }
           }
         }
-        if found_type {
-          glsl_type := type_to_glsl_type(found_type);
-          print_to_builder(builder, "    % %;\n", glsl_type, decl.name);
-        }
+        if type array_add(*fields, .{ type, decl.name });
       }
     }
   }
+  for aliases print_to_builder(builder, "#define % %\n", it.from, it.to);
+  print_to_builder(builder, "struct % {\n", s.name);
+  for fields print_to_builder(builder, "    % %;\n", it.type, it.name);
   print_to_builder(builder, "};\n\n");
 }
 
 type_to_glsl_type :: (type: string) -> string {
   if type == {
     case "u32";             return "uint";
-    case "u64";             #through;
-    case "VkDeviceAddress"; return "uint64_t";
+    case "u64";             return "uint64_t";//#through;
+    // case "VkDeviceAddress"; return "uint64_t";
+    case "VkDeviceAddress"; return "VkDeviceAddress";
     case "float";           #through;
     case "float32";         return "float";
     case "Vector2";         return "vec2";

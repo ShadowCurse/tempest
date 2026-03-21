@@ -1,5 +1,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
+#define VkDeviceAddress uint64_t
+
 struct Scene {
     mat4 camera_view;
     mat4 camera_view_inv;
@@ -7,17 +9,17 @@ struct Scene {
 };
 
 struct MeshPushConstant {
-    uint64_t mesh_buffer;
-    uint64_t scene_buffer;
+    VkDeviceAddress mesh_buffer;
+    VkDeviceAddress scene_buffer;
     uint vertices_offset;
 };
 
 struct GridPushConstant {
-    uint64_t scene_buffer;
+    VkDeviceAddress scene_buffer;
 };
 
 struct TextPushConstant {
-    uint64_t quads;
+    VkDeviceAddress quads;
     vec2 screen_size;
     float scaling;
 };
@@ -31,12 +33,13 @@ struct Vertex {
     float _;
 };
 
+#define QuadUsage uint
 struct Quad {
     vec2 position;
     vec2 size;
     vec2 uv_offset;
     vec2 uv_size;
-    uint usage;
+    QuadUsage usage;
     uint _;
 };
 

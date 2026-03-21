@@ -8,8 +8,8 @@ Quad :: struct {
 } @ShaderType
 
 QuadUsage :: enum u32 {
-  color :: 0;
-  text  :: 1;
+  COLOR :: 0;
+  TEXT  :: 1;
 }
 
 ColorType :: enum u8 {
@@ -162,7 +162,7 @@ draw_rect :: (c: *Context, position: Vector2, size: Vector2, color_type: ColorTy
     size      = size,
     uv_offset = .{ color.x, color.y },
     uv_size   = .{ color.z, 1.0 },
-    usage     = .color,
+    usage     = .COLOR,
   };
 }
 
@@ -310,7 +310,7 @@ text_layout :: (text: string, font: Font, size: float, position: Vector2, center
         size      = .{ char_width, char_height } * scale,
         uv_offset = .{ char_info.u0, char_info.v0 },
         uv_size   = .{ char_width, char_height },
-        usage     = .text,
+        usage     = .TEXT,
       };
       offset.x += char_info.advance * font_scale;
     }
