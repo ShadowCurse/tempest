@@ -13,12 +13,12 @@ QuadUsage :: enum u32 {
 }
 
 ColorType :: enum u8 {
-  background;
-  border;
-  header;
-  normal;
-  hovered;
-  pressed;
+  BACKGROUND;
+  BORDER;
+  HEADER;
+  NORMAL;
+  HOVERED;
+  PRESSED;
 };
 
 Colors :: [#run enum_elements_count(ColorType)]Vector3;
@@ -41,63 +41,275 @@ Context :: struct {
   font_size: float = 20.0;
   font:      *Font;
 
-  all_border: float = 2.0;
-  all_margin: float = 5.0;
+  // all_border: float = 2.0;
+  // all_margin: float = 5.0;
 
   hover_id:       u32;
   pressed_id:     u32;
-  panels_pool:    [8]Panel;
-  current_layout: Layout;
+  // panels_pool:    [8]Panel;
+  // current_layout: Layout;
 
   frame:              u32;
   mouse_position:     Vector2;
   old_mouse_position: Vector2;
   mouse_down:         bool;
-  mouse_pressed:      bool;
+  mouse_just_pressed:      bool;
 
-  debug:             bool;
-}
+  // debug:             bool;
 
-Panel :: struct {
-  position:          Vector2;
-  size:              Vector2;
-  last_frame_update: u32;
-  id:                u32;
-};
+  global_parent:     Widget;
+  global_parent.border = 2.0;
+  global_parent.margin = 2.0;
 
-Layout :: struct {
-  panel:            *Panel;
-  current_y_offset: float;
+  current_parent:    *Widget;
+  widgets:           [64]Widget;
+  use_fixed_position := false;
+  fixed_position:    Vector2;
 }
 
 init :: (c: *Context, font: *Font) {
   c.colors = *DefaultColors;
   c.font   = font;
+  c.current_parent = *c.global_parent;
 }
 
 new_frame :: (c: *Context, buffer: []Quad) {
   init(*c.draw_buffer, .{ data = cast(*u8)buffer.data, count = buffer.count * size_of(Quad) });
   c.frame += 1;
-  c.mouse_pressed = false;
+  // c.mouse_just_pressed = false;
   c.old_mouse_position = c.mouse_position;
+  frame_reset(*c.global_parent);
 }
 
 draw_elements :: (c: Context) -> u32 {
   return c.draw_buffer.end / cast(u16)size_of(Quad);
 }
 
-current_placement :: (layout: Layout) -> Vector2 {
-  result: Vector2 = .{layout.panel.position.x, layout.panel.position.y + layout.current_y_offset};
+WidgetFlags :: enum_flags u32 {
+  CLICK;
+  DRAG;
+  DRAW_BACKGROUND;
+  DRAW_TEXT;
+  DRAW_BORDER;
+}
+WidgetTextFlags :: enum_flags u8 {
+  CENTER;
+}
+Widget :: struct {
+  // per-frame update
+  id:                u32;
+  last_frame_update: u32;
+
+  // per-frame reset
+  parent:            *Widget;
+  next:              *Widget; // next on the same level
+  first:             *Widget; // firt on the level bellow
+  last:              *Widget; // last on the level bellow
+  layout_offset:      float;
+
+  // customization
+  flags:              WidgetFlags;
+  text_flags:         WidgetTextFlags;
+  text:               string;
+  border:             float;
+  margin:             float;
+
+  // cross-frame data
+  position:           Vector2;
+  size:               Vector2;
+  was_pressed:        bool;
+}
+
+frame_reset :: (w: *Widget) {
+  w.parent        = null;
+  w.next          = null;
+  w.first         = null;
+  w.last          = null;
+  w.layout_offset = 0;
+}
+
+// sdbm algorithm
+create_id :: (data: []u8, seed: u32 = 0) -> u32 {
+  hash: u32 = seed;
+  for data hash = cast(u32)it + (hash << 6) + (hash << 16) - hash;
+  return hash;
+}
+
+find_existing_widget :: (c: *Context, id: u32) -> *Widget {
+  for * c.widgets if it.id == id return it;
+  return null;
+}
+
+find_oldest_widget :: (c: *Context) -> *Widget {
+  result: *Widget;
+  oldest_frame: u32 = c.frame;
+  for *c.widgets {
+    if it.last_frame_update <= oldest_frame {
+        oldest_frame = it.last_frame_update;
+        result = it;
+    }
+  }
+  assert(result != null, "Cannot init new panel");
   return result;
 }
 
-max_width :: (layout: Layout) -> float {
-  result := layout.panel.size.x;
+link_widget :: (parent: *Widget, w: *Widget) {
+  if !parent.first {
+    parent.first, parent.last = w;
+  } else {
+    assert(parent.last != null);
+    parent.last.next = w;
+  }
+  parent.last = w;
+  w.parent = parent;
+}
+
+lock_layout :: (c: *Context, position: Vector2) {
+  c.use_fixed_position = true;
+  c.fixed_position     = position;
+}
+
+unlock_layout :: (c: *Context) {
+  c.use_fixed_position = false;
+}
+
+build_widget :: (
+  c: *Context,
+  name: string,
+  flags: WidgetFlags,
+  text_flags: WidgetTextFlags,
+  size: Vector2 = .{},
+) -> *Widget {
+  parent    := c.current_parent;
+  widget_id := create_id(xx name, parent.id);
+  widget    := find_existing_widget(c, widget_id);
+  if !widget {
+    widget    = find_oldest_widget(c);
+    widget.* = .{};
+  }
+
+  s := size;
+  if c.use_fixed_position {
+    if widget.id == 0 widget.position = c.fixed_position;
+  } else {
+    margin2 := parent.margin * 2.0;
+    if s == .{} {
+      if flags & .DRAW_TEXT {
+        s = .{ parent.size.x - margin2, c.font_size + margin2 };
+      }
+    }
+    widget_position: Vector2 = .{ parent.border, parent.layout_offset };
+    parent.layout_offset += s.y + parent.border;
+    widget.position = widget_position;
+  }
+
+  frame_reset(widget);
+  widget.id = widget_id;
+  widget.last_frame_update = c.frame;
+  link_widget(parent, widget);
+
+  widget.flags             = flags;
+  widget.text_flags        = text_flags;
+  widget.text              = name;
+  widget.border            = ifx flags & .DRAW_BORDER parent.border;
+  widget.margin            = parent.margin;
+  widget.size              = s;
+  return widget;
+}
+
+panel_start :: (c: *Context, name: string, size: Vector2, position: Vector2 = .{}) {
+  widget: *Widget;
+  if position != .{} {
+    lock_layout(c, position);
+    widget = build_widget(c, name, .DRAG | .DRAW_BACKGROUND | .DRAW_BORDER, 0, size);
+    unlock_layout(c);
+  } else {
+    widget = build_widget(c, name, .DRAW_BACKGROUND | .DRAW_BORDER, 0, size);
+  }
+  c.current_parent = widget;
+}
+
+panel_end :: (c: *Context) {
+  // note(sc): can this ensure that it is called on panel and not on any other widget?
+  c.current_parent = c.current_parent.parent;
+}
+
+label :: (c: *Context, text: string) {
+  widget := build_widget(c, text, .DRAW_TEXT, 0);
+}
+
+button :: (c: *Context, text: string) -> bool {
+  widget := build_widget(c, text, .CLICK | .DRAW_TEXT | .DRAW_BACKGROUND, .CENTER);
+  pressed := c.pressed_id == widget.id;
+  result := pressed && !widget.was_pressed;
+  widget.was_pressed = pressed;
   return result;
 }
 
-add_offset :: (layout: *Layout, v: float) {
-  layout.current_y_offset += v;
+print_widgets :: (c: *Context) {
+  indent := 0;
+  w := *c.global_parent;
+  while w != null {
+    for 0..indent - 1 print(" ");
+    log("id: % flags: % position: %", w.id, w.flags, w.position);
+    if w.first {
+      indent += 1;
+      w = w.first;
+    } else if w.next {
+      w = w.next;
+    } else {
+      indent -= 1;
+      w = w.parent.next;
+    }
+  }
+}
+
+finish_widgets :: (c: *Context) {
+  current_p := c.global_parent.position;
+  w := *c.global_parent;
+  while w != null {
+    current_p += w.position;
+    color: ColorType = .BACKGROUND;
+    if w.flags & .CLICK {
+      color = .NORMAL;
+      check_rect_interaction(c, w.id, current_p, w.size);
+      if c.hover_id   == w.id color = .HOVERED;
+      if c.pressed_id == w.id color = .PRESSED;
+    }
+    if w.flags & .DRAG {
+      check_rect_interaction(c, w.id, current_p, w.size);
+      if c.pressed_id == w.id && c.mouse_down {
+        delta := c.mouse_position - c.old_mouse_position;
+        w.position += delta;
+        current_p  += delta;
+      }
+    }
+    if w.flags & .DRAW_BACKGROUND {
+      draw_rect(c, current_p, w.size, color);
+    }
+    if w.flags & .DRAW_TEXT {
+      text_offset_x: float;
+      text_offset_y := (w.size.y + c.font_size) / 2.0;
+      if w.text_flags & .CENTER text_offset_x = w.size.x / 2.0;
+      else                      text_offset_x = w.border;
+      text_position := current_p + .{ text_offset_x, text_offset_y };
+      draw_text(c, text_position, w.text, cast(bool)(w.text_flags & .CENTER));
+    }
+    if w.flags & .DRAW_BORDER {
+      draw_border(c, current_p, w.size, w.border);
+    }
+
+    if w.first {
+      w = w.first;
+    } else if w.next {
+      current_p -= w.position;
+      w = w.next;
+    } else {
+      if w.parent && w.parent.parent current_p = w.parent.parent.position;
+      else current_p = .{};
+      w = w.parent.next;
+    }
+  }
 }
 
 rect_center :: (position: Vector2, size: Vector2) -> Vector2 {
@@ -113,43 +325,18 @@ point_in_rect :: (position: Vector2, size: Vector2, point: Vector2) -> bool {
   return left <= point.x && point.x <= right && up <= point.y && point.y <= bottom;
 }
 
-find_existing_panel :: (c: *Context, id: u32) -> *Panel {
-  for *panel: c.panels_pool if panel.id == id return panel;
-  return null;
-}
-
-find_oldest_panel :: (c: *Context) -> *Panel {
-  result: *Panel;
-  oldest_frame: u32 = c.frame;
-  for *panel: c.panels_pool {
-    if panel.last_frame_update <= oldest_frame {
-        oldest_frame = panel.last_frame_update;
-        result = panel;
-    }
-  }
-  assert(result != null, "Cannot init new panel");
-  return result;
-}
-
 check_rect_interaction :: (c: *Context, id: u32, position: Vector2, size: Vector2) {
   hovered: bool = false;
   if point_in_rect(position, size, c.mouse_position) hovered = true;
-  if hovered && !c.mouse_pressed c.hover_id = id;
+  if hovered && !c.mouse_just_pressed c.hover_id = id;
   if c.pressed_id == id {
-    if !hovered && c.mouse_pressed c.pressed_id = 0;
-    if !c.mouse_down               c.pressed_id = 0;
+    if !hovered && c.mouse_just_pressed c.pressed_id = 0;
+    if !c.mouse_down                    c.pressed_id = 0;
   }
   if c.hover_id == id {
-    if c.mouse_pressed c.pressed_id = id;
-    else if !hovered c.hover_id = 0;
+    if c.mouse_just_pressed c.pressed_id = id;
+    else if !hovered   c.hover_id = 0;
   }
-}
-
-// sdbm algorithm
-create_id :: (data: []u8) -> u32 {
-  hash: u32 = 0;
-  for data hash = cast(u32)it + (hash << 6) + (hash << 16) - hash;
-  return hash;
 }
 
 draw_rect :: (c: *Context, position: Vector2, size: Vector2, color_type: ColorType) {
@@ -166,112 +353,29 @@ draw_rect :: (c: *Context, position: Vector2, size: Vector2, color_type: ColorTy
   };
 }
 
-draw_border :: (c: *Context, position: Vector2, size: Vector2) {
-  border        := c.all_border;
+draw_border :: (c: *Context, position: Vector2, size: Vector2, width: float) {
+  border        := width;
   double_border := border * 2.0;
 
   top_position: Vector2 = .{ position.x - border, position.y - border };
   top_size:     Vector2 = .{ size.x + double_border, border };
-  draw_rect(c, top_position, top_size, .border);
+  draw_rect(c, top_position, top_size, .BORDER);
 
   bot_position: Vector2 = .{ position.x - border, position.y + size.y };
   bot_size             := top_size;
-  draw_rect(c, bot_position, bot_size, .border);
+  draw_rect(c, bot_position, bot_size, .BORDER);
 
   left_position     := top_position;
   left_size: Vector2 = .{ border, size.y + double_border };
-  draw_rect(c, left_position, left_size, .border);
+  draw_rect(c, left_position, left_size, .BORDER);
 
   right_position: Vector2 = .{ position.x + size.x, position.y - border };
   right_size             := left_size;
-  draw_rect(c, right_position, right_size, .border);
+  draw_rect(c, right_position, right_size, .BORDER);
 }
 
 draw_text :: (c: *Context, position: Vector2, text: string, centered: bool) {
   text_layout(text, c.font, c.font_size, position, centered,, allocator(*c.draw_buffer));
-}
-
-panel_start :: (c: *Context, position: Vector2, size: Vector2, title: string) {
-  panel_id := create_id(xx title);
-  panel := find_existing_panel(c, panel_id);
-  if !panel {
-    panel = find_oldest_panel(c);
-    panel.id       = panel_id;
-    panel.position = position;
-    panel.size     = size;
-  }
-  panel.last_frame_update = c.frame;
-  c.current_layout = .{ panel = panel };
-
-  // Panel dragging
-  {
-    header_position     := current_placement(c.current_layout);
-    header_size: Vector2 = .{ c.current_layout.panel.size.x, c.font_size };
-    check_rect_interaction(c, panel_id, header_position, header_size);
-    if c.pressed_id == panel_id && c.mouse_down {
-      delta := c.mouse_position - c.old_mouse_position;
-      c.current_layout.panel.position = c.current_layout.panel.position + delta;
-    }
-  }
-
-  // Background
-  panel_position := current_placement(c.current_layout);
-  panel_size     := c.current_layout.panel.size;
-  draw_rect(c, panel_position, panel_size, .background);
-  draw_border(c, panel_position, panel_size);
-
-  // Header
-  header_position     := panel_position;
-  header_size: Vector2 = .{ max_width(c.current_layout), c.font_size };
-  draw_rect(c, header_position, header_size, .header);
-
-  // Header text
-  text_offset_x := header_size.x / 2.0;
-  text_offset_y := (header_size.y + c.font_size / 2.0) / 2.0;
-  name_position := header_position + .{ text_offset_x, text_offset_y };
-  draw_text(c, name_position, title, true);
-
-  offset := header_size.y;
-  add_offset(*c.current_layout, offset);
-}
-
-label :: (c: *Context, text: string) {
-  label_position := current_placement(c.current_layout);
-  text_offset_x  := c.all_margin;
-  text_offset_y  := c.all_margin + c.font_size;
-  text_position  := label_position + .{ text_offset_x, text_offset_y };
-  draw_text(c, text_position, text, false);
-
-  offset := c.font_size + c.all_margin * 2.0;
-  add_offset(*c.current_layout, offset);
-}
-
-button :: (c: *Context, text: string) -> bool {
-  button_id := create_id(xx text);
-  current_position := current_placement(c.current_layout);
-  button_position  := current_position + .{ c.all_margin, c.all_margin };
-  button_size: Vector2 = .{ max_width(c.current_layout) - c.all_margin * 2.0, c.font_size };
-  check_rect_interaction(c, button_id, button_position, button_size);
-
-  // Background
-  button_color: ColorType = .normal;
-  if c.hover_id   == button_id button_color = .hovered;
-  if c.pressed_id == button_id button_color = .pressed;
-  draw_rect(c, button_position, button_size, button_color);
-
-  // Text
-  text_offset_x := button_size.x / 2.0;
-  text_offset_y := (button_size.y + c.font_size / 2.0) / 2.0;
-  text_position := button_position + .{ text_offset_x, text_offset_y };
-  draw_text(c, text_position, text, true);
-
-  result := false;
-  if c.pressed_id == button_id && c.mouse_pressed result = true;
-
-  offset := button_size.y;
-  add_offset(*c.current_layout, offset);
-
-  return result;
 }
 
 text_layout :: (text: string, font: Font, size: float, position: Vector2, center: bool) -> []Quad {
