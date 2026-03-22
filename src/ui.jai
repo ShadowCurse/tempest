@@ -59,8 +59,6 @@ Context :: struct {
 
   current_parent:    *Widget;
   widgets:           [64]Widget;
-  use_fixed_position := false;
-  fixed_position:    Vector2;
 }
 
 init :: (c: *Context, font: *Font) {
@@ -84,10 +82,16 @@ draw_elements :: (c: Context) -> u32 {
 
 WidgetFlags :: enum_flags u32 {
   CLICK;
-  DRAG;
+  DRAG_ALL;
+  DRAG_HORIZONTAL;
+  DRAG_VERTICAL;
   DRAW_BACKGROUND;
   DRAW_TEXT;
   DRAW_BORDER;
+  FIXED_SIZE_X;
+  FIXED_SIZE_Y;
+  FIXED_POSITION_X;
+  FIXED_POSITION_Y;
 }
 WidgetTextFlags :: enum_flags u8 {
   CENTER;
@@ -108,10 +112,12 @@ Widget :: struct {
   flags:              WidgetFlags;
   text_flags:         WidgetTextFlags;
   text:               string;
+  color:              ColorType;
   border:             float;
   margin:             float;
 
   // cross-frame data
+  position_delta:     Vector2;
   position:           Vector2;
   size:               Vector2;
   was_pressed:        bool;
@@ -161,21 +167,13 @@ link_widget :: (parent: *Widget, w: *Widget) {
   w.parent = parent;
 }
 
-lock_layout :: (c: *Context, position: Vector2) {
-  c.use_fixed_position = true;
-  c.fixed_position     = position;
-}
-
-unlock_layout :: (c: *Context) {
-  c.use_fixed_position = false;
-}
-
 build_widget :: (
-  c: *Context,
-  name: string,
-  flags: WidgetFlags,
+  c:          *Context,
+  name:       string,
+  flags:      WidgetFlags,
   text_flags: WidgetTextFlags,
-  size: Vector2 = .{},
+  size:       Vector2 = .{},
+  position:   Vector2 = .{},
 ) -> *Widget {
   parent    := c.current_parent;
   widget_id := create_id(xx name, parent.id);
@@ -185,19 +183,27 @@ build_widget :: (
     widget.* = .{};
   }
 
-  s := size;
-  if c.use_fixed_position {
-    if widget.id == 0 widget.position = c.fixed_position;
-  } else {
-    margin2 := parent.margin * 2.0;
-    if s == .{} {
-      if flags & .DRAW_TEXT {
-        s = .{ parent.size.x - margin2, c.font_size + margin2 };
-      }
+  if flags & .FIXED_SIZE_X { if widget.id == 0 widget.size.x = size.x; }
+  else widget.size.x = parent.size.x - parent.margin * 2.0;
+  if flags & .FIXED_SIZE_Y { if widget.id == 0 widget.size.y = size.y; }
+  else widget.size.y = ifx flags & .DRAW_TEXT c.font_size + parent.margin * 2.0;
+
+  if flags & .FIXED_POSITION_X {
+    if flags & .DRAG_ALL {
+      if widget.id == 0 widget.position.x = position.x;
+    } else {
+      widget.position.x = position.x;
     }
-    widget_position: Vector2 = .{ parent.border, parent.layout_offset };
-    parent.layout_offset += s.y + parent.border;
-    widget.position = widget_position;
+  } else widget.position.x = parent.border;
+  if flags & .FIXED_POSITION_Y {
+    if flags & .DRAG_ALL {
+      if widget.id == 0 widget.position.y = position.y;
+    } else {
+      widget.position.y = position.y;
+    }
+  } else {
+    widget.position.y = parent.layout_offset;
+    parent.layout_offset += widget.size.y + parent.border;
   }
 
   frame_reset(widget);
@@ -210,19 +216,14 @@ build_widget :: (
   widget.text              = name;
   widget.border            = ifx flags & .DRAW_BORDER parent.border;
   widget.margin            = parent.margin;
-  widget.size              = s;
   return widget;
 }
 
 panel_start :: (c: *Context, name: string, size: Vector2, position: Vector2 = .{}) {
   widget: *Widget;
-  if position != .{} {
-    lock_layout(c, position);
-    widget = build_widget(c, name, .DRAG | .DRAW_BACKGROUND | .DRAW_BORDER, 0, size);
-    unlock_layout(c);
-  } else {
-    widget = build_widget(c, name, .DRAW_BACKGROUND | .DRAW_BORDER, 0, size);
-  }
+  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .FIXED_SIZE_X | .FIXED_SIZE_Y;
+  if position != .{} flags |= .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
+  widget = build_widget(c, name, flags, 0, size, position);
   c.current_parent = widget;
 }
 
@@ -241,6 +242,29 @@ button :: (c: *Context, text: string) -> bool {
   result := pressed && !widget.was_pressed;
   widget.was_pressed = pressed;
   return result;
+}
+
+slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
+  label(c, tprint("%: %", name, v.*));
+
+  ratio := (v.* - lo) / (hi - lo);
+  ratio = clamp(ratio, 0.0, 1.0);
+  tag   := tprint("%_bg", name);
+  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .FIXED_SIZE_Y;
+  bg    := build_widget(c, tag, flags, 0, .{ y = 20.0 });
+  bg.color = .HEADER;
+
+  tag   = tprint("%_knob", name);
+  flags = .DRAG_HORIZONTAL | .DRAW_BACKGROUND | .DRAW_BORDER |
+          .FIXED_SIZE_X | .FIXED_SIZE_Y | .FIXED_POSITION_X | .FIXED_POSITION_Y;
+  knob := build_widget(c, tag, flags, 0, .{ 20.0, 20.0 }, .{ (bg.size.x - 20.0) * ratio, bg.position.y });
+
+  knob.color = .PRESSED;
+  if c.pressed_id == knob.id {
+    new_ratio := (knob.position.x + knob.position_delta.x) / (bg.size.x - 20.0);
+    new_ratio = clamp(new_ratio, 0.0, 1.0);
+    v.* = (hi - lo) * new_ratio;
+  }
 }
 
 print_widgets :: (c: *Context) {
@@ -266,24 +290,22 @@ finish_widgets :: (c: *Context) {
   w := *c.global_parent;
   while w != null {
     current_p += w.position;
-    color: ColorType = .BACKGROUND;
+    color: ColorType = w.color;
+    check_rect_interaction(c, w.id, current_p, w.size);
     if w.flags & .CLICK {
       color = .NORMAL;
-      check_rect_interaction(c, w.id, current_p, w.size);
       if c.hover_id   == w.id color = .HOVERED;
       if c.pressed_id == w.id color = .PRESSED;
     }
-    if w.flags & .DRAG {
-      check_rect_interaction(c, w.id, current_p, w.size);
-      if c.pressed_id == w.id && c.mouse_down {
-        delta := c.mouse_position - c.old_mouse_position;
-        w.position += delta;
-        current_p  += delta;
-      }
+    if c.pressed_id == w.id && c.mouse_down {
+      delta := c.mouse_position - c.old_mouse_position;
+      if w.flags & .DRAG_ALL        { w.position += delta;     w.position_delta = delta; }
+      if w.flags & .DRAG_HORIZONTAL { w.position.x += delta.x; w.position_delta.x = delta.x; }
+      if w.flags & .DRAG_VERTICAL   { w.position.y += delta.y; w.position_delta.y = delta.y; }
+    } else {
+      w.position_delta = .{};
     }
-    if w.flags & .DRAW_BACKGROUND {
-      draw_rect(c, current_p, w.size, color);
-    }
+    if w.flags & .DRAW_BACKGROUND draw_rect(c, current_p, w.size, color);
     if w.flags & .DRAW_TEXT {
       text_offset_x: float;
       text_offset_y := (w.size.y + c.font_size) / 2.0;
@@ -292,9 +314,7 @@ finish_widgets :: (c: *Context) {
       text_position := current_p + .{ text_offset_x, text_offset_y };
       draw_text(c, text_position, w.text, cast(bool)(w.text_flags & .CENTER));
     }
-    if w.flags & .DRAW_BORDER {
-      draw_border(c, current_p, w.size, w.border);
-    }
+    if w.flags & .DRAW_BORDER draw_border(c, current_p, w.size, w.border);
 
     if w.first {
       w = w.first;
@@ -325,9 +345,11 @@ point_in_rect :: (position: Vector2, size: Vector2, point: Vector2) -> bool {
 check_rect_interaction :: (c: *Context, id: u32, position: Vector2, size: Vector2) {
   hovered: bool = false;
   if point_in_rect(position, size, c.mouse_position) hovered = true;
-  if hovered && !c.mouse_just_pressed c.hover_id = id;
-  if c.pressed_id == id {
+  if hovered && !c.mouse_just_pressed {
     c.consumed_mouse_event = true;
+    c.hover_id = id;
+  }
+  if c.pressed_id == id {
     if !hovered && c.mouse_just_pressed c.pressed_id = 0;
     if !c.mouse_down                    c.pressed_id = 0;
   }
