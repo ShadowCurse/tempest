@@ -1153,187 +1153,106 @@ init_command_pool :: (queue_family_index: u32) -> VkCommandPool {
     return result;
 }
 
-load_procs :: ($instance: bool, $names: []string) -> success: bool #expand {
-  gen_code :: ($instance: bool, $names: []string) -> string {
-TEMPLATE :: #string DONE
-%1 = xx `get_proc(%2, "%1");
-if !%1 `return false;
-DONE
-    builder: String_Builder;
-    if instance for names print_to_builder(*builder, TEMPLATE, it, "`instance");
-    else        for names print_to_builder(*builder, TEMPLATE, it, "null");
-    return builder_to_string(*builder);
+load_procs :: (proc_name: string, $instance: bool, $names: []string) -> string #expand {
+TEMPLATE :: #string,\% DONE
+  %1 = xx get_proc(%2, "%1");
+  if !%1 {
+    log_error("Failed to load \% proc", "%1");
+    return false;
   }
-  #insert #run gen_code(instance, names);
+DONE
+  builder: String_Builder;
+  for names print_to_builder(*builder, "%1: PFN_%1 = ---;\n", it);
+
+  print_to_builder(*builder, "% :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {\n", proc_name);
+  if instance for names print_to_builder(*builder, TEMPLATE, it, "instance");
+  else        for names print_to_builder(*builder, TEMPLATE, it, "null");
+  print_to_builder(*builder, "  return true;\n}\n");
+  return builder_to_string(*builder);
 }
 
-vkCreateInstance:                       PFN_vkCreateInstance                       = ---;
-vkEnumerateInstanceExtensionProperties: PFN_vkEnumerateInstanceExtensionProperties = ---;
-vkEnumerateInstanceLayerProperties:     PFN_vkEnumerateInstanceLayerProperties     = ---;
-vkEnumerateInstanceVersion:             PFN_vkEnumerateInstanceVersion             = ---;
+#insert #run load_procs("load_basic_procs", false, .[
+  "vkCreateInstance",
+  "vkEnumerateInstanceExtensionProperties",
+  "vkEnumerateInstanceLayerProperties",
+  "vkEnumerateInstanceVersion",
+]);
 
-load_basic_procs :: (get_proc: PFN_vkGetInstanceProcAddr) -> success: bool {
-  load_procs(false, .[
-    "vkCreateInstance",
-    "vkEnumerateInstanceExtensionProperties",
-    "vkEnumerateInstanceLayerProperties",
-    "vkEnumerateInstanceVersion",
-  ]);
-  return true;
-}
-
-vkDestroyInstance:                         PFN_vkDestroyInstance                         = ---;
-vkCreateDebugUtilsMessengerEXT:            PFN_vkCreateDebugUtilsMessengerEXT            = ---;
-vkDestroyDebugUtilsMessengerEXT:           PFN_vkDestroyDebugUtilsMessengerEXT           = ---;
-vkEnumeratePhysicalDevices:                PFN_vkEnumeratePhysicalDevices                = ---;
-vkGetPhysicalDeviceProperties:             PFN_vkGetPhysicalDeviceProperties             = ---;
-vkGetPhysicalDeviceFeatures:               PFN_vkGetPhysicalDeviceFeatures               = ---;
-vkGetPhysicalDeviceMemoryProperties:       PFN_vkGetPhysicalDeviceMemoryProperties       = ---;
-vkEnumerateDeviceLayerProperties:          PFN_vkEnumerateDeviceLayerProperties          = ---;
-vkEnumerateDeviceExtensionProperties:      PFN_vkEnumerateDeviceExtensionProperties      = ---;
-vkGetPhysicalDeviceQueueFamilyProperties:  PFN_vkGetPhysicalDeviceQueueFamilyProperties  = ---;
-vkGetPhysicalDeviceSurfaceSupportKHR:      PFN_vkGetPhysicalDeviceSurfaceSupportKHR      = ---;
-vkDeviceWaitIdle:                          PFN_vkDeviceWaitIdle                          = ---;
-vkCreateDevice:                            PFN_vkCreateDevice                            = ---;
-vkDestroyDevice:                           PFN_vkDestroyDevice                           = ---;
-vkGetDeviceQueue:                          PFN_vkGetDeviceQueue                          = ---;
-vkGetPhysicalDeviceSurfaceCapabilitiesKHR: PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR = ---;
-vkGetPhysicalDeviceSurfaceFormatsKHR:      PFN_vkGetPhysicalDeviceSurfaceFormatsKHR      = ---;
-vkCreateSwapchainKHR:                      PFN_vkCreateSwapchainKHR                      = ---;
-vkDestroySwapchainKHR:                     PFN_vkDestroySwapchainKHR                     = ---;
-vkGetSwapchainImagesKHR:                   PFN_vkGetSwapchainImagesKHR                   = ---;
-vkCreateImageView:                         PFN_vkCreateImageView                         = ---;
-vkDestroyImage:                            PFN_vkDestroyImage                            = ---;
-vkDestroyImageView:                        PFN_vkDestroyImageView                        = ---;
-vkCreateCommandPool:                       PFN_vkCreateCommandPool                       = ---;
-vkDestroyCommandPool:                      PFN_vkDestroyCommandPool                      = ---;
-vkAllocateCommandBuffers:                  PFN_vkAllocateCommandBuffers                  = ---;
-vkResetCommandBuffer:                      PFN_vkResetCommandBuffer                      = ---;
-vkBeginCommandBuffer:                      PFN_vkBeginCommandBuffer                      = ---;
-vkEndCommandBuffer:                        PFN_vkEndCommandBuffer                        = ---;
-vkCreateFence:                             PFN_vkCreateFence                             = ---;
-vkWaitForFences:                           PFN_vkWaitForFences                           = ---;
-vkResetFences:                             PFN_vkResetFences                             = ---;
-vkDestroyFence:                            PFN_vkDestroyFence                            = ---;
-vkCreateSemaphore:                         PFN_vkCreateSemaphore                         = ---;
-vkDestroySemaphore:                        PFN_vkDestroySemaphore                        = ---;
-vkCmdPipelineBarrier2:                     PFN_vkCmdPipelineBarrier2                     = ---;
-vkCmdBeginRendering:                       PFN_vkCmdBeginRendering                       = ---;
-vkCmdEndRendering:                         PFN_vkCmdEndRendering                         = ---;
-vkCmdSetViewport:                          PFN_vkCmdSetViewport                          = ---;
-vkCmdSetScissor:                           PFN_vkCmdSetScissor                           = ---;
-vkQueueSubmit2:                            PFN_vkQueueSubmit2                            = ---;
-vkQueuePresentKHR:                         PFN_vkQueuePresentKHR                         = ---;
-vkAcquireNextImageKHR:                     PFN_vkAcquireNextImageKHR                     = ---;
-vkCreatePipelineLayout:                    PFN_vkCreatePipelineLayout                    = ---;
-vkDestroyPipelineLayout:                   PFN_vkDestroyPipelineLayout                   = ---;
-vkCreateComputePipelines:                  PFN_vkCreateComputePipelines                  = ---;
-vkCreateGraphicsPipelines:                 PFN_vkCreateGraphicsPipelines                 = ---;
-vkDestroyPipeline:                         PFN_vkDestroyPipeline                         = ---;
-vkCmdBindPipeline:                         PFN_vkCmdBindPipeline                         = ---;
-vkCmdBindIndexBuffer:                      PFN_vkCmdBindIndexBuffer                      = ---;
-vkCmdDispatch:                             PFN_vkCmdDispatch                             = ---;
-vkCmdPushDescriptorSetKHR:                 PFN_vkCmdPushDescriptorSetKHR                 = ---;
-vkCmdPushConstants:                        PFN_vkCmdPushConstants                        = ---;
-vkCreateDescriptorSetLayout:               PFN_vkCreateDescriptorSetLayout               = ---;
-vkDestroyDescriptorSetLayout:              PFN_vkDestroyDescriptorSetLayout              = ---;
-vkCreateBuffer:                            PFN_vkCreateBuffer                            = ---;
-vkBindBufferMemory:                        PFN_vkBindBufferMemory                        = ---;
-vkGetBufferMemoryRequirements:             PFN_vkGetBufferMemoryRequirements             = ---;
-vkGetBufferDeviceAddress:                  PFN_vkGetBufferDeviceAddress                  = ---;
-vkCreateImage:                             PFN_vkCreateImage                             = ---;
-vkCreateSampler:                           PFN_vkCreateSampler                           = ---;
-vkBindImageMemory:                         PFN_vkBindImageMemory                         = ---;
-vkGetImageMemoryRequirements:              PFN_vkGetImageMemoryRequirements              = ---;
-vkAllocateMemory:                          PFN_vkAllocateMemory                          = ---;
-vkMapMemory:                               PFN_vkMapMemory                               = ---;
-vkCmdCopyBufferToImage:                    PFN_vkCmdCopyBufferToImage                    = ---;
-vkCmdCopyBuffer:                           PFN_vkCmdCopyBuffer                           = ---;
-vkCmdDraw:                                 PFN_vkCmdDraw                                 = ---;
-vkCmdDrawIndexed:                          PFN_vkCmdDrawIndexed                          = ---;
-vkCreateQueryPool:                         PFN_vkCreateQueryPool                         = ---;
-vkGetQueryPoolResults:                     PFN_vkGetQueryPoolResults                     = ---;
-vkCmdResetQueryPool:                       PFN_vkCmdResetQueryPool                       = ---;
-vkCmdWriteTimestamp:                       PFN_vkCmdWriteTimestamp                       = ---;
-
-load_instance_procs :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {
-  load_procs(true, .[
-    "vkDestroyInstance",
-    "vkCreateDebugUtilsMessengerEXT",
-    "vkDestroyDebugUtilsMessengerEXT",
-    "vkEnumeratePhysicalDevices",
-    "vkGetPhysicalDeviceProperties",
-    "vkGetPhysicalDeviceFeatures",
-    "vkGetPhysicalDeviceMemoryProperties",
-    "vkEnumerateDeviceLayerProperties",
-    "vkEnumerateDeviceExtensionProperties",
-    "vkGetPhysicalDeviceQueueFamilyProperties",
-    "vkGetPhysicalDeviceSurfaceSupportKHR",
-    "vkDeviceWaitIdle",
-    "vkCreateDevice",
-    "vkDestroyDevice",
-    "vkGetDeviceQueue",
-    "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
-    "vkGetPhysicalDeviceSurfaceFormatsKHR",
-    "vkCreateSwapchainKHR",
-    "vkDestroySwapchainKHR",
-    "vkGetSwapchainImagesKHR",
-    "vkCreateImageView",
-    "vkDestroyImage",
-    "vkDestroyImageView",
-    "vkCreateCommandPool",
-    "vkDestroyCommandPool",
-    "vkAllocateCommandBuffers",
-    "vkResetCommandBuffer",
-    "vkBeginCommandBuffer",
-    "vkEndCommandBuffer",
-    "vkCreateFence",
-    "vkWaitForFences",
-    "vkResetFences",
-    "vkDestroyFence",
-    "vkCreateSemaphore",
-    "vkDestroySemaphore",
-    "vkCmdPipelineBarrier2",
-    "vkCmdBeginRendering",
-    "vkCmdEndRendering",
-    "vkCmdSetViewport",
-    "vkCmdSetScissor",
-    "vkQueueSubmit2",
-    "vkQueuePresentKHR",
-    "vkAcquireNextImageKHR",
-    "vkCreatePipelineLayout",
-    "vkDestroyPipelineLayout",
-    "vkCreateComputePipelines",
-    "vkCreateGraphicsPipelines",
-    "vkDestroyPipeline",
-    "vkCmdBindPipeline",
-    "vkCmdBindIndexBuffer",
-    "vkCmdDispatch",
-    "vkCmdPushDescriptorSetKHR",
-    "vkCmdPushConstants",
-    "vkCreateDescriptorSetLayout",
-    "vkDestroyDescriptorSetLayout",
-    "vkCreateBuffer",
-    "vkBindBufferMemory",
-    "vkGetBufferMemoryRequirements",
-    "vkGetBufferDeviceAddress",
-    "vkCreateImage",
-    "vkCreateSampler",
-    "vkBindImageMemory",
-    "vkGetImageMemoryRequirements",
-    "vkAllocateMemory",
-    "vkMapMemory",
-    "vkCmdCopyBufferToImage",
-    "vkCmdCopyBuffer",
-    "vkCmdDraw",
-    "vkCmdDrawIndexed",
-    "vkCreateQueryPool",
-    "vkGetQueryPoolResults",
-    "vkCmdResetQueryPool",
-    "vkCmdWriteTimestamp",
-  ]);
-  return true;
-}
+#insert #run load_procs("load_instance_procs" , true, .[
+  "vkDestroyInstance",
+  "vkCreateDebugUtilsMessengerEXT",
+  "vkDestroyDebugUtilsMessengerEXT",
+  "vkEnumeratePhysicalDevices",
+  "vkGetPhysicalDeviceProperties",
+  "vkGetPhysicalDeviceFeatures",
+  "vkGetPhysicalDeviceMemoryProperties",
+  "vkEnumerateDeviceLayerProperties",
+  "vkEnumerateDeviceExtensionProperties",
+  "vkGetPhysicalDeviceQueueFamilyProperties",
+  "vkGetPhysicalDeviceSurfaceSupportKHR",
+  "vkDeviceWaitIdle",
+  "vkCreateDevice",
+  "vkDestroyDevice",
+  "vkGetDeviceQueue",
+  "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
+  "vkGetPhysicalDeviceSurfaceFormatsKHR",
+  "vkCreateSwapchainKHR",
+  "vkDestroySwapchainKHR",
+  "vkGetSwapchainImagesKHR",
+  "vkCreateImageView",
+  "vkDestroyImage",
+  "vkDestroyImageView",
+  "vkCreateCommandPool",
+  "vkDestroyCommandPool",
+  "vkAllocateCommandBuffers",
+  "vkResetCommandBuffer",
+  "vkBeginCommandBuffer",
+  "vkEndCommandBuffer",
+  "vkCreateFence",
+  "vkWaitForFences",
+  "vkResetFences",
+  "vkDestroyFence",
+  "vkCreateSemaphore",
+  "vkDestroySemaphore",
+  "vkCmdPipelineBarrier2",
+  "vkCmdBeginRendering",
+  "vkCmdEndRendering",
+  "vkCmdSetViewport",
+  "vkCmdSetScissor",
+  "vkQueueSubmit2",
+  "vkQueuePresentKHR",
+  "vkAcquireNextImageKHR",
+  "vkCreatePipelineLayout",
+  "vkDestroyPipelineLayout",
+  "vkCreateComputePipelines",
+  "vkCreateGraphicsPipelines",
+  "vkDestroyPipeline",
+  "vkCmdBindPipeline",
+  "vkCmdBindIndexBuffer",
+  "vkCmdDispatch",
+  "vkCmdPushDescriptorSetKHR",
+  "vkCmdPushConstants",
+  "vkCreateDescriptorSetLayout",
+  "vkDestroyDescriptorSetLayout",
+  "vkCreateBuffer",
+  "vkBindBufferMemory",
+  "vkGetBufferMemoryRequirements",
+  "vkGetBufferDeviceAddress",
+  "vkCreateImage",
+  "vkCreateSampler",
+  "vkBindImageMemory",
+  "vkGetImageMemoryRequirements",
+  "vkAllocateMemory",
+  "vkMapMemory",
+  "vkCmdCopyBufferToImage",
+  "vkCmdCopyBuffer",
+  "vkCmdDraw",
+  "vkCmdDrawIndexed",
+  "vkCreateQueryPool",
+  "vkGetQueryPoolResults",
+  "vkCmdResetQueryPool",
+  "vkCmdWriteTimestamp",
+]);
 
 VK_REMAINING_MIP_LEVELS   :: 4294967295;
 VK_REMAINING_ARRAY_LAYERS :: 4294967295;
