@@ -13,7 +13,7 @@ void main() {
     ivec2 size         = imageSize(image);
     ivec2 font_size    = textureSize(font_texture, 0);
     vec4 top_color     = vec4(0.0, 0.0, 0.0, 1.0);
-    vec4 bottom_color  = vec4(0.3, 0.0, 0.4, 1.0);
+    vec4 bottom_color  = vec4(0.38, 0.50, 0.19, 1.0);
     vec4 bg_color      = vec4(0.1, 0.4, 0.45, 1.0);
     vec4 fg_color      = vec4(1.0);
     vec4 outline_color = vec4(0.0);

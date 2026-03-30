@@ -133,4 +133,12 @@ quat_to_mat4 :: (quat: Quaternion) -> Matrix4 {
   };
 }
 
+rgb_to_vector3 :: (hex: u32) -> Vector3 {
+  return .{
+    cast(float)(hex >> 16 & 0xff) / 255.0,
+    cast(float)(hex >> 8  & 0xff) / 255.0,
+    cast(float)(hex >> 0  & 0xff) / 255.0,
+  };
+}
+
 using,except(translate) #import "Math";

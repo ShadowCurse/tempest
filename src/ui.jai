@@ -13,23 +13,43 @@ QuadUsage :: enum u32 {
 }
 
 ColorType :: enum u8 {
-  BACKGROUND;
-  BORDER;
-  HEADER;
-  NORMAL;
-  HOVERED;
-  PRESSED;
+  FOREGROUND;  // 0xfef8f2
+  BACKGROUND;  // 0x000000
+  BACKGROUND1; // 0x111111
+  BACKGROUND2; // 0x222222
+  BACKGROUND3; // 0x333333
+  BORDER;      // 0x292f36
+  RED;         // 0xfb3741
+  GREEN;       // 0x608030
+  GREEN1;      // 0x74c365
+  GREEN2;      // 0x95C561
+  BLUE;        // 0x1282a2
+
+  BUTTON_NORMAL  :: GREEN;
+  BUTTON_HOVERED :: GREEN1;
+  BUTTON_PRESSED :: GREEN2;
 };
 
 Colors :: [#run enum_elements_count(ColorType)]Vector3;
 
 DefaultColors :: Vector3.[
-  .{0.3, 0.3, 0.3},
-  .{0.2, 0.1, 0.9},
-  .{0.1, 0.1, 0.1},
-  .{0.2, 0.2, 0.2},
-  .{0.2, 0.2, 0.3},
-  .{0.2, 0.3, 0.3},
+  // FOREGROUND
+  #run rgb_to_vector3(0xfef8f2),
+  // BACKGROUND
+  #run rgb_to_vector3(0x000000),
+  #run rgb_to_vector3(0x111111),
+  #run rgb_to_vector3(0x222222),
+  #run rgb_to_vector3(0x333333),
+  // BORDER
+  #run rgb_to_vector3(0x292f36),
+  // RED
+  #run rgb_to_vector3(0xfb3741),
+  // GREEN
+  #run rgb_to_vector3(0x608030),
+  #run rgb_to_vector3(0x74c365),
+  #run rgb_to_vector3(0x95C561),
+  // BLUE
+  #run rgb_to_vector3(0x1282a2),
 ];
 
 // note(sc): maybe add ui context to the `context` to avoid using global one
@@ -224,6 +244,7 @@ panel_start :: (c: *Context, name: string, size: Vector2, position: Vector2 = .{
   flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .FIXED_SIZE_X | .FIXED_SIZE_Y;
   if position != .{} flags |= .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
   widget = build_widget(c, name, flags, 0, size, position);
+  widget.color = .BACKGROUND;
   c.current_parent = widget;
 }
 
@@ -252,14 +273,14 @@ slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
   tag   := tprint("%_bg", name);
   flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .FIXED_SIZE_Y;
   bg    := build_widget(c, tag, flags, 0, .{ y = 20.0 });
-  bg.color = .HEADER;
+  bg.color = .BACKGROUND3;
 
   tag   = tprint("%_knob", name);
   flags = .DRAG_HORIZONTAL | .DRAW_BACKGROUND | .DRAW_BORDER |
           .FIXED_SIZE_X | .FIXED_SIZE_Y | .FIXED_POSITION_X | .FIXED_POSITION_Y;
   knob := build_widget(c, tag, flags, 0, .{ 20.0, 20.0 }, .{ (bg.size.x - 20.0) * ratio, bg.position.y });
 
-  knob.color = .PRESSED;
+  knob.color = .BUTTON_PRESSED;
   if c.pressed_id == knob.id {
     new_ratio := (knob.position.x + knob.position_delta.x) / (bg.size.x - 20.0);
     new_ratio = clamp(new_ratio, 0.0, 1.0);
@@ -293,9 +314,9 @@ finish_widgets :: (c: *Context) {
     color: ColorType = w.color;
     check_rect_interaction(c, w.id, current_p, w.size);
     if w.flags & .CLICK {
-      color = .NORMAL;
-      if c.hover_id   == w.id color = .HOVERED;
-      if c.pressed_id == w.id color = .PRESSED;
+      color = .BUTTON_NORMAL;
+      if c.hover_id   == w.id color = .BUTTON_HOVERED;
+      if c.pressed_id == w.id color = .BUTTON_PRESSED;
     }
     if c.pressed_id == w.id && c.mouse_down {
       delta := c.mouse_position - c.old_mouse_position;
