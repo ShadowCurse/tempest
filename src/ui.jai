@@ -1,8 +1,8 @@
 Quad :: struct {
     position:  Vector2;
     size:      Vector2;
-    uv_offset: Vector2;
-    uv_size:   Vector2;
+    uv_offset: Vector2; // or background color, border color
+    uv_size:   Vector2; // or border width, 0
     usage:     QuadUsage; @u32
     _: u32 =  0;
 } @ShaderType
@@ -13,6 +13,7 @@ QuadUsage :: enum u32 {
 }
 
 ColorType :: enum u8 {
+  NONE;        // 0x000000
   FOREGROUND;  // 0xfef8f2
   BACKGROUND;  // 0x000000
   BACKGROUND1; // 0x111111
@@ -30,26 +31,27 @@ ColorType :: enum u8 {
   BUTTON_PRESSED :: GREEN2;
 };
 
-Colors :: [#run enum_elements_count(ColorType)]Vector3;
+Colors :: [#run enum_elements_count(ColorType)]RGBA;
 
-DefaultColors :: Vector3.[
+DefaultColors :: RGBA.[
+  0x00000000,
   // FOREGROUND
-  #run rgb_to_vector3(0xfef8f2),
+  0xfef8f2ff,
   // BACKGROUND
-  #run rgb_to_vector3(0x000000),
-  #run rgb_to_vector3(0x111111),
-  #run rgb_to_vector3(0x222222),
-  #run rgb_to_vector3(0x333333),
+  0x000000ff,
+  0x111111ff,
+  0x222222ff,
+  0x333333ff,
   // BORDER
-  #run rgb_to_vector3(0x292f36),
+  0x292f36ff,
   // RED
-  #run rgb_to_vector3(0xfb3741),
+  0xfb3741ff,
   // GREEN
-  #run rgb_to_vector3(0x608030),
-  #run rgb_to_vector3(0x74c365),
-  #run rgb_to_vector3(0x95C561),
+  0x608030ff,
+  0x74c365ff,
+  0x95C561ff,
   // BLUE
-  #run rgb_to_vector3(0x1282a2),
+  0x1282a2ff,
 ];
 
 // note(sc): maybe add ui context to the `context` to avoid using global one
@@ -75,7 +77,7 @@ Context :: struct {
 
   global_parent:     Widget;
   global_parent.border = 2.0;
-  global_parent.margin = 2.0;
+  global_parent.margin = 8.0;
 
   current_parent:    *Widget;
   widgets:           [64]Widget;
@@ -203,6 +205,9 @@ build_widget :: (
     widget.* = .{};
   }
 
+  widget.border            = ifx flags & .DRAW_BORDER parent.border;
+  widget.margin            = parent.margin;
+
   if flags & .FIXED_SIZE_X { if widget.id == 0 widget.size.x = size.x; }
   else widget.size.x = parent.size.x - parent.margin * 2.0;
   if flags & .FIXED_SIZE_Y { if widget.id == 0 widget.size.y = size.y; }
@@ -214,7 +219,7 @@ build_widget :: (
     } else {
       widget.position.x = position.x;
     }
-  } else widget.position.x = parent.border;
+  } else widget.position.x = parent.margin;
   if flags & .FIXED_POSITION_Y {
     if flags & .DRAG_ALL {
       if widget.id == 0 widget.position.y = position.y;
@@ -223,7 +228,7 @@ build_widget :: (
     }
   } else {
     widget.position.y = parent.layout_offset;
-    parent.layout_offset += widget.size.y + parent.border;
+    parent.layout_offset += widget.size.y + widget.border * 2;
   }
 
   frame_reset(widget);
@@ -234,8 +239,6 @@ build_widget :: (
   widget.flags             = flags;
   widget.text_flags        = text_flags;
   widget.text              = name;
-  widget.border            = ifx flags & .DRAW_BORDER parent.border;
-  widget.margin            = parent.margin;
   return widget;
 }
 
@@ -326,17 +329,21 @@ finish_widgets :: (c: *Context) {
     } else {
       w.position_delta = .{};
     }
-    if w.flags & .DRAW_BACKGROUND draw_rect(c, current_p, w.size, color);
+    if w.flags & .DRAW_BACKGROUND {
+      if w.flags & .DRAW_BORDER {
+        draw_rect(c, current_p, w.size, color, .BORDER, w.border);
+      } else {
+        draw_rect(c, current_p, w.size, color, .NONE, 0.0);
+      }
+    } else if w.flags & .DRAW_BORDER draw_border(c, current_p, w.size, .BORDER, w.border);
     if w.flags & .DRAW_TEXT {
       text_offset_x: float;
       text_offset_y := (w.size.y + c.font_size) / 2.0;
       if w.text_flags & .CENTER text_offset_x = w.size.x / 2.0;
-      else                      text_offset_x = w.border;
+      else                      text_offset_x = w.margin;
       text_position := current_p + .{ text_offset_x, text_offset_y };
       draw_text(c, text_position, w.text, cast(bool)(w.text_flags & .CENTER));
     }
-    if w.flags & .DRAW_BORDER draw_border(c, current_p, w.size, w.border);
-
     if w.first {
       w = w.first;
     } else if w.next {
@@ -380,39 +387,30 @@ check_rect_interaction :: (c: *Context, id: u32, position: Vector2, size: Vector
   }
 }
 
-draw_rect :: (c: *Context, position: Vector2, size: Vector2, color_type: ColorType) {
-  color         := c.colors.*[color_type];
+draw_rect :: (
+  c:                *Context,
+  position:         Vector2,
+  size:             Vector2,
+  background_color: ColorType,
+  border_color:     ColorType,
+  border_width:     float,
+) {
   rect_position := rect_center(position, size);
-
   quad := new(Quad,, allocator(*c.draw_buffer));
   quad.* = .{
     position  = rect_position,
     size      = size,
-    uv_offset = .{ color.x, color.y },
-    uv_size   = .{ color.z, 1.0 },
+    uv_offset = .{
+      (cast,no_check(*float) *c.colors.*[background_color]).*,
+      (cast,no_check(*float) *c.colors.*[border_color]).*,
+    },
+    uv_size   = .{ border_width, 0 },
     usage     = .COLOR,
   };
 }
 
-draw_border :: (c: *Context, position: Vector2, size: Vector2, width: float) {
-  border        := width;
-  double_border := border * 2.0;
-
-  top_position: Vector2 = .{ position.x - border, position.y - border };
-  top_size:     Vector2 = .{ size.x + double_border, border };
-  draw_rect(c, top_position, top_size, .BORDER);
-
-  bot_position: Vector2 = .{ position.x - border, position.y + size.y };
-  bot_size             := top_size;
-  draw_rect(c, bot_position, bot_size, .BORDER);
-
-  left_position     := top_position;
-  left_size: Vector2 = .{ border, size.y + double_border };
-  draw_rect(c, left_position, left_size, .BORDER);
-
-  right_position: Vector2 = .{ position.x + size.x, position.y - border };
-  right_size             := left_size;
-  draw_rect(c, right_position, right_size, .BORDER);
+draw_border :: (c:*Context, position: Vector2, size: Vector2, color: ColorType, width: float) {
+  draw_rect(c, position, size, .NONE, color, width);
 }
 
 draw_text :: (c: *Context, position: Vector2, text: string, centered: bool) {

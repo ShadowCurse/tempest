@@ -19,6 +19,15 @@ float median(float r, float g, float b) {
     return max(min(r, g), min(max(r, g), b));
 }
 
+vec4 rgba_to_vec4(uint rgba) {
+  return vec4(
+    ((rgba >> 24) & 0xff) / 255.0,
+    ((rgba >> 16) & 0xff) / 255.0,
+    ((rgba >> 8)  & 0xff) / 255.0,
+    ((rgba >> 0)  & 0xff) / 255.0
+  );
+}
+
 void main() {
     Quad sq = get_quad(inInstanceId);
     if (sq.usage == UI_QUAD_USAGE_TEXT) {
@@ -35,7 +44,28 @@ void main() {
         outFragColor = color;
     }
     if (sq.usage == UI_QUAD_USAGE_COLOR) {
-        vec4 color = vec4(sq.uv_offset.xy, sq.uv_size.xy);
+        // transform UV to physical pixel coordinates
+        vec2 pixel_coord = (inUV - 0.5) * sq.size;
+
+        vec2 half_extents = sq.size * 0.5;
+        float radius = 8.0;
+        float border_width_px = sq.uv_size.x;
+
+        // SDF
+        vec2 q = abs(pixel_coord) - half_extents + radius;
+        float dist = min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - radius;
+
+        vec4 _bg_color = rgba_to_vec4(floatBitsToUint(sq.uv_offset.x));
+        vec4 _border_color = rgba_to_vec4(floatBitsToUint(sq.uv_offset.y));
+
+        float edge_aa = fwidth(dist);
+        float outer_mask = 1.0 - smoothstep(-edge_aa, 0.0, dist);
+        float fill_mask = 1.0 - smoothstep(-edge_aa, 0.0, dist + border_width_px);
+        float border_mask = outer_mask - fill_mask;
+
+        vec4 color = mix(_bg_color, _border_color, border_mask);
+        color.a *= outer_mask;
+
         outFragColor = color;
     }
 }

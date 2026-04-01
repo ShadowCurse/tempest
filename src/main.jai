@@ -246,7 +246,7 @@ main :: () {
       ui.mouse_down     = pressed(mouse_state, .LMB);
 
       {
-        panel_start(*ui, "Panel", .{ 300.0, 400.0 }, .{ 200.0, 200.0 });
+        panel_start(*ui, "Panel", .{ 300.0, 550.0 }, .{ 1.0, 1.0 });
         defer panel_end(*ui);
 
         label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
