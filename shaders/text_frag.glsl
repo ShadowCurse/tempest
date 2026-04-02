@@ -51,8 +51,28 @@ void main() {
         float radius = 8.0;
         float border_width_px = sq.uv_size.x;
 
-        // SDF
+        // Move centrer of corrdinate spacef from center of the rectangle
+        // to the center of the cornere circle.
+        // - The distance to the center of the corner circle is (half_extents - radius)
+        // - To move coordinate system center to it we sub this value from pixel_coord
         vec2 q = abs(pixel_coord) - half_extents + radius;
+        // After moving the coorinate system the final point can be in one of 4 quadrants
+        //    1   |      0
+        // ----------\
+        //        |   |
+        //   ____(*) _|____
+        //    3    |   |  2
+        //
+        // In 0, points are outside the shape
+        // In 1/2, points are also outside the shape
+        // In 3, points are inside the shape
+        // The first term min(max(q.x, q.y), 0.0) is for points in 1,2,3 regions since at least
+        // one component needs to be negative for this to have any non 0 value
+        // The second term length(max(q, vec2(0.0))) is for 0,1,2 regions. For 1,2 regions this is
+        // an orthogonal distance to the borders of the rectangle. For 0 region this is just a circular
+        // distance to the center of the corner.
+        // Adding both terms yeilds the SDF for the 'sharp' rectangle. Subtracting `radius` moves
+        // SDF values closer so the rounded corners are closer to the circle center.
         float dist = min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - radius;
 
         vec4 _bg_color = rgba_to_vec4(floatBitsToUint(sq.uv_offset.x));
