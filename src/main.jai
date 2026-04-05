@@ -46,9 +46,10 @@ text_pipeline:    Pipeline;
 grid_pipeline:    Pipeline;
 mesh_pipeline:    Pipeline;
 
-cube_mesh_info: GpuMeshInfo;
-crystal: Model;
+cube_mesh_info:    GpuMeshInfo;
+crystal:           *Mesh;
 crystal_mesh_info: GpuMeshInfo;
+meshe_infos:       FixedArray(GpuMeshInfo, 8192, MeshIdx);
 
 main :: () {
   if !platform_init() return;
@@ -65,13 +66,13 @@ main :: () {
   for *rc: render_commands rc.* = create_render_command();
   cpu_to_gpu_memory := allocate_gpu_memory(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
   init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, .TRANSFER_SRC_BIT | .SHADER_DEVICE_ADDRESS_BIT);
-  staging_buffer        = push(*cpu_to_gpu_buffer_arena, u8, 1 << 20);
+  staging_buffer        = push(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
   for * ui_buffers it.* = push(*cpu_to_gpu_buffer_arena, Quad, 1024);
   scene_buffer          = push(*cpu_to_gpu_buffer_arena, Scene);
 
-  gpu_memory := allocate_gpu_memory(64 << 20, .DEVICE_LOCAL_BIT);
+  gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
   init(*gpu_buffer_arena, gpu_memory, .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
-  mesh_buffer = push(*gpu_buffer_arena, u8, 1 << 20);
+  mesh_buffer = push(*gpu_buffer_arena, u8, 256 << 20);
 
   pool_create_info: VkQueryPoolCreateInfo = .{
     queryType  = .TIMESTAMP,
@@ -110,13 +111,15 @@ main :: () {
   };
   font_sampler := create_sampler(sampler_create_info);
 
-  crystal, ok := load_model("crystal");
-  assert(ok);
+  init_scenes();
+  load_scene("crystal.glb");
+  load_scene("bistro.glb");
 
   {
     imm_command := *render_commands[FRAMES];
     {
       begin_render_command(imm_command);
+      defer submit_wait_reset(imm_command);
       defer end_render_command(imm_command);
 
       transition_image(
@@ -131,12 +134,12 @@ main :: () {
         VK_ACCESS_2_MEMORY_WRITE_BIT,
       );
     }
-    submit_wait_reset(imm_command);
 
     staging_buffer_host_mem := host_memory(staging_buffer);
     memcpy(staging_buffer_host_mem.data, font.bitmap.data, font.bitmap_width * font.bitmap_height * 4);
     {
       begin_render_command(imm_command);
+      defer submit_wait_reset(imm_command);
       defer end_render_command(imm_command);
 
       transition_image(
@@ -156,10 +159,13 @@ main :: () {
         depth  = 1,
       });
     }
-    submit_wait_reset(imm_command);
 
     mesh_buffer_offset := 0;
     {
+      begin_render_command(imm_command);
+      defer submit_wait_reset(imm_command);
+      defer end_render_command(imm_command);
+
       vertices_bytes := Cube.vertices.count * size_of(Vertex);
       indices_bytes  := Cube.indices.count * size_of(u32);
       total_bytes    := vertices_bytes + indices_bytes;
@@ -167,8 +173,7 @@ main :: () {
       memcpy(staging_buffer_host_mem.data, Cube.vertices.data, vertices_bytes);
       memcpy(staging_buffer_host_mem.data + vertices_bytes, Cube.indices.data, indices_bytes);
       cube_mesh_info = .{ 0, xx vertices_bytes, xx Cube.indices.count, xx Cube.vertices.count };
-      begin_render_command(imm_command);
-      defer end_render_command(imm_command);
+      log("uploadin cube mesh to GPU: info: %", cube_mesh_info);
 
       cmd_copy_buffer_slice_to_buffer_slice(
         imm_command,
@@ -177,33 +182,36 @@ main :: () {
       );
       mesh_buffer_offset += total_bytes;
     }
-    submit_wait_reset(imm_command);
 
-    {
-      vertices_bytes := crystal.mesh.vertices.count * size_of(Vertex);
-      indices_bytes  := crystal.mesh.indices.count * size_of(u32);
+    for *mesh: meshes {
+      begin_render_command(imm_command);
+      defer submit_wait_reset(imm_command);
+      defer end_render_command(imm_command);
+
+      mesh_info := array_add(*meshe_infos);
+      if mesh.vertices.count == 0 || mesh.indices.count == 0 then continue;
+
+      vertices_bytes := mesh.vertices.count * size_of(Vertex);
+      indices_bytes  := mesh.indices.count  * size_of(u32);
       total_bytes    := vertices_bytes + indices_bytes;
       assert(vertices_bytes + indices_bytes < staging_buffer_host_mem.count);
-      memcpy(staging_buffer_host_mem.data, crystal.mesh.vertices.data, vertices_bytes);
-      memcpy(staging_buffer_host_mem.data + vertices_bytes, crystal.mesh.indices.data, indices_bytes);
+      memcpy(staging_buffer_host_mem.data, mesh.vertices.data, vertices_bytes);
+      memcpy(staging_buffer_host_mem.data + vertices_bytes, mesh.indices.data, indices_bytes);
       mesh_buffer_offset = align_up(mesh_buffer_offset, 4);
-      crystal_mesh_info = .{
+      mesh_info.* = .{
         cast(u64)mesh_buffer_offset,
         cast(u32)mesh_buffer_offset + cast(u32)vertices_bytes,
-        xx crystal.mesh.indices.count,
-        xx crystal.mesh.vertices.count
+        cast(u32)mesh.indices.count,
+        cast(u32)mesh.vertices.count
       };
-      begin_render_command(imm_command);
-      defer end_render_command(imm_command);
 
       cmd_copy_buffer_slice_to_buffer_slice(
         imm_command,
         slice(mesh_buffer,    cast(u32)mesh_buffer_offset, cast(u32)(mesh_buffer_offset + total_bytes)),
         slice(staging_buffer, 0,                           cast(u32)total_bytes)
       );
-      mesh_buffer_offset += vertices_bytes + indices_bytes;
+      mesh_buffer_offset += total_bytes;
     }
-    submit_wait_reset(imm_command);
   }
 
   compute_pipeline = create_full_screen_effect_comptue_pipeline();
@@ -213,13 +221,14 @@ main :: () {
 
   ui: Context;
   init(*ui, *font);
-  draw_cube    := true;
+  draw_cube    := false;
   draw_crystal := false;
+  draw_bistro  := false;
 
   camera_position: Vector3 = .{ 0.0, -5.0, 5.0 };
   camera_rotation: Vector2 = .{ 0.78, 0.0 };
 
-  v := 0.7;
+  v := 0.1;
   need_swapchain_recreation := false;
   last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
   while !quit {
@@ -261,6 +270,7 @@ main :: () {
         label(*ui, tprint("hover_id: %", ui.hover_id));
         if button(*ui, "Draw Cube")    draw_cube    = !draw_cube;
         if button(*ui, "Draw Crystal") draw_crystal = !draw_crystal;
+        if button(*ui, "Draw Bistro")  draw_bistro = !draw_bistro;
         slider(*ui, "Gradient", 0.0, 1.0, *v);
       }
 
@@ -411,6 +421,7 @@ main :: () {
         cmd_bind_pipeline(render_command, mesh_pipeline, .GRAPHICS);
         if draw_cube {
           constant: MeshPushConstant = .{
+            Matrix4_Identity,
             mesh_buffer.device_address,
             scene_buffer.device_address,
             xx cube_mesh_info.vertices_buffer_offset,
@@ -425,20 +436,37 @@ main :: () {
           cmd_draw_indexed(render_command, cube_mesh_info.index_count, 1, 0, 0, 0);
         }
 
+        draw_node :: (cmd: RenderCommand, node: *SceneNode, parent_transform: Matrix4) {
+          transform := mat4_from_trs(node.translation, node.rotation, node.scale);
+          final_transform := transform * parent_transform;
+          if node.mesh_idx {
+            info := *meshe_infos[node.mesh_idx];
+            constant: MeshPushConstant = .{
+              final_transform,
+              mesh_buffer.device_address,
+              scene_buffer.device_address,
+              xx info.vertices_buffer_offset,
+            };
+            cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+            cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
+            cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
+          } else {
+            if node.children_count {
+              for 0..node.children_count - 1 {
+                idx := node.first_child_idx + cast(SceneNodeIdx) it;
+                child := *nodes[idx];
+                draw_node(cmd, child, final_transform);
+              }
+            }
+          }
+        }
         if draw_crystal {
-          constant: MeshPushConstant = .{
-            mesh_buffer.device_address,
-            scene_buffer.device_address,
-            xx crystal_mesh_info.vertices_buffer_offset,
-          };
-          cmd_push_constants(render_command, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-          cmd_bind_index_buffer(
-            render_command,
-            mesh_buffer.buffer,
-            crystal_mesh_info.indices_buffer_offset,
-            .UINT32
-          );
-          cmd_draw_indexed(render_command, crystal_mesh_info.index_count, 1, 0, 0, 0);
+          _, crystal := get_scene_node_by_name("crystal");
+          draw_node(render_command, crystal, Matrix4_Identity);
+        }
+        if draw_bistro {
+          bistro_root_idx := root_nodes[1];
+          draw_node(render_command, *nodes[bistro_root_idx ], Matrix4_Identity);
         }
       }
 
@@ -816,6 +844,7 @@ create_grid_pipeline :: () -> Pipeline {
 }
 
 MeshPushConstant :: struct {
+  transform:       Matrix4;
   mesh_buffer:     VkDeviceAddress;
   scene_buffer:    VkDeviceAddress;
   vertices_offset: u32;
@@ -850,6 +879,7 @@ create_mesh_pipeline :: () -> Pipeline {
   input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
   rasterization: VkPipelineRasterizationStateCreateInfo = .{
     polygonMode = .FILL,
+    // cullMode    = .BACK_BIT,
     frontFace   = .COUNTER_CLOCKWISE,
     lineWidth   = 1.0,
   };
@@ -1284,13 +1314,14 @@ Cube :: Mesh.{
 #import,file "ui.jai";
 #import,file "math.jai";
 #import,file "font.jai";
-#import,file "model.jai";
+#import,file "scene.jai";
 #import,file "vulkan.jai";
 #import,file "shaders.jai";
 #import,file "platform.jai";
 #import,file "file_watch.jai";
 #import,file "allocators.jai";
 #import,file "enum_array.jai";
+#import,file "fixed_array.jai";
 #import "Basic";
 #import "Vulkan";
 #import "cgltf";

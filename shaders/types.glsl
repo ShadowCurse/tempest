@@ -9,6 +9,7 @@ struct Scene {
 };
 
 struct MeshPushConstant {
+    mat4 transform;
     VkDeviceAddress mesh_buffer;
     VkDeviceAddress scene_buffer;
     uint vertices_offset;

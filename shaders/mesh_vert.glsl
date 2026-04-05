@@ -9,7 +9,7 @@ void main() {
     SceneRef scene = SceneRef(pc.scene_buffer);
 
     Vertex vertex = get_vertex_from_mesh_bytes(gl_VertexIndex);
-    vec4 p = scene.data.camera_projection * scene.data.camera_view * vec4(vertex.position, 1.0);
+    vec4 p = scene.data.camera_projection * scene.data.camera_view * pc.transform * vec4(vertex.position, 1.0);
     gl_Position = p;
     outColor = abs(vertex.color);
 }
