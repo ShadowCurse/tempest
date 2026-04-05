@@ -25,10 +25,17 @@ EnumArray :: struct ($ENUM: Type, $V: Type)
 {
   values: [#run enum_elements_count(ENUM)]V;
 };
+
 operator [] :: (ea: EnumArray, index: ea.ENUM) -> ea.V {
   i: u64 = xx index;
   return ea.values[i];
 }
+
+operator *[] :: (ea: *EnumArray, index: ea.ENUM) -> ea.V {
+  i: u64 = xx index;
+  return *ea.values[i];
+}
+
 operator []= :: (ea: *EnumArray, index: ea.ENUM, value: ea.V) {
   i: u64 = xx index;
   ea.values[i] = value;
