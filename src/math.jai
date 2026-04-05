@@ -33,6 +33,20 @@ translate :: (m: *Matrix4, position: Vector3) {
   m._43 = position.z;
 }
 
+scale :: (m: *Matrix4, v: Vector3) {
+    m._11 *= v.x;
+    m._12 *= v.x;
+    m._13 *= v.x;
+
+    m._21 *= v.y;
+    m._22 *= v.y;
+    m._23 *= v.y;
+
+    m._31 *= v.z;
+    m._32 *= v.z;
+    m._33 *= v.z;
+}
+
 perspective :: (fovy: float, aspect: float, near: float, far: float) -> Matrix4 {
   g := 1.0 / tan(fovy / 2.0);
   k := near / (near - far);
@@ -42,6 +56,43 @@ perspective :: (fovy: float, aspect: float, near: float, far: float) -> Matrix4 
     _31 = 0.0,        _32 = 0.0, _33 = k,        _34 = 1.0,
     _41 = 0.0,        _42 = 0.0, _43 = -far * k, _44 = 0.0,
   };
+}
+
+mat4_from_trs :: (translation: Vector3, rotation: Quaternion, scale: Vector3) -> Matrix4 {
+  tx := translation.x;
+  ty := translation.y;
+  tz := translation.z;
+
+  qx := rotation.x;
+  qy := rotation.y;
+  qz := rotation.z;
+  qw := rotation.w;
+
+  sx := scale.x;
+  sy := scale.y;
+  sz := scale.z;
+
+  result: Matrix4 = ---;
+  result._11 = (1 - 2 * qy*qy - 2 * qz*qz) * sx;
+  result._12 = (2 * qx*qy + 2 * qz*qw) * sx;
+  result._13 = (2 * qx*qz - 2 * qy*qw) * sx;
+  result._14 = 0.0;
+
+  result._21 = (2 * qx*qy - 2 * qz*qw) * sy;
+  result._22 = (1 - 2 * qx*qx - 2 * qz*qz) * sy;
+  result._23 = (2 * qy*qz + 2 * qx*qw) * sy;
+  result._24 = 0.0;
+
+  result._31 = (2 * qx*qz + 2 * qy*qw) * sz;
+  result._32 = (2 * qy*qz - 2 * qx*qw) * sz;
+  result._33 = (1 - 2 * qx*qx - 2 * qy*qy) * sz;
+  result._34 = 0.0;
+
+  result._41 = tx;
+  result._42 = ty;
+  result._43 = tz;
+  result._44 = 1.0;
+  return result;
 }
 
 quat_from_axis_angle :: (axis: Vector3, angle: float) -> Quaternion {
