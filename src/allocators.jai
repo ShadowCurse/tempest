@@ -1,7 +1,7 @@
 BufferAllocator :: struct {
   data:      *u8;
-  capacity:  u16;
-  end:       u16;
+  capacity:  u32;
+  end:       u32;
 }
 
 init :: (allocator: *BufferAllocator, buffer: []u8) {
@@ -127,7 +127,7 @@ push :: (arena: *GpuBufferArena, $T: Type, count: u32 = 1) -> GpuBufferSlice(T) 
   start_address  = align_up(start_address, alignment);
   end_address   := start_address + bytes;
   new_end := end_address - arena.device_address;
-  if new_end < arena.capacity {
+  if new_end <= arena.capacity {
     byte_offset := start_address - arena.device_address;
     host_ptr := ifx arena.host_mem cast(*T)(arena.host_mem.data + byte_offset);
     arena.end = cast(u32)new_end;
@@ -144,9 +144,9 @@ host_memory :: inline (slice: GpuBufferSlice) -> []slice.T {
 }
 
 slice :: (slice: GpuBufferSlice, start: u32, end: u32) -> GpuBufferSlice(slice.T) {
-  assert(start <= slice.count);
-  assert(end   <= slice.count);
-  assert(start <= end);
+  assert(start <= slice.count, "start: % slice.count: %", start, slice.count);
+  assert(end   <= slice.count, "end: % slice.count: %", end, slice.count);
+  assert(start <= end,         "start: % end: %", start, end);
   count       := end - start;
   added_bytes := start * size_of(slice.T);
   result: GpuBufferSlice(slice.T) = .{
@@ -286,7 +286,9 @@ slice :: inline (slice: []$T, start: u32, end: u32) -> []T {
 }
 
 new :: ($T: Type, $initialized := true) -> *T {
-  memory := alloc_aligned(size_of(T), align_of(T));
+  size   := size_of(T);
+  memory := alloc_aligned(size, align_of(T));
+  assert(memory != null, "Cound not allocate type of % bytes", size);
   #if initialized {
     ini :: initializer_of(T);
     #if ini  inline ini(memory);
@@ -299,6 +301,7 @@ new_array :: (count: s64, $T: Type, $initialized := true) -> result: []T {
   size   := count * size_of(T);
   result: []T;
   result.data = xx alloc_aligned(size, align_of(T));
+  assert(result.data != null, "Cound not allocate array of % bytes", size);
   result.count = count;
   #if initialized {
     ini :: initializer_of(T);
