@@ -22,19 +22,19 @@ Vertex get_vertex_from_mesh_bytes(uint vertex_idx) {
         uintBitsToFloat(bytes.bytes[base_offset + 1]),
         uintBitsToFloat(bytes.bytes[base_offset + 2])
       ),
-      uintBitsToFloat(bytes.bytes[base_offset + 4]),
+      uintBitsToFloat(bytes.bytes[base_offset + 3]),
       vec3(
+        uintBitsToFloat(bytes.bytes[base_offset + 4]),
         uintBitsToFloat(bytes.bytes[base_offset + 5]),
-        uintBitsToFloat(bytes.bytes[base_offset + 6]),
-        uintBitsToFloat(bytes.bytes[base_offset + 7])
+        uintBitsToFloat(bytes.bytes[base_offset + 6])
       ),
-      uintBitsToFloat(bytes.bytes[base_offset + 8]),
+      uintBitsToFloat(bytes.bytes[base_offset + 7]),
       vec3(
+        uintBitsToFloat(bytes.bytes[base_offset + 8]),
         uintBitsToFloat(bytes.bytes[base_offset + 9]),
-        uintBitsToFloat(bytes.bytes[base_offset + 10]),
-        uintBitsToFloat(bytes.bytes[base_offset + 11])
+        uintBitsToFloat(bytes.bytes[base_offset + 10])
       ),
-      uintBitsToFloat(bytes.bytes[base_offset + 12])
+      uintBitsToFloat(bytes.bytes[base_offset + 11])
   );
   return result;
 }
