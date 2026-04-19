@@ -578,7 +578,7 @@ get_instance_extensions :: () -> []VkExtensionProperties, VkResult {
     result = vkEnumerateInstanceExtensionProperties(null, *count, null);
     if result return .[], result;
     if count == 0 return .[], .SUCCESS;
-    data = NewArray(count, VkExtensionProperties, initialized = false);
+    data = new_array(count, VkExtensionProperties, initialized = false);
     result = vkEnumerateInstanceExtensionProperties(null, *count, data.data);
     return data, result;
 }
@@ -590,7 +590,7 @@ get_instance_layers :: () ->[]VkLayerProperties, VkResult {
   result = vkEnumerateInstanceLayerProperties(*count, null);
   if result return .[], result;
   if count == 0 return .[], .SUCCESS;
-  data = NewArray(count, VkLayerProperties, initialized = false);
+  data = new_array(count, VkLayerProperties, initialized = false);
   result = vkEnumerateInstanceLayerProperties(*count, data.data);
   return data, result;
 }
@@ -681,7 +681,7 @@ init_instance :: (enable_validation: bool) {
   }
 
   total_extensions_count := platform_extensions.count + INSTANCE_EXTENSIONS.count;
-  enabled_extensions: []*u8 = NewArray(total_extensions_count, *u8, initialized = false,, temp);
+  enabled_extensions: []*u8 = new_array(total_extensions_count, *u8, initialized = false,, temp);
   if !enabled_extensions return;
   {
     i: u32 = 0;
@@ -768,7 +768,7 @@ get_physical_devices :: () -> []VkPhysicalDevice, VkResult {
   result = vkEnumeratePhysicalDevices(instance, *count, null);
   if result return .[], result;
   if count == 0 return .[], .SUCCESS;
-  data = NewArray(count, VkPhysicalDevice, initialized = false);
+  data = new_array(count, VkPhysicalDevice, initialized = false);
   result = vkEnumeratePhysicalDevices(instance, *count, data.data);
   return data, result;
 }
@@ -780,7 +780,7 @@ get_physical_device_exensions :: (physical_device: VkPhysicalDevice) -> []VkExte
   result = vkEnumerateDeviceExtensionProperties(physical_device, null, *count, null);
   if result return .[], result;
   if count == 0 return .[], .SUCCESS;
-  data = NewArray(count, VkExtensionProperties, initialized = false);
+  data = new_array(count, VkExtensionProperties, initialized = false);
   result = vkEnumerateDeviceExtensionProperties(physical_device, null, *count, data.data);
   return data, result;
 }
@@ -792,7 +792,7 @@ get_physical_device_layers :: (physical_device: VkPhysicalDevice) -> []VkLayerPr
   result = vkEnumerateDeviceLayerProperties(physical_device, *count, null);
   if result return .[], result;
   if count == 0 return .[], .SUCCESS;
-  data = NewArray(count, VkLayerProperties, initialized = false);
+  data = new_array(count, VkLayerProperties, initialized = false);
   result = vkEnumerateDeviceLayerProperties(physical_device, *count, data.data);
   return data, result;
 }
@@ -802,7 +802,7 @@ get_physical_device_queue_families :: (physical_device: VkPhysicalDevice) -> []V
   data: []VkQueueFamilyProperties = ---;
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device, *count, null);
   if count == 0 return .[];
-  data = NewArray(count, VkQueueFamilyProperties, initialized = false);
+  data = new_array(count, VkQueueFamilyProperties, initialized = false);
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device, *count, data.data);
   return data;
 }
@@ -1014,7 +1014,7 @@ get_swapchain_formats :: () -> []VkSurfaceFormatKHR {
   err = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, null);
   assert(!err);
   if count == 0 return .[];
-  data = NewArray(count, VkSurfaceFormatKHR, initialized = false);
+  data = new_array(count, VkSurfaceFormatKHR, initialized = false);
   err = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, data.data);
   assert(!err);
   return data;
@@ -1027,7 +1027,7 @@ get_swapchain_images :: () -> []VkImage {
   err = vkGetSwapchainImagesKHR(device, swapchain, *count, null);
   assert(!err);
   if count == 0 return .[];
-  data = NewArray(count, VkImage, initialized = false);
+  data = new_array(count, VkImage, initialized = false);
   err = vkGetSwapchainImagesKHR(device, swapchain, *count, data.data);
   assert(!err);
   return data;
@@ -1109,9 +1109,9 @@ DONE
     new_context.allocator.data = *swapchain_pool;
     push_context new_context {
       swapchain_images      = get_swapchain_images();
-      swapchain_image_views = NewArray(swapchain_images.count, VkImageView, initialized = false);
-      swapchain_semaphores  = NewArray(swapchain_images.count, VkSemaphore, initialized = false);
-      swapchain_fences      = NewArray(swapchain_images.count, VkFence,     initialized = false);
+      swapchain_image_views = new_array(swapchain_images.count, VkImageView, initialized = false);
+      swapchain_semaphores  = new_array(swapchain_images.count, VkSemaphore, initialized = false);
+      swapchain_fences      = new_array(swapchain_images.count, VkFence,     initialized = false);
       for 0..swapchain_images.count - 1 {
         view_create_info: VkImageViewCreateInfo = .{
           image            = swapchain_images[it],
@@ -1257,9 +1257,7 @@ DONE
 VK_REMAINING_MIP_LEVELS   :: 4294967295;
 VK_REMAINING_ARRAY_LAYERS :: 4294967295;
 
-#import "Basic";
-#import "Vulkan";
-#import "Flat_Pool";
+#import,file "allocators.jai";
 using,only(
   platform_vulkan_proc_addr,
   platform_vulkan_extensions,
@@ -1267,3 +1265,6 @@ using,only(
   window_width,
   window_height,
 ) platform :: #import,file "platform.jai";
+#import "Basic";
+#import "Vulkan";
+#import "Flat_Pool";
