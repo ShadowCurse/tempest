@@ -287,6 +287,38 @@ toggle :: (c: *Context, text: string, v: *bool) {
   _    := build_widget(c, text, flags, 0, size, position);
 }
 
+select :: (c: *Context, text: string, e: *$T, $names: []string)
+#modify {
+  ti := cast(*Type_Info)T;
+  if ti.type != .ENUM {
+    log_error("select only works with ENUM types but it is given %", T);
+    return false;
+  } else {
+    info := cast(*Type_Info_Enum)ti;
+    for names {
+      if !array_find(info.names, it) {
+        log_error("Enum % does not have name % in it", T, it);
+        return false;
+      }
+    }
+    return true;
+  }
+}
+{
+  label(c, text);
+  info := cast(*Type_Info_Enum )type_info(T);
+  for info.names {
+    if array_find(names, it) {
+      is_selected := cast(s64)e.* == info.values[it_index];
+      was_selected := is_selected;
+      toggle(c, it, *is_selected);
+      if !was_selected && is_selected {
+        e.* = xx info.values[it_index];
+      }
+    }
+  }
+}
+
 slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
   label(c, tprint("%: %", name, v.*));
 

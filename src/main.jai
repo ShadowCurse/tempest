@@ -257,7 +257,7 @@ main :: () {
       ui.mouse_down     = pressed(mouse_state, .LMB);
 
       {
-        panel_start(*ui, "Panel", .{ 300.0, 550.0 }, .{ 1.0, 1.0 });
+        panel_start(*ui, "Panel", .{ 300.0, 750.0 }, .{ 1.0, 1.0 });
         defer panel_end(*ui);
 
         label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
@@ -274,10 +274,7 @@ main :: () {
         toggle(*ui, "Draw Crystal", *draw_crystal);
         toggle(*ui, "Draw Bistro",  *draw_bistro);
         slider(*ui, "Gradient", 0.0, 1.0, *v);
-        if button(*ui, "Polygon mode") {
-          if polygon_mode == .FILL then polygon_mode = .LINE;
-          else polygon_mode = .FILL;
-        }
+        select(*ui, "Polygon mode2", *polygon_mode, .["FILL", "LINE", "POINT"]);
       }
 
       finish_widgets(*ui);
