@@ -166,13 +166,14 @@ main :: () {
       defer submit_wait_reset(imm_command);
       defer end_render_command(imm_command);
 
-      vertices_bytes := Cube.vertices.count * size_of(Vertex);
-      indices_bytes  := Cube.indices.count * size_of(u32);
+      cube := create_box(1.0, 1.0, 1.0,, temp);
+      vertices_bytes := cube.vertices.count * size_of(Vertex);
+      indices_bytes  := cube.indices.count * size_of(u32);
       total_bytes    := vertices_bytes + indices_bytes;
       assert(vertices_bytes + indices_bytes < staging_buffer_host_mem.count);
-      memcpy(staging_buffer_host_mem.data, Cube.vertices.data, vertices_bytes);
-      memcpy(staging_buffer_host_mem.data + vertices_bytes, Cube.indices.data, indices_bytes);
-      cube_mesh_info = .{ 0, xx vertices_bytes, xx Cube.indices.count, xx Cube.vertices.count };
+      memcpy(staging_buffer_host_mem.data, cube.vertices.data, vertices_bytes);
+      memcpy(staging_buffer_host_mem.data + vertices_bytes, cube.indices.data, indices_bytes);
+      cube_mesh_info = .{ 0, xx vertices_bytes, xx cube.indices.count, xx cube.vertices.count };
       log("uploadin cube mesh to GPU: info: %", cube_mesh_info);
 
       cmd_copy_buffer_slice_to_buffer_slice(
@@ -877,6 +878,7 @@ create_mesh_pipeline :: () -> Pipeline {
   ];
 
   input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
+  // input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .LINE_LIST };
   rasterization: VkPipelineRasterizationStateCreateInfo = .{
     polygonMode = .FILL,
     // cullMode    = .BACK_BIT,
@@ -1099,217 +1101,6 @@ GpuMeshInfo :: struct {
   index_count:            u32;
   vertex_count:           u32;
 }
-
-Cube :: Mesh.{
-  indices = u32.[
-    1,
-    14,
-    20,
-    1,
-    20,
-    7,
-    10,
-    6,
-    19,
-    10,
-    19,
-    23,
-    21,
-    18,
-    12,
-    21,
-    12,
-    15,
-    16,
-    3,
-    9,
-    16,
-    9,
-    22,
-    5,
-    2,
-    8,
-    5,
-    8,
-    11,
-    17,
-    13,
-    0,
-    17,
-    0,
-    4,
-  ],
-  vertices = Vertex.[
-    .{
-      position = .{ 1.0, 1.0, -1.0 },
-      normal = .{ 0.0, 0.0, -1.0 },
-      uv_x = 6.25e-1,
-      uv_y = 5.0e-1,
-      color = .{ 0.0, 0.0, -1.0 },
-    },
-    .{
-      position = .{ 1.0, 1.0, -1.0 },
-      normal = .{ 0.0, 1.0, -0.0 },
-      uv_x = 6.25e-1,
-      uv_y = 5.0e-1,
-      color = .{ 0.0, 1.0, -0.0 },
-    },
-    .{
-      position = .{ 1.0, 1.0, -1.0 },
-      normal = .{ 1.0, 0.0, -0.0 },
-      uv_x = 6.25e-1,
-      uv_y = 5.0e-1,
-      color = .{ 1.0, 0.0, -0.0 },
-    },
-    .{
-      position = .{ 1.0, -1.0, -1.0 },
-      normal = .{ 0.0, -1.0, -0.0 },
-      uv_x = 3.75e-1,
-      uv_y = 5.0e-1,
-      color = .{ 0.0, -1.0, -0.0 },
-    },
-    .{
-      position = .{ 1.0, -1.0, -1.0 },
-      normal = .{ 0.0, 0.0, -1.0 },
-      uv_x = 3.75e-1,
-      uv_y = 5.0e-1,
-      color = .{ 0.0, 0.0, -1.0 },
-    },
-    .{
-      position = .{ 1.0, -1.0, -1.0 },
-      normal = .{ 1.0, 0.0, -0.0 },
-      uv_x = 3.75e-1,
-      uv_y = 5.0e-1,
-      color = .{ 1.0, 0.0, -0.0 },
-    },
-    .{
-      position = .{ 1.0, 1.0, 1.0 },
-      normal = .{ 0.0, 0.0, 1.0 },
-      uv_x = 6.25e-1,
-      uv_y = 2.5e-1,
-      color = .{ 0.0, 0.0, 1.0 },
-    },
-    .{
-      position = .{ 1.0, 1.0, 1.0 },
-      normal = .{ 0.0, 1.0, -0.0 },
-      uv_x = 6.25e-1,
-      uv_y = 2.5e-1,
-      color = .{ 0.0, 1.0, -0.0 },
-    },
-    .{
-      position = .{ 1.0, 1.0, 1.0 },
-      normal = .{ 1.0, 0.0, -0.0 },
-      uv_x = 6.25e-1,
-      uv_y = 2.5e-1,
-      color = .{ 1.0, 0.0, -0.0 },
-    },
-    .{
-      position = .{ 1.0, -1.0, 1.0 },
-      normal = .{ 0.0, -1.0, -0.0 },
-      uv_x = 3.75e-1,
-      uv_y = 2.5e-1,
-      color = .{ 0.0, -1.0, -0.0 },
-    },
-    .{
-      position = .{ 1.0, -1.0, 1.0 },
-      normal = .{ 0.0, 0.0, 1.0 },
-      uv_x = 3.75e-1,
-      uv_y = 2.5e-1,
-      color = .{ 0.0, 0.0, 1.0 },
-    },
-    .{
-      position = .{ 1.0, -1.0, 1.0 },
-      normal = .{ 1.0, 0.0, -0.0 },
-      uv_x = 3.75e-1,
-      uv_y = 2.5e-1,
-      color = .{ 1.0, 0.0, -0.0 },
-    },
-    .{
-      position = .{ -1.0, 1.0, -1.0 },
-      normal = .{ -1.0, 0.0, -0.0 },
-      uv_x = 6.25e-1,
-      uv_y = 7.5e-1,
-      color = .{ -1.0, 0.0, -0.0 },
-    },
-    .{
-      position = .{ -1.0, 1.0, -1.0 },
-      normal = .{ 0.0, 0.0, -1.0 },
-      uv_x = 6.25e-1,
-      uv_y = 7.5e-1,
-      color = .{ 0.0, 0.0, -1.0 },
-    },
-    .{
-      position = .{ -1.0, 1.0, -1.0 },
-      normal = .{ 0.0, 1.0, -0.0 },
-      uv_x = 8.75e-1,
-      uv_y = 5.0e-1,
-      color = .{ 0.0, 1.0, -0.0 },
-    },
-    .{
-      position = .{ -1.0, -1.0, -1.0 },
-      normal = .{ -1.0, 0.0, -0.0 },
-      uv_x = 3.75e-1,
-      uv_y = 7.5e-1,
-      color = .{ -1.0, 0.0, -0.0 },
-    },
-    .{
-      position = .{ -1.0, -1.0, -1.0 },
-      normal = .{ 0.0, -1.0, -0.0 },
-      uv_x = 1.25e-1,
-      uv_y = 5.0e-1,
-      color = .{ 0.0, -1.0, -0.0 },
-    },
-    .{
-      position = .{ -1.0, -1.0, -1.0 },
-      normal = .{ 0.0, 0.0, -1.0 },
-      uv_x = 3.75e-1,
-      uv_y = 7.5e-1,
-      color = .{ 0.0, 0.0, -1.0 },
-    },
-    .{
-      position = .{ -1.0, 1.0, 1.0 },
-      normal = .{ -1.0, 0.0, -0.0 },
-      uv_x = 6.25e-1,
-      uv_y = 1.0,
-      color = .{ -1.0, 0.0, -0.0 },
-    },
-    .{
-      position = .{ -1.0, 1.0, 1.0 },
-      normal = .{ 0.0, 0.0, 1.0 },
-      uv_x = 6.25e-1,
-      uv_y = 0.0,
-      color = .{ 0.0, 0.0, 1.0 },
-    },
-    .{
-      position = .{ -1.0, 1.0, 1.0 },
-      normal = .{ 0.0, 1.0, -0.0 },
-      uv_x = 8.75e-1,
-      uv_y = 2.5e-1,
-      color = .{ 0.0, 1.0, -0.0 },
-    },
-    .{
-      position = .{ -1.0, -1.0, 1.0 },
-      normal = .{ -1.0, 0.0, -0.0 },
-      uv_x = 3.75e-1,
-      uv_y = 1.0,
-      color = .{ -1.0, 0.0, -0.0 },
-    },
-    .{
-      position = .{ -1.0, -1.0, 1.0 },
-      normal = .{ 0.0, -1.0, -0.0 },
-      uv_x = 1.25e-1,
-      uv_y = 2.5e-1,
-      color = .{ 0.0, -1.0, -0.0 },
-    },
-    .{
-      position = .{ -1.0, -1.0, 1.0 },
-      normal = .{ 0.0, 0.0, 1.0 },
-      uv_x = 3.75e-1,
-      uv_y = 0.0,
-      color = .{ 0.0, 0.0, 1.0 },
-    },
-  ],
-};
 
 #import,file "ui.jai";
 #import,file "math.jai";

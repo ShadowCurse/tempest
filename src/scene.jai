@@ -146,6 +146,231 @@ get_scene_node_by_name :: (name: string) -> SceneNodeIdx, *SceneNode {
   return 0, *nodes[0];
 }
 
+create_box :: (size_x: float, size_y: float, size_z: float) -> Mesh {
+  indices :=  u32.[
+     0,  1,  2,  2,  3,  0, // front
+     4,  5,  6,  6,  7,  4, // back
+     8,  9, 10, 10, 11,  8, // right
+    12, 13, 14, 14, 15, 12, // left
+    16, 17, 18, 18, 19, 16, // top
+    20, 21, 22, 22, 23, 20, // bottom
+  ];
+
+  half_x := size_x / 2.0;
+  half_y := size_y / 2.0;
+  half_z := size_z / 2.0;
+
+  vertices := Vertex.[
+    // Front
+    .{ .{-half_x, -half_y,  half_z}, 0.0, .{ 0.0,  0.0,  1.0}, 0.0, .{ 0.0,  0.0,  1.0}, 0.0 },
+    .{ .{ half_x, -half_y,  half_z}, 1.0, .{ 0.0,  0.0,  1.0}, 0.0, .{ 0.0,  0.0,  1.0}, 0.0 },
+    .{ .{ half_x,  half_y,  half_z}, 1.0, .{ 0.0,  0.0,  1.0}, 1.0, .{ 0.0,  0.0,  1.0}, 0.0 },
+    .{ .{-half_x,  half_y,  half_z}, 0.0, .{ 0.0,  0.0,  1.0}, 1.0, .{ 0.0,  0.0,  1.0}, 0.0 },
+    // Back
+    .{ .{-half_x,  half_y, -half_z}, 1.0, .{ 0.0,  0.0, -1.0}, 0.0, .{ 0.0,  0.0, -1.0}, 0.0 },
+    .{ .{ half_x,  half_y, -half_z}, 0.0, .{ 0.0,  0.0, -1.0}, 0.0, .{ 0.0,  0.0, -1.0}, 0.0 },
+    .{ .{ half_x, -half_y, -half_z}, 0.0, .{ 0.0,  0.0, -1.0}, 1.0, .{ 0.0,  0.0, -1.0}, 0.0 },
+    .{ .{-half_x, -half_y, -half_z}, 1.0, .{ 0.0,  0.0, -1.0}, 1.0, .{ 0.0,  0.0, -1.0}, 0.0 },
+    // Right
+    .{ .{ half_x, -half_y, -half_z}, 0.0, .{ 1.0,  0.0,  0.0}, 0.0, .{ 1.0,  0.0,  0.0}, 0.0 },
+    .{ .{ half_x,  half_y, -half_z}, 1.0, .{ 1.0,  0.0,  0.0}, 0.0, .{ 1.0,  0.0,  0.0}, 0.0 },
+    .{ .{ half_x,  half_y,  half_z}, 1.0, .{ 1.0,  0.0,  0.0}, 1.0, .{ 1.0,  0.0,  0.0}, 0.0 },
+    .{ .{ half_x, -half_y,  half_z}, 0.0, .{ 1.0,  0.0,  0.0}, 1.0, .{ 1.0,  0.0,  0.0}, 0.0 },
+    // Left
+    .{ .{-half_x, -half_y,  half_z}, 1.0, .{-1.0,  0.0,  0.0}, 0.0, .{-1.0,  0.0,  0.0}, 0.0 },
+    .{ .{-half_x,  half_y,  half_z}, 0.0, .{-1.0,  0.0,  0.0}, 0.0, .{-1.0,  0.0,  0.0}, 0.0 },
+    .{ .{-half_x,  half_y, -half_z}, 0.0, .{-1.0,  0.0,  0.0}, 1.0, .{-1.0,  0.0,  0.0}, 0.0 },
+    .{ .{-half_x, -half_y, -half_z}, 1.0, .{-1.0,  0.0,  0.0}, 1.0, .{-1.0,  0.0,  0.0}, 0.0 },
+    // Top
+    .{ .{ half_x,  half_y, -half_z}, 1.0, .{ 0.0,  1.0,  0.0}, 0.0, .{ 0.0,  1.0,  0.0}, 0.0 },
+    .{ .{-half_x,  half_y, -half_z}, 0.0, .{ 0.0,  1.0,  0.0}, 0.0, .{ 0.0,  1.0,  0.0}, 0.0 },
+    .{ .{-half_x,  half_y,  half_z}, 0.0, .{ 0.0,  1.0,  0.0}, 1.0, .{ 0.0,  1.0,  0.0}, 0.0 },
+    .{ .{ half_x,  half_y,  half_z}, 1.0, .{ 0.0,  1.0,  0.0}, 1.0, .{ 0.0,  1.0,  0.0}, 0.0 },
+    // Bottom
+    .{ .{ half_x, -half_y,  half_z}, 0.0, .{ 0.0, -1.0,  0.0}, 0.0, .{ 0.0, -1.0,  0.0}, 0.0 },
+    .{ .{-half_x, -half_y,  half_z}, 1.0, .{ 0.0, -1.0,  0.0}, 0.0, .{ 0.0, -1.0,  0.0}, 0.0 },
+    .{ .{-half_x, -half_y, -half_z}, 1.0, .{ 0.0, -1.0,  0.0}, 1.0, .{ 0.0, -1.0,  0.0}, 0.0 },
+    .{ .{ half_x, -half_y, -half_z}, 0.0, .{ 0.0, -1.0,  0.0}, 1.0, .{ 0.0, -1.0,  0.0}, 0.0 },
+  ];
+  return .{ 0, array_copy(indices), array_copy(vertices) };
+}
+
+create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
+  length_inv  := 1.0 / radius;
+  sector_step := 2.0 * PI / cast(float)sectors;
+
+  assert(2 < stacks);
+  // sacks include the top and bottom points, so sub 2 here
+  inner_stacks := stacks - 2;
+  stack_step  := PI / cast(float)(stacks - 1);
+
+  total_vertices := sectors * inner_stacks + 2; // 2 for top and bottom
+  total_indices  := sectors * 3 * 2 + (sectors * (inner_stacks - 1)) * 2 * 3;
+  vertices := new_array(total_vertices, Vertex, initialized = false);
+  indices  := new_array(total_indices,  u32,    initialized = false);
+
+  vv := fixed_slice(vertices);
+
+  push(*vv, .{.{0.0, 0.0, radius}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
+  for i: 1..inner_stacks {
+    stack_angle := PI / 2.0 - stack_step * i;
+    xy := cos(stack_angle) * radius;
+    z  := sin(stack_angle) * radius;
+    for j: 1..sectors {
+      sector_angle := sector_step * j;
+      x := cos(sector_angle) * xy;
+      y := sin(sector_angle) * xy;
+      position := Vector3.{x, y, z};
+      normal   := Vector3.{x * length_inv, y * length_inv, z * length_inv};
+      uv_x     := cast(float)j / cast(float)sectors;
+      uv_y     := cast(float)i / cast(float)stacks;
+      push(*vv, .{ position, uv_x, normal, uv_y, normal, 0 });
+    }
+  }
+  push(*vv, .{.{0.0, 0.0, -radius}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
+  assert(vv.count == total_vertices, "% != %", vv.count, total_vertices);
+
+  ii := fixed_slice(indices);
+  for i: 0..sectors - 1 {
+    push(*ii, 0);
+    push(*ii, i + 1);
+    if i != sectors - 1 {
+      push(*ii, i + 2);
+    } else {
+      push(*ii, 1);
+    }
+  }
+  //  k1--k1+1
+  //  |  / |
+  //  | /  |
+  //  k2--k2+1
+  // only add triangles if there are at lest 2 inner_stacks, otherwise there is nothing
+  // to connect
+  for i: 0..inner_stacks - 2 {
+    k1 := 1 + i * sectors;
+    k2 := 1 + (i + 1) * sectors;
+    for j: 0..sectors - 1 {
+      if j != sectors - 1 {
+        push(*ii, k1);
+        push(*ii, k2);
+        push(*ii, k1 + 1);
+
+        push(*ii, k1 + 1);
+        push(*ii, k2);
+        push(*ii, k2 + 1);
+      } else {
+        push(*ii, k1);
+        push(*ii, k2);
+        push(*ii, 1 + i * sectors);
+
+        push(*ii, 1 + i * sectors);
+        push(*ii, k2);
+        push(*ii, 1 + (i + 1) * sectors);
+      }
+      k1 += 1;
+      k2 += 1;
+    }
+  }
+  for i: 0..sectors - 1 {
+    push(*ii, total_vertices - 1);
+    push(*ii, total_vertices - 1 - sectors + i);
+    if i != sectors - 1 {
+      push(*ii, total_vertices - 1 - sectors + i + 1);
+    } else {
+      push(*ii, total_vertices - 1 - sectors);
+    }
+  }
+  assert(ii.count == total_indices, "% != %", ii.count, total_indices);
+  return .{ 0, indices, vertices };
+}
+
+
+create_cylinder :: (radius: float, sectors: u32, heigth: float) -> Mesh {
+  half_h := heigth / 2.0;
+  sector_step   := 2.0 * PI / cast(float)sectors;
+  points := new_array(sectors, Vector3,,temp);
+  pp := fixed_slice(points);
+  for i: 0..sectors - 1 {
+    angle := sector_step * i;
+    push(*pp, .{cos(angle), sin(angle), 0});
+  }
+
+  total_vertices := sectors * 2 + 2; // for 2 centers
+  total_indices  := sectors * 2 * 3 * 2;
+  vertices := new_array(total_vertices, Vertex, initialized = false);
+  indices  := new_array(total_indices,  u32,    initialized = false);
+
+  vv := fixed_slice(vertices);
+  push(*vv, .{.{0.0, 0.0, half_h}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
+  for < i: 0..1 {
+    h := -half_h + heigth * i;
+    uv_y := cast(float)(1 - i);
+
+    for j: 0..sectors - 1 {
+      p := points[j];
+      position := Vector3.{p.x * radius, p.y * radius, h};
+      normal   := p;
+      uv_x     := cast(float)j / cast(float)sectors;
+      push(*vv, .{ position, uv_x, normal, uv_y, normal, 0 });
+    }
+  }
+  push(*vv, .{.{0.0, 0.0, -half_h}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
+  assert(vv.count == total_vertices, "% != %", vv.count, total_vertices);
+
+  // note(sc): this logic is basically same as for sphere
+  ii := fixed_slice(indices);
+  for i: 0..sectors - 1 {
+    push(*ii, 0);
+    push(*ii, i + 1);
+    if i != sectors - 1 {
+      push(*ii, i + 2);
+    } else {
+      push(*ii, 1);
+    }
+  }
+  //  k1--k1+1
+  //  |  / |
+  //  | /  |
+  //  k2--k2+1
+  {
+    k1: u32 = 1;
+    k2: u32 = 1 + sectors;
+    for j: 0..sectors - 1 {
+      if j != sectors - 1 {
+        push(*ii, k1);
+        push(*ii, k2);
+        push(*ii, k1 + 1);
+
+        push(*ii, k1 + 1);
+        push(*ii, k2);
+        push(*ii, k2 + 1);
+      } else {
+        push(*ii, k1);
+        push(*ii, k2);
+        push(*ii, 1);
+
+        push(*ii, 1);
+        push(*ii, k2);
+        push(*ii, 1 + sectors);
+      }
+      k1 += 1;
+      k2 += 1;
+    }
+  }
+  for i: 0..sectors - 1 {
+    push(*ii, total_vertices - 1);
+    push(*ii, total_vertices - 1 - sectors + i);
+    if i != sectors - 1 {
+      push(*ii, total_vertices - 1 - sectors + i + 1);
+    } else {
+      push(*ii, total_vertices - 1 - sectors);
+    }
+  }
+  assert(ii.count == total_indices, "% != %", ii.count, total_indices);
+  return .{ 0, indices, vertices };
+}
+
+
 #scope_file
 
 add_mesh :: (mesh: *cgltf_mesh) {
@@ -228,5 +453,6 @@ add_mesh :: (mesh: *cgltf_mesh) {
 #import,file "math.jai";
 #import,file "allocators.jai";
 #import,file "fixed_array.jai";
+#import,file "fixed_slice.jai";
 #import "cgltf";
 #import "Basic";
