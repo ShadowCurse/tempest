@@ -269,9 +269,9 @@ main :: () {
         label(*ui, tprint("rot: %", camera_rotation));
         label(*ui, tprint("pressed_id: %", ui.pressed_id));
         label(*ui, tprint("hover_id: %", ui.hover_id));
-        if button(*ui, "Draw Cube")    draw_cube    = !draw_cube;
-        if button(*ui, "Draw Crystal") draw_crystal = !draw_crystal;
-        if button(*ui, "Draw Bistro")  draw_bistro = !draw_bistro;
+        toggle(*ui, "Draw Cube",    *draw_cube);
+        toggle(*ui, "Draw Crystal", *draw_crystal);
+        toggle(*ui, "Draw Bistro",  *draw_bistro);
         slider(*ui, "Gradient", 0.0, 1.0, *v);
       }
 
@@ -878,7 +878,6 @@ create_mesh_pipeline :: () -> Pipeline {
   ];
 
   input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
-  // input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .LINE_LIST };
   rasterization: VkPipelineRasterizationStateCreateInfo = .{
     polygonMode = .FILL,
     // cullMode    = .BACK_BIT,

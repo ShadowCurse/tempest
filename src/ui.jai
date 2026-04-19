@@ -265,7 +265,17 @@ button :: (c: *Context, text: string) -> bool {
   pressed := c.pressed_id == widget.id;
   result := pressed && !widget.was_pressed;
   widget.was_pressed = pressed;
+  widget.color = .BUTTON_NORMAL;
   return result;
+}
+
+toggle :: (c: *Context, text: string, v: *bool) {
+  widget := build_widget(c, text, .CLICK | .DRAW_TEXT | .DRAW_BACKGROUND, .CENTER);
+  pressed := c.pressed_id == widget.id;
+  result := pressed && !widget.was_pressed;
+  widget.was_pressed = pressed;
+  widget.color = ifx v.* then .BACKGROUND3 else .BACKGROUND1;
+  if result then v.* = !v.*;
 }
 
 slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
@@ -317,7 +327,6 @@ finish_widgets :: (c: *Context) {
     color: ColorType = w.color;
     check_rect_interaction(c, w.id, current_p, w.size);
     if w.flags & .CLICK {
-      color = .BUTTON_NORMAL;
       if c.hover_id   == w.id color = .BUTTON_HOVERED;
       if c.pressed_id == w.id color = .BUTTON_PRESSED;
     }
