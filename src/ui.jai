@@ -270,12 +270,21 @@ button :: (c: *Context, text: string) -> bool {
 }
 
 toggle :: (c: *Context, text: string, v: *bool) {
-  widget := build_widget(c, text, .CLICK | .DRAW_TEXT | .DRAW_BACKGROUND, .CENTER);
-  pressed := c.pressed_id == widget.id;
-  result := pressed && !widget.was_pressed;
-  widget.was_pressed = pressed;
-  widget.color = ifx v.* then .BACKGROUND3 else .BACKGROUND1;
+  flags: WidgetFlags = .CLICK | .DRAW_BACKGROUND | .FIXED_SIZE_X | .FIXED_SIZE_Y;
+  tag := tprint("%_toggle", text);
+  toggle_size := c.font_size;
+  toggle := build_widget(c, tag, flags, .CENTER, .{ toggle_size , toggle_size  });
+  toggle.color = ifx v.* then .GREEN1 else .BACKGROUND1;
+
+  pressed := c.pressed_id == toggle.id;
+  result  := pressed && !toggle.was_pressed;
+  toggle.was_pressed = pressed;
   if result then v.* = !v.*;
+
+  flags     = .DRAW_TEXT | .FIXED_SIZE_X | .FIXED_POSITION_X | .FIXED_POSITION_Y;
+  size     := Vector2.{ x = toggle.parent.size.x - toggle_size  };
+  position := Vector2.{ toggle.position.x + toggle_size, toggle.position.y - toggle_size / 2.0 };
+  _    := build_widget(c, text, flags, 0, size, position);
 }
 
 slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
