@@ -225,6 +225,7 @@ main :: () {
   draw_cube    := false;
   draw_crystal := false;
   draw_bistro  := false;
+  polygon_mode: VkPolygonMode = .FILL;
 
   camera_position: Vector3 = .{ 0.0, -5.0, 5.0 };
   camera_rotation: Vector2 = .{ 0.78, 0.0 };
@@ -273,6 +274,10 @@ main :: () {
         toggle(*ui, "Draw Crystal", *draw_crystal);
         toggle(*ui, "Draw Bistro",  *draw_bistro);
         slider(*ui, "Gradient", 0.0, 1.0, *v);
+        if button(*ui, "Polygon mode") {
+          if polygon_mode == .FILL then polygon_mode = .LINE;
+          else polygon_mode = .FILL;
+        }
       }
 
       finish_widgets(*ui);
@@ -420,6 +425,7 @@ main :: () {
         defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.MESH_END);
 
         cmd_bind_pipeline(render_command, mesh_pipeline, .GRAPHICS);
+        cmd_set_polygon_mode(render_command, polygon_mode);
         if draw_cube {
           constant: MeshPushConstant = .{
             Matrix4_Identity,
@@ -923,7 +929,7 @@ create_mesh_pipeline :: () -> Pipeline {
 
   vertex_input: VkPipelineVertexInputStateCreateInfo;
 
-  dynamic_states: []VkDynamicState = .[ .VIEWPORT, .SCISSOR ];
+  dynamic_states: []VkDynamicState = .[ .VIEWPORT, .SCISSOR, .POLYGON_MODE_EXT ];
   dynamic_state_info: VkPipelineDynamicStateCreateInfo = .{
     pDynamicStates    = dynamic_states.data,
     dynamicStateCount = xx dynamic_states.count,

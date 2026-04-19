@@ -11,6 +11,7 @@ DEVICE_EXTENSIONS := *u8.[
     "VK_KHR_maintenance5",
     "VK_EXT_swapchain_maintenance1",
     "VK_KHR_push_descriptor",
+    "VK_EXT_extended_dynamic_state3",
     // "VK_KHR_unified_image_layouts",
 ];
 MINIMAL_API_VERSION := #run api_version(0, 1, 3, 0);
@@ -290,6 +291,10 @@ cmd_write_timestamp :: (
   idx:   u32,
 ) {
   vkCmdWriteTimestamp(cmd, stage, pool, idx);
+}
+
+cmd_set_polygon_mode :: (cmd:   VkCommandBuffer, mode: VkPolygonMode) {
+  vkCmdSetPolygonModeEXT(cmd, mode);
 }
 
 cmd_dispatch :: (cmd: VkCommandBuffer, group_count_x: u32,  group_count_y: u32, group_count_z: u32) {
@@ -976,13 +981,18 @@ init_device :: () {
     };
     physical_device_features_1_3.pNext = *maintenance5;
   }
-  physical_device_features_1_2: VkPhysicalDeviceVulkan12Features = .{
+  dynamic_state3: VkPhysicalDeviceExtendedDynamicState3FeaturesEXT = .{
     pNext               = *physical_device_features_1_3,
+    extendedDynamicState3PolygonMode = xx true,
+  };
+  physical_device_features_1_2: VkPhysicalDeviceVulkan12Features = .{
+    pNext               = *dynamic_state3,
     bufferDeviceAddress = xx true,
     descriptorIndexing  = xx true,
   };
   physical_device_features: VkPhysicalDeviceFeatures = .{
     shaderInt64 = xx true,
+    fillModeNonSolid = xx true,
   };
 
   create_info: VkDeviceCreateInfo = .{
@@ -1252,6 +1262,7 @@ DONE
   "vkGetQueryPoolResults",
   "vkCmdResetQueryPool",
   "vkCmdWriteTimestamp",
+  "vkCmdSetPolygonModeEXT",
 ]);
 
 VK_REMAINING_MIP_LEVELS   :: 4294967295;
