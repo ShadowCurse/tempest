@@ -46,10 +46,12 @@ text_pipeline:    Pipeline;
 grid_pipeline:    Pipeline;
 mesh_pipeline:    Pipeline;
 
-cube_mesh_info:    GpuMeshInfo;
-crystal:           *Mesh;
-crystal_mesh_info: GpuMeshInfo;
-meshe_infos:       FixedArray(GpuMeshInfo, 8192, MeshIdx);
+cube_mesh_info:   GpuMeshInfo;
+meshe_infos:      FixedArray(GpuMeshInfo, 8192, MeshIdx);
+
+// rendering settings
+visual_aabb:  bool          = false;
+polygon_mode: VkPolygonMode = .FILL;
 
 main :: () {
   if !platform_init() return;
@@ -225,7 +227,6 @@ main :: () {
   draw_cube    := false;
   draw_crystal := false;
   draw_bistro  := false;
-  polygon_mode: VkPolygonMode = .FILL;
 
   camera_position: Vector3 = .{ 0.0, -5.0, 5.0 };
   camera_rotation: Vector2 = .{ 0.78, 0.0 };
@@ -270,9 +271,10 @@ main :: () {
         label(*ui, tprint("rot: %", camera_rotation));
         label(*ui, tprint("pressed_id: %", ui.pressed_id));
         label(*ui, tprint("hover_id: %", ui.hover_id));
-        toggle(*ui, "Draw Cube",    *draw_cube);
-        toggle(*ui, "Draw Crystal", *draw_crystal);
-        toggle(*ui, "Draw Bistro",  *draw_bistro);
+        toggle(*ui, "Visualize AABB", *visual_aabb);
+        toggle(*ui, "Draw Cube",      *draw_cube);
+        toggle(*ui, "Draw Crystal",   *draw_crystal);
+        toggle(*ui, "Draw Bistro",    *draw_bistro);
         slider(*ui, "Gradient", 0.0, 1.0, *v);
         select(*ui, "Polygon mode2", *polygon_mode, .["FILL", "LINE", "POINT"]);
       }
@@ -440,7 +442,38 @@ main :: () {
           cmd_draw_indexed(render_command, cube_mesh_info.index_count, 1, 0, 0, 0);
         }
 
-        draw_node :: (cmd: RenderCommand, node: *SceneNode, parent_transform: Matrix4) {
+        draw_aabb :: (cmd: RenderCommand, aabb: *AABB, transform: Matrix4) {
+          cmd_set_polygon_mode(cmd, .LINE);
+          defer cmd_set_polygon_mode(cmd, polygon_mode);
+
+          m := transform;
+          s, t := aabb_to_scale_and_translation(aabb);
+          scale(*m, s);
+          // the multiplication expect matrices to be row-major, but we only believe in
+          // a column-major matrices in this town, so transpose for a temporary fix
+          tt := transpose(transform) * Vector4.{t.x, t.y, t.z, 0.0};
+          translate(*m, tt.xyz);
+          constant: MeshPushConstant = .{
+            m,
+            mesh_buffer.device_address,
+            scene_buffer.device_address,
+            xx cube_mesh_info.vertices_buffer_offset,
+          };
+          cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+          cmd_bind_index_buffer(
+            cmd,
+            mesh_buffer.buffer,
+            cube_mesh_info.indices_buffer_offset,
+            .UINT32
+          );
+          cmd_draw_indexed(cmd, cube_mesh_info.index_count, 1, 0, 0, 0);
+        }
+
+        draw_node :: (
+          cmd: RenderCommand,
+          node: *SceneNode,
+          parent_transform: Matrix4,
+        ) {
           transform := mat4_from_trs(node.translation, node.rotation, node.scale);
           final_transform := transform * parent_transform;
           if node.mesh_idx {
@@ -454,6 +487,8 @@ main :: () {
             cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
             cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
             cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
+
+            if visual_aabb draw_aabb(cmd, *meshes[node.mesh_idx].aabb, final_transform);
           } else {
             if node.children_count {
               for 0..node.children_count - 1 {
@@ -466,6 +501,7 @@ main :: () {
         }
         if draw_crystal {
           _, crystal := get_scene_node_by_name("crystal");
+          // _, crystal := get_scene_node_by_name("subset_0.174");
           draw_node(render_command, crystal, Matrix4_Identity);
         }
         if draw_bistro {
