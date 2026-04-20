@@ -7,9 +7,22 @@ Vertex :: struct {
   _:        float;
 } @ShaderType
 
+AABB :: struct {
+  min: Vector3;
+  max: Vector3;
+};
+
+// Scale and translation to apply to unit cube to convert it to AABB
+aabb_to_scale_and_translation :: (aabb: *AABB) -> Vector3, Vector3 {
+  dim := aabb.max - aabb.min;
+  center := (aabb.max + aabb.min) / 2.0;
+  return dim, center;
+}
+
 MeshIdx :: #type,distinct u32;
 Mesh :: struct {
   material_idx: MaterialIdx;
+  aabb:         AABB;
   indices:      []u32;
   vertices:     []Vertex;
 }
@@ -192,7 +205,12 @@ create_box :: (size_x: float, size_y: float, size_z: float) -> Mesh {
     .{ .{-half_x, -half_y, -half_z}, 1.0, .{ 0.0, -1.0,  0.0}, 1.0, .{ 0.0, -1.0,  0.0}, 0.0 },
     .{ .{ half_x, -half_y, -half_z}, 0.0, .{ 0.0, -1.0,  0.0}, 1.0, .{ 0.0, -1.0,  0.0}, 0.0 },
   ];
-  return .{ 0, array_copy(indices), array_copy(vertices) };
+  return .{
+    0,
+    .{ .{-half_x, -half_y, -half_y}, .{half_x, half_y, half_y} },
+    array_copy(indices),
+    array_copy(vertices),
+  };
 }
 
 create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
@@ -281,7 +299,14 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
     }
   }
   assert(ii.count == total_indices, "% != %", ii.count, total_indices);
-  return .{ 0, indices, vertices };
+
+  half_r := radius / 2.0;
+  return .{
+    0,
+    .{ .{-half_r, -half_r, -half_r}, .{half_r, half_r, half_r} },
+    indices,
+    vertices,
+  };
 }
 
 
@@ -367,7 +392,14 @@ create_cylinder :: (radius: float, sectors: u32, heigth: float) -> Mesh {
     }
   }
   assert(ii.count == total_indices, "% != %", ii.count, total_indices);
-  return .{ 0, indices, vertices };
+
+  half_r := radius / 2.0;
+  return .{
+    0,
+    .{ .{-half_r, -half_r, -half_h}, .{half_r, half_r, half_h} },
+    indices,
+    vertices,
+  };
 }
 
 
@@ -391,6 +423,10 @@ add_mesh :: (mesh: *cgltf_mesh) {
   };
   for i: 0..indices_count - 1 indices[i] = xx cgltf_accessor_read_index(primitive.indices, i);
 
+  aabb: AABB = .{
+    .{ FLOAT32_MAX, FLOAT32_MAX, FLOAT32_MAX },
+    .{ FLOAT32_MIN, FLOAT32_MIN, FLOAT32_MIN },
+  };
   vertices: []Vertex = { data = cast(*Vertex)model_memory.data, count = xx vertices_count };
   // log("Mesh primitive type: %", primitive.type);
   for i: 0..primitive.attributes_count - 1 {
@@ -415,7 +451,11 @@ add_mesh :: (mesh: *cgltf_mesh) {
         positions: []Vector3 = ---;
         positions.data  = cast(*Vector3)floats.data;
         positions.count = floats.count / 3;
-        for i: 0..vertices_count - 1 vertices[i].position = positions[i];
+        for i: 0..vertices_count - 1 {
+          vertices[i].position = positions[i];
+          aabb.min = min(aabb.min, positions[i]);
+          aabb.max = max(aabb.max, positions[i]);
+        }
       case .cgltf_attribute_type_normal;
         num_components := cgltf_num_components(attr.data[0].type);
         // log("Normal has % components", num_components);
@@ -447,7 +487,7 @@ add_mesh :: (mesh: *cgltf_mesh) {
   // mesh_idx := prev_meshes_count + mesh - data.meshes;
   // mesh_name := to_string(mesh.name);
   // log("Mesh %: % vertices: % indices: %", mesh_idx, mesh_name, vertices.count, indices.count);
-  array_add(*meshes, Mesh.{ material_idx, indices, vertices });
+  array_add(*meshes, Mesh.{ material_idx, aabb, indices, vertices });
 }
 
 #import,file "math.jai";
