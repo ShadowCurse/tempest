@@ -28,9 +28,9 @@ look_at :: (position: Vector3, target: Vector3, up: Vector3) -> Matrix4 {
 }
 
 translate :: (m: *Matrix4, position: Vector3) {
-  m._41 = position.x;
-  m._42 = position.y;
-  m._43 = position.z;
+  m._41 += position.x;
+  m._42 += position.y;
+  m._43 += position.z;
 }
 
 scale :: (m: *Matrix4, v: Vector3) {
@@ -47,6 +47,10 @@ scale :: (m: *Matrix4, v: Vector3) {
     m._33 *= v.z;
 }
 
+scale :: (m: Matrix4) -> Vector3 {
+  return .{ length(m.v[0]), length(m.v[1]), length(m.v[2]) };
+}
+
 perspective :: (fovy: float, aspect: float, near: float, far: float) -> Matrix4 {
   g := 1.0 / tan(fovy / 2.0);
   k := near / (near - far);
@@ -55,6 +59,14 @@ perspective :: (fovy: float, aspect: float, near: float, far: float) -> Matrix4 
     _21 = 0.0,        _22 = g,   _23 = 0.0,      _24 = 0.0,
     _31 = 0.0,        _32 = 0.0, _33 = k,        _34 = 1.0,
     _41 = 0.0,        _42 = 0.0, _43 = -far * k, _44 = 0.0,
+  };
+}
+
+mat3_from_mat4 :: (m: Matrix4) -> Matrix3 {
+  return .{
+    _11 = m._11, _12 = m._12, _13 = m._13,
+    _21 = m._21, _22 = m._22, _23 = m._23,
+    _31 = m._31, _32 = m._32, _33 = m._33,
   };
 }
 
