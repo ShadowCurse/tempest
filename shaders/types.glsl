@@ -2,7 +2,7 @@
 
 #define VkDeviceAddress uint64_t
 
-struct Scene {
+struct SceneInfo {
     mat4 camera_view;
     mat4 camera_view_inv;
     mat4 camera_projection;

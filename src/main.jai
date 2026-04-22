@@ -19,7 +19,7 @@ NO_LAST_SWAPCHAIN_INDEX : u32 = ~cast(u32)0;
 cpu_to_gpu_buffer_arena: GpuBufferArena;
 staging_buffer:          GpuBufferSlice(u8);
 ui_buffers:              [FRAMES]GpuBufferSlice(Quad);
-scene_buffer:            GpuBufferSlice(Scene);
+scene_buffer:            GpuBufferSlice(SceneInfo);
 
 gpu_buffer_arena: GpuBufferArena;
 mesh_buffer:      GpuBufferSlice(u8);
@@ -70,7 +70,7 @@ main :: () {
   init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, .TRANSFER_SRC_BIT | .SHADER_DEVICE_ADDRESS_BIT);
   staging_buffer        = push(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
   for * ui_buffers it.* = push(*cpu_to_gpu_buffer_arena, Quad, 1024);
-  scene_buffer          = push(*cpu_to_gpu_buffer_arena, Scene);
+  scene_buffer          = push(*cpu_to_gpu_buffer_arena, SceneInfo);
 
   gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
   init(*gpu_buffer_arena, gpu_memory, .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
@@ -113,9 +113,10 @@ main :: () {
   };
   font_sampler := create_sampler(sampler_create_info);
 
-  init_scenes();
-  load_scene("crystal.glb");
-  load_scene("bistro.glb");
+  default_scene: Scene;
+  init(*default_scene);
+  load_gltf(*default_scene, "crystal.glb");
+  load_gltf(*default_scene, "bistro.glb");
 
   {
     imm_command := *render_commands[FRAMES];
@@ -186,7 +187,7 @@ main :: () {
       mesh_buffer_offset += total_bytes;
     }
 
-    for *mesh: meshes {
+    for *mesh: default_scene.meshes {
       begin_render_command(imm_command);
       defer submit_wait_reset(imm_command);
       defer end_render_command(imm_command);
@@ -443,13 +444,12 @@ main :: () {
         }
 
         if draw_crystal {
-          _, crystal := get_scene_node_by_name("crystal");
-          // _, crystal := get_scene_node_by_name("subset_0.174");
-          draw_node(render_command, crystal, Matrix4_Identity);
+          _, crystal := get_node_by_name(*default_scene, "crystal");
+          draw_node(render_command, default_scene, crystal, Matrix4_Identity);
         }
         if draw_bistro {
-          bistro_root_idx := root_nodes[1];
-          draw_node(render_command, *nodes[bistro_root_idx ], Matrix4_Identity);
+          bistro_root_idx := default_scene.root_nodes[1];
+          draw_node(render_command, default_scene, default_scene.nodes[bistro_root_idx], Matrix4_Identity);
         }
       }
 
@@ -575,8 +575,9 @@ draw_aabb :: (cmd: RenderCommand, aabb: *AABB, transform: Matrix4) {
 }
 
 draw_node :: (
-  cmd: RenderCommand,
-  node: *SceneNode,
+  cmd:              RenderCommand,
+  scene:            Scene,
+  node:             SceneNode,
   parent_transform: Matrix4,
 ) {
   transform := mat4_from_trs(node.translation, node.rotation, node.scale);
@@ -593,13 +594,13 @@ draw_node :: (
     cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
     cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
 
-    if visual_aabb draw_aabb(cmd, *meshes[node.mesh_idx].aabb, final_transform);
+    if visual_aabb draw_aabb(cmd, *scene.meshes[node.mesh_idx].aabb, final_transform);
   } else {
     if node.children_count {
       for 0..node.children_count - 1 {
         idx := node.first_child_idx + cast(SceneNodeIdx) it;
-        child := *nodes[idx];
-        draw_node(cmd, child, final_transform);
+        child := *scene.nodes[idx];
+        draw_node(cmd, scene, child, final_transform);
       }
     }
   }
@@ -1128,7 +1129,7 @@ cmd_transition_swapchain_image :: (
   );
 }
 
-Scene :: struct {
+SceneInfo :: struct {
   camera_view:       Matrix4;
   camera_view_inv:   Matrix4;
   camera_projection: Matrix4;

@@ -7,7 +7,7 @@ layout (location = 1) in vec3 in_far;
 layout (location = 0) out vec4 out_color;
 
 layout(buffer_reference, std430) readonly buffer SceneRef {
-    Scene data;
+    SceneInfo data;
 };
 layout(push_constant) uniform constants {
   GridPushConstant data;

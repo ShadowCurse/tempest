@@ -6,7 +6,7 @@ layout(buffer_reference, std430) readonly buffer MeshBytesRef {
     uint bytes[];
 };
 layout(buffer_reference, std430) readonly buffer SceneRef {
-    Scene data;
+    SceneInfo data;
 };
 layout(push_constant) uniform constants {
     MeshPushConstant data;

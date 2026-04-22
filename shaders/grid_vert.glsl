@@ -6,7 +6,7 @@ layout (location = 0) out vec3 out_near;
 layout (location = 1) out vec3 out_far;
 
 layout(buffer_reference, std430) readonly buffer SceneRef {
-    Scene data;
+    SceneInfo data;
 };
 layout(push_constant) uniform constants {
   GridPushConstant data;
