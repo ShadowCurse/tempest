@@ -442,63 +442,6 @@ main :: () {
           cmd_draw_indexed(render_command, cube_mesh_info.index_count, 1, 0, 0, 0);
         }
 
-        draw_aabb :: (cmd: RenderCommand, aabb: *AABB, transform: Matrix4) {
-          cmd_set_polygon_mode(cmd, .LINE);
-          defer cmd_set_polygon_mode(cmd, polygon_mode);
-
-          m := transform;
-          s, t := aabb_to_scale_and_translation(aabb);
-          scale(*m, s);
-          // the multiplication expect matrices to be row-major, but we only believe in
-          // a column-major matrices in this town, so transpose for a temporary fix
-          tt := transpose(transform) * Vector4.{t.x, t.y, t.z, 0.0};
-          translate(*m, tt.xyz);
-          constant: MeshPushConstant = .{
-            m,
-            mesh_buffer.device_address,
-            scene_buffer.device_address,
-            xx cube_mesh_info.vertices_buffer_offset,
-          };
-          cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-          cmd_bind_index_buffer(
-            cmd,
-            mesh_buffer.buffer,
-            cube_mesh_info.indices_buffer_offset,
-            .UINT32
-          );
-          cmd_draw_indexed(cmd, cube_mesh_info.index_count, 1, 0, 0, 0);
-        }
-
-        draw_node :: (
-          cmd: RenderCommand,
-          node: *SceneNode,
-          parent_transform: Matrix4,
-        ) {
-          transform := mat4_from_trs(node.translation, node.rotation, node.scale);
-          final_transform := transform * parent_transform;
-          if node.mesh_idx {
-            info := *meshe_infos[node.mesh_idx];
-            constant: MeshPushConstant = .{
-              final_transform,
-              mesh_buffer.device_address,
-              scene_buffer.device_address,
-              xx info.vertices_buffer_offset,
-            };
-            cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-            cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
-            cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
-
-            if visual_aabb draw_aabb(cmd, *meshes[node.mesh_idx].aabb, final_transform);
-          } else {
-            if node.children_count {
-              for 0..node.children_count - 1 {
-                idx := node.first_child_idx + cast(SceneNodeIdx) it;
-                child := *nodes[idx];
-                draw_node(cmd, child, final_transform);
-              }
-            }
-          }
-        }
         if draw_crystal {
           _, crystal := get_scene_node_by_name("crystal");
           // _, crystal := get_scene_node_by_name("subset_0.174");
@@ -602,6 +545,64 @@ recreate_depth_image :: () {
     );
   }
   submit_wait_reset(imm_command);
+}
+
+draw_aabb :: (cmd: RenderCommand, aabb: *AABB, transform: Matrix4) {
+  cmd_set_polygon_mode(cmd, .LINE);
+  defer cmd_set_polygon_mode(cmd, polygon_mode);
+
+  m := transform;
+  s, t := aabb_to_scale_and_translation(aabb);
+  scale(*m, s);
+  // the multiplication expect matrices to be row-major, but we only believe in
+  // a column-major matrices in this town, so transpose for a temporary fix
+  tt := transpose(transform) * Vector4.{t.x, t.y, t.z, 0.0};
+  translate(*m, tt.xyz);
+  constant: MeshPushConstant = .{
+    m,
+    mesh_buffer.device_address,
+    scene_buffer.device_address,
+    xx cube_mesh_info.vertices_buffer_offset,
+  };
+  cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+  cmd_bind_index_buffer(
+    cmd,
+    mesh_buffer.buffer,
+    cube_mesh_info.indices_buffer_offset,
+    .UINT32
+  );
+  cmd_draw_indexed(cmd, cube_mesh_info.index_count, 1, 0, 0, 0);
+}
+
+draw_node :: (
+  cmd: RenderCommand,
+  node: *SceneNode,
+  parent_transform: Matrix4,
+) {
+  transform := mat4_from_trs(node.translation, node.rotation, node.scale);
+  final_transform := transform * parent_transform;
+  if node.mesh_idx {
+    info := *meshe_infos[node.mesh_idx];
+    constant: MeshPushConstant = .{
+      final_transform,
+      mesh_buffer.device_address,
+      scene_buffer.device_address,
+      xx info.vertices_buffer_offset,
+    };
+    cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+    cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
+    cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
+
+    if visual_aabb draw_aabb(cmd, *meshes[node.mesh_idx].aabb, final_transform);
+  } else {
+    if node.children_count {
+      for 0..node.children_count - 1 {
+        idx := node.first_child_idx + cast(SceneNodeIdx) it;
+        child := *nodes[idx];
+        draw_node(cmd, child, final_transform);
+      }
+    }
+  }
 }
 
 Pipeline :: struct {
