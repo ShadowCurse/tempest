@@ -10,6 +10,10 @@ enum_elements_count :: ($T: Type) -> s64 #expand {
   };
 }
 
+str_from_char :: (char: *u8) -> string {
+  return .{ data = char, count = 1 };
+}
+
 #scope_file
 
 #import "Basic";

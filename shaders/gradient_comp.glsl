@@ -2,7 +2,6 @@
 
 layout (local_size_x = 16, local_size_y = 16) in;
 layout(set = 0, binding = 0) uniform writeonly image2D image;
-layout(set = 0, binding = 1) uniform sampler2D font_texture;
 layout(push_constant) uniform constants
 {
    float time;
@@ -11,7 +10,6 @@ layout(push_constant) uniform constants
 void main() {
     ivec2 texel_coord  = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size         = imageSize(image);
-    ivec2 font_size    = textureSize(font_texture, 0);
     vec4 top_color     = vec4(0.0, 0.0, 0.0, 1.0);
     vec4 bottom_color  = vec4(0.38, 0.50, 0.19, 1.0);
     vec4 bg_color      = vec4(0.1, 0.4, 0.45, 1.0);

@@ -4,9 +4,9 @@
 
 #include "ui.glsl"
 
-layout (location = 0) out vec3 outColor;
-layout (location = 1) out vec2 outUV;
-layout (location = 2) out int outInstanceId;
+layout (location = 0) out vec2 outUV;
+layout (location = 1) out int  outInstanceId;
+layout (location = 2) out vec2 v_texcoord;
 
 void main() {
     Quad sq = get_quad(gl_InstanceIndex);
@@ -23,7 +23,16 @@ void main() {
         1.0);
     gl_Position = vec4(new_position.xy, 1.0, 1.0);
 
-    outColor = v.color.xyz;
+    const vec2 tex_coords[6] = vec2[6](
+        vec2(sq.tex.z, sq.tex.w),
+        vec2(sq.tex.z, sq.tex.y),
+        vec2(sq.tex.x, sq.tex.y),
+        vec2(sq.tex.x, sq.tex.y),
+        vec2(sq.tex.x, sq.tex.w),
+        vec2(sq.tex.z, sq.tex.w)
+    );
+
     outUV = v.uv;
     outInstanceId = gl_InstanceIndex;
+    v_texcoord = tex_coords[gl_VertexIndex];
 }

@@ -22,7 +22,9 @@ struct GridPushConstant {
 struct TextPushConstant {
     VkDeviceAddress quads;
     vec2 screen_size;
-    float scaling;
+    VkDeviceAddress data_buffer;
+    uint curves_offset;
+    uint bands_offset;
 };
 
 struct Vertex {
@@ -35,12 +37,16 @@ struct Vertex {
 };
 
 #define QuadUsage uint
+#define RGBA uint
 struct Quad {
-    vec2 position;
-    vec2 size;
-    vec2 uv_offset;
-    vec2 uv_size;
     QuadUsage usage;
-    uint _;
+    RGBA color;
+    vec2 position;
+    vec4 tex;
+    vec2 size;
+    uint glyph_band_texel;
+    uint band_min_max;
+    vec2 band_scale;
+    vec2 band_offset;
 };
 

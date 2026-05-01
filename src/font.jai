@@ -1,138 +1,104 @@
 Font :: struct {
-  size:           u32;
+  ascent:         float;
+  descent:        float;
   line_gap:       float;
-  distance_range: u32;
   char_info:      []CharInfo;
-  // kerning_table: []KerningInfo;
-  bitmap:         []u8;
-  bitmap_width:   u32;
-  bitmap_height:  u32;
+  kerning_table:  []KerningInfo;
 }
 ALL_CHARS :: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 
-CharInfo :: struct {
-  advance:        float;
-  x0, y0, x1, y1: float;
-  u0, v0, u1, v1: float;
-}
-
+CharInfo :: cslug_glyph;
 KerningInfo :: struct {
   char_1:  u8;
   char_2:  u8;
   kerning: s32;
 };
 
-load_font :: (name: string) -> Font {
-  mtsdf_path := tprint("resources/fonts/%.mtsdf", name);
-  json_path  := tprint("resources/fonts/%.json", name);
+load_font :: (name: string) -> Font, tmp_curves: []u16, tmp_bands: []u16 {
+  font_path := tprint("resources/fonts/%.ttf", name);
+  font_file_bytes: []u8 = xx platform_read_entire_file(font_path);
 
-  font: Font;
-  font.bitmap    = xx platform_read_entire_file(mtsdf_path);
-  font.char_info = new_array(ALL_CHARS.count, CharInfo, initialized = false);
+  info: stbtt_fontinfo = ---;
+  _ = stbtt_InitFont(
+      *info,
+      font_file_bytes.data,
+      stbtt_GetFontOffsetForIndex(font_file_bytes.data, 0),
+  );
 
-  json    := platform_read_entire_file(json_path,, temp);
-  parser: JsonParser = .{ buf = json };
-  next_object_begin(*parser);
-  while true {
-    token := next_token(*parser);
-    if token.kind == .end_of_document break;
-    if token.payload == {
-      case "atlas";
-        while true {
-          field := next_object_field(*parser);
-          if field.kind == .object_end break;
-          if field.payload == {
-            case "distanceRange";
-              number := next_number(*parser);
-              font.distance_range = parse_int(*number.payload, u32);
-            case "size";
-              number := next_number(*parser);
-              font.size = parse_int(*number.payload, u32);
-            case "width";
-              number := next_number(*parser);
-              font.bitmap_width = parse_int(*number.payload, u32);
-            case "height";
-              number := next_number(*parser);
-              font.bitmap_height = parse_int(*number.payload, u32);
-            case;
-          }
-        }
-    case "metrics";
-      while true {
-        field := next_object_field(*parser);
-        if field.kind == .object_end break;
-        if field.payload == {
-          case "lineHeight";
-            number := next_number(*parser);
-            font.line_gap = parse_float(*number.payload);
-        }
-      }
-    case "glyphs";
-      next_array_begin(*parser);
-      char_index: u8;
-      while true {
-        next := next_token(*parser);
-        if next.kind == .array_end break;
-        while true {
-          field := next_object_field(*parser);
-          if field.kind == .object_end break;
-          if field.payload == {
-            case "unicode";
-              number := next_number(*parser);
-              char_index = parse_int(*number.payload, u8) - ALL_CHARS[0];
-            case "advance";
-              number := next_number(*parser);
-              font.char_info[char_index].advance = parse_float(*number.payload);
-            case "planeBounds";
-              while true {
-                plane_field := next_object_field(*parser);
-                if plane_field.kind == .object_end break;
-                if plane_field.payload == {
-                  case "left";
-                      number := next_number(*parser);
-                      font.char_info[char_index].x0 = parse_float(*number.payload);
-                  case "top";
-                      number := next_number(*parser);
-                      font.char_info[char_index].y0 = parse_float(*number.payload);
-                  case "right";
-                      number := next_number(*parser);
-                      font.char_info[char_index].x1 = parse_float(*number.payload);
-                  case "bottom";
-                      number := next_number(*parser);
-                      font.char_info[char_index].y1 = parse_float(*number.payload);
-                }
-              }
-            case "atlasBounds";
-              while true {
-                plane_field := next_object_field(*parser);
-                if plane_field.kind == .object_end break;
-                if plane_field.payload == {
-                  case "left";
-                    number := next_number(*parser);
-                    font.char_info[char_index].u0 = parse_float(*number.payload);
-                  case "top";
-                    number := next_number(*parser);
-                    font.char_info[char_index].v0 = parse_float(*number.payload);
-                  case "right";
-                    number := next_number(*parser);
-                    font.char_info[char_index].u1 = parse_float(*number.payload);
-                  case "bottom";
-                    number := next_number(*parser);
-                    font.char_info[char_index].v1 = parse_float(*number.payload);
-                }
-              }
-            }
-          }
-        }
+  em_scale := stbtt_ScaleForMappingEmToPixels(*info, 1.0);
+
+  asc:      s32 = ---;
+  desc:     s32 = ---;
+  line_gap: s32 = ---;
+  stbtt_GetFontVMetrics(*info, *asc, *desc, *line_gap);
+  ascent  := cast(float)asc  * em_scale;
+  descent := cast(float)desc * em_scale;
+
+  char_info := new_array(ALL_CHARS.count, cslug_glyph, initialized = false);
+
+  buffers: cslug_buffers_packed;
+  defer cslug_free_buffers_packed(*info, *buffers);
+
+  for ALL_CHARS cslug_build_glyph_for_buffer(*info, it, em_scale, *buffers, *char_info[it_index]);
+
+  curves_bytes := buffers.curves.len * size_of(u16);
+  tmp_curves := new_array(curves_bytes , u16, initialized = false,, temp);
+  memcpy(tmp_curves.data,  buffers.curves.ptr, curves_bytes );
+
+  bands_bytes := buffers.bands.len * size_of(u16);
+  tmp_bands := new_array(bands_bytes , u16, initialized = false,, temp);
+  memcpy(tmp_bands.data,  buffers.bands.ptr, bands_bytes );
+
+  kerning_table := new_array(ALL_CHARS.count * ALL_CHARS.count, KerningInfo, initialized = false);
+  kerning_table_index: u32 = 0;
+  for c1: ALL_CHARS {
+      for c2: ALL_CHARS {
+          kerning := stbtt_GetCodepointKernAdvance(*info, c1, c2);
+          kerning_table[kerning_table_index] = .{
+              char_1 = c1,
+              char_2 = c2,
+              kerning = kerning,
+          };
+          kerning_table_index += 1;
       }
   }
-  return font;
+
+  return .{
+      ascent = ascent,
+      descent = descent ,
+      line_gap = cast(float)line_gap,
+      char_info = char_info,
+      kerning_table = kerning_table,
+  }, tmp_curves, tmp_bands;
+}
+
+get_char_info :: (font: Font, char: u8) -> CharInfo {
+  char_info: CharInfo;
+  if ALL_CHARS[0] <= char && char <= ALL_CHARS[ALL_CHARS.count - 1] {
+    index: u32 = char - ALL_CHARS[0];
+    char_info = font.char_info[index];
+  }
+  return char_info;
+}
+
+get_kerning :: (font: Font, char_1: u8, char_2: u8) -> s32 {
+    index:  u32 = char_1 - ALL_CHARS[0];
+    offset: u32 = char_2 - ALL_CHARS[0];
+    info   := font.kerning_table[index * ALL_CHARS.count + offset];
+    assert(info.char_1 == char_1 && info.char_2 == char_2,
+        "Tryingt to get a kerninig info for pair %/% but got one for pair %/%",
+        str_from_char(*char_1), str_from_char(*char_2),
+        str_from_char(*info.char_1), str_from_char(*info.char_2),
+    );
+    return info.kerning;
 }
 
 #scope_file
 
 #import,file "platform.jai";
 #import,file "allocators.jai";
+#import,file "utils.jai";
+#import "cslug";
 #import "Json";
 #import "Basic";
 #import "String";

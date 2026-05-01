@@ -3,6 +3,7 @@ Targets :: struct {
   sdl3_bindings   :: "sdl3_bindings_gen.jai";
   vulkan_bindings :: "vulkan_bindings_gen.jai";
   cgltf_bindings  :: "cgltf_bindings_gen.jai";
+  cslug_bindings  :: "cslug_bindings_gen.jai";
 }
 
 build :: () {

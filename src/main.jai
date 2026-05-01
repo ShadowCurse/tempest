@@ -24,8 +24,14 @@ scene_buffer:            GpuBufferSlice(SceneInfo);
 gpu_buffer_arena: GpuBufferArena;
 mesh_buffer:      GpuBufferSlice(u8);
 
+font_buffer:      GpuBufferSlice(u8);
+GpuFontBufferInfo :: struct {
+  curves_offset: u32;
+  bands_offset: u32;
+}
+font_buffer_info: GpuFontBufferInfo;
+
 gpu_image_arena: GpuImageArena;
-font_image:      GpuImage;
 depth_image:     GpuImage;
 
 Timestamp :: enum u8 {
@@ -74,7 +80,7 @@ main :: () {
 
   gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
   init(*gpu_buffer_arena, gpu_memory, .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
-  mesh_buffer = push(*gpu_buffer_arena, u8, 256 << 20);
+  mesh_buffer = push(*gpu_buffer_arena, u8, 128 << 20);
 
   pool_create_info: VkQueryPoolCreateInfo = .{
     queryType  = .TIMESTAMP,
@@ -82,17 +88,15 @@ main :: () {
   };
   timestamp_pool = create_query_pool(pool_create_info);
 
-  font := load_font("NotoSans-Regular");
+  font, tmp_curves, tmp_bands := load_font("NotoSans-Regular");
+  font_buffer = push(
+    *gpu_buffer_arena,
+    u8,
+    cast(u32)(tmp_curves.count * size_of(u16) + tmp_bands.count * size_of(u16)),
+  );
 
   gpu_image_memory := allocate_gpu_memory(64 << 20, .DEVICE_LOCAL_BIT);
   init(*gpu_image_arena, gpu_image_memory);
-  font_image = push(
-    *gpu_image_arena,
-    font.bitmap_width,
-    font.bitmap_height,
-    .R8G8B8A8_UNORM,
-    .SAMPLED_BIT  | .TRANSFER_DST_BIT,
-  );
   depth_image = push(
     *gpu_image_arena,
     window_width,
@@ -100,18 +104,6 @@ main :: () {
     .D32_SFLOAT,
     .DEPTH_STENCIL_ATTACHMENT_BIT,
   );
-
-  sampler_create_info: VkSamplerCreateInfo = .{
-      magFilter    = .VK_FILTER_LINEAR,
-      minFilter    = .VK_FILTER_LINEAR,
-      mipmapMode   = .LINEAR,
-      addressModeU = .VK_SAMPLER_ADDRESS_MODE_REPEAT,
-      addressModeV = .VK_SAMPLER_ADDRESS_MODE_REPEAT,
-      addressModeW = .VK_SAMPLER_ADDRESS_MODE_REPEAT,
-      compareOp    = .VK_COMPARE_OP_NEVER,
-      borderColor  = .VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
-  };
-  font_sampler := create_sampler(sampler_create_info);
 
   default_scene: Scene;
   init(*default_scene);
@@ -139,28 +131,26 @@ main :: () {
     }
 
     staging_buffer_host_mem := host_memory(staging_buffer);
-    memcpy(staging_buffer_host_mem.data, font.bitmap.data, font.bitmap_width * font.bitmap_height * 4);
     {
       begin_render_command(imm_command);
       defer submit_wait_reset(imm_command);
       defer end_render_command(imm_command);
 
-      transition_image(
+      font_buffer_info.curves_offset = 0;
+      // In the shader it is an array of u32s, but here the buffer is in u16s
+      font_buffer_info.bands_offset  = cast(u32)tmp_curves.count / 2;
+      assert(tmp_curves.count % 2 == 0);
+
+      curves_bytes := tmp_curves.count * size_of(u16);
+      bands_bytes  := tmp_curves.count * size_of(u16);
+      total_bytes  := curves_bytes + bands_bytes;
+      memcpy(staging_buffer_host_mem.data, tmp_curves.data, curves_bytes);
+      memcpy(staging_buffer_host_mem.data + curves_bytes, tmp_bands.data, bands_bytes);
+      cmd_copy_buffer_slice_to_buffer_slice(
         imm_command,
-        font_image.image,
-        font_image.usage,
-        .UNDEFINED,
-        .GENERAL,
-        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-        VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
-        VK_ACCESS_2_NONE,
-        VK_ACCESS_2_MEMORY_WRITE_BIT,
+        slice(font_buffer,    0, cast(u32)total_bytes),
+        slice(staging_buffer, 0, cast(u32)total_bytes),
       );
-      cmd_copy_buffer_to_image(imm_command, staging_buffer.buffer, font_image.image, .{
-        width  = font.bitmap_width,
-        height = font.bitmap_height,
-        depth  = 1,
-      });
     }
 
     mesh_buffer_offset := 0;
@@ -354,32 +344,20 @@ main :: () {
       defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.COMPUTE_END);
 
       cmd_bind_pipeline(render_command, compute_pipeline, .COMPUTE);
-      image_descriptors: [2]VkDescriptorImageInfo = .[
+      image_descriptors: [1]VkDescriptorImageInfo = .[
         .{
           sampler     = null,
           imageView   = swapchain_image_views[swapchaine_image_index],
           imageLayout = .GENERAL,
         },
-        .{
-          sampler     = font_sampler,
-          imageView   = font_image.view,
-          imageLayout = .GENERAL,
-        },
       ];
-      descriptor_sets: [2]VkWriteDescriptorSet = .[
+      descriptor_sets: [1]VkWriteDescriptorSet = .[
         .{
           dstSet          = null,
           dstBinding      = 0,
           descriptorCount = 1,
           descriptorType  = .STORAGE_IMAGE,
           pImageInfo      = *image_descriptors[0],
-        },
-        .{
-          dstSet          = null,
-          dstBinding      = 1,
-          descriptorCount = 1,
-          descriptorType  = .COMBINED_IMAGE_SAMPLER,
-          pImageInfo      = *image_descriptors[1],
         },
       ];
       cmd_push_descriptors(render_command, compute_pipeline, .COMPUTE, descriptor_sets);
@@ -477,26 +455,17 @@ main :: () {
         defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.UI_END);
 
         cmd_bind_pipeline(render_command, text_pipeline, .GRAPHICS);
-        image_descriptor: VkDescriptorImageInfo = .{
-          sampler     = font_sampler,
-          imageView   = font_image.view,
-          imageLayout = .GENERAL,
-        };
-        descriptor_set: VkWriteDescriptorSet = .{
-          dstSet          = null,
-          dstBinding      = 0,
-          descriptorCount = 1,
-          descriptorType  = .COMBINED_IMAGE_SAMPLER,
-          pImageInfo      = *image_descriptor,
-        };
-        cmd_push_descriptors(render_command, text_pipeline, .GRAPHICS, .[descriptor_set]);
         constant: TextPushConstant = .{
-          quads       = ui_buffers[current_frame_idx].device_address,
-          screen_size = .{ xx window_width, xx window_height },
-          scaling     = ui.font_size / font.size * font.distance_range,
+          quads         = ui_buffers[current_frame_idx].device_address,
+          screen_size   = .{ xx window_width, xx window_height },
+          // scaling     = ui.font_size / font.size * font.distance_range,
+          data_buffer   = font_buffer.device_address,
+          curves_offset = font_buffer_info.curves_offset,
+          bands_offset  = font_buffer_info.bands_offset,
         };
         cmd_push_constants(render_command, text_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
         cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
+        // cmd_draw(render_command, 6, 1, 0, 0);
       }
     }
     cmd_end_rendering(render_command);
@@ -612,17 +581,11 @@ Pipeline :: struct {
   dsl:          VkDescriptorSetLayout;
 }
 create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
-  binding_layouts: [2]VkDescriptorSetLayoutBinding = .[
+  binding_layouts: [1]VkDescriptorSetLayoutBinding = .[
     .{
       binding         = 0,
       descriptorCount = 1,
       descriptorType  = .STORAGE_IMAGE,
-      stageFlags      = .COMPUTE_BIT,
-    },
-    .{
-      binding         = 1,
-      descriptorCount = 1,
-      descriptorType  = .COMBINED_IMAGE_SAMPLER,
       stageFlags      = .COMPUTE_BIT,
     },
   ];
@@ -672,21 +635,15 @@ create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
 }
 
 TextPushConstant :: struct {
-  quads:       VkDeviceAddress;
-  screen_size: Vector2;
-  scaling:     float;
+  quads:         VkDeviceAddress;
+  screen_size:   Vector2;
+  data_buffer:  VkDeviceAddress;
+  curves_offset: u32;
+  bands_offset:  u32;
 } @ShaderType
 create_text_pipeline :: () -> Pipeline {
-  binging_layout: VkDescriptorSetLayoutBinding = .{
-    binding         = 0,
-    descriptorCount = 1,
-    descriptorType  = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-    stageFlags      = .FRAGMENT_BIT,
-  };
   layout_create_info: VkDescriptorSetLayoutCreateInfo = .{
     flags        = .PUSH_DESCRIPTOR_BIT,
-    pBindings    = *binging_layout,
-    bindingCount = 1,
   };
   dsl := create_descriptor_set_layout(layout_create_info);
 

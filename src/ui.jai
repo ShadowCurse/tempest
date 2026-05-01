@@ -1,10 +1,13 @@
 Quad :: struct {
-    position:  Vector2;
-    size:      Vector2;
-    uv_offset: Vector2; // or background color, border color
-    uv_size:   Vector2; // or border width, 0
-    usage:     QuadUsage; @u32
-    _: u32 =  0;
+    usage:            QuadUsage; @u32
+    color:            RGBA;      @u32
+    position:         Vector2;
+    tex:              Vector4; // also border_width
+    size:             Vector2;
+    glyph_band_texel: u32;     // also border color
+    band_min_max:     u32;
+    band_scale:       Vector2;
+    band_offset:      Vector2;
 } @ShaderType
 
 QuadUsage :: enum u32 {
@@ -448,14 +451,12 @@ draw_rect :: (
   rect_position := rect_center(position, size);
   quad := new(Quad,, allocator(*c.draw_buffer));
   quad.* = .{
-    position  = rect_position,
-    size      = size,
-    uv_offset = .{
-      (cast,no_check(*float) *c.colors.*[background_color]).*,
-      (cast,no_check(*float) *c.colors.*[border_color]).*,
-    },
-    uv_size   = .{ border_width, 0 },
-    usage     = .COLOR,
+    usage            = .COLOR,
+    color            = c.colors.*[background_color],
+    position         = rect_position,
+    size             = size,
+    tex              = .{ border_width, 0, 0, 0 },
+    glyph_band_texel = cast(u32)(c.colors.*)[border_color],
   };
 }
 
@@ -468,9 +469,7 @@ draw_text :: (c: *Context, position: Vector2, text: string, centered: bool) {
 }
 
 text_layout :: (text: string, font: Font, size: float, position: Vector2, center: bool) -> []Quad {
-  em_to_pixel := cast(float)font.size;
-  scale       := size / em_to_pixel;
-  font_scale  := scale * em_to_pixel;
+  scale := size;
   offset: Vector2;
 
   quads, lines := text_split_in_lines(text);
@@ -480,32 +479,34 @@ text_layout :: (text: string, font: Font, size: float, position: Vector2, center
     defer line_start = line_end + 1;
 
     for i: 0..line.count - 1 {
-      char_index := text[i + line_start] - ALL_CHARS[0];
-      char_info  := ifx 0 <= char_index && char_index < font.char_info.count font.char_info[char_index];
-      // const char_kern = if 0 < i {
-      //     const prev_char = text[line_start + i - 1];
-      //     break font.get_kerning(prev_char, c);
-      // } else {
-      //     break 0;
-      // };
+      char       := text[i + line_start];
+      char_info  := get_char_info(font, char);
+      char_kern  := ifx 0 < i then get_kerning(font, text[i + line_start - 1], char);
 
-      char_width  := char_info.u1 - char_info.u0;
-      char_height := char_info.v1 - char_info.v0;
+      char_width  := char_info.x1 - char_info.x0;
+      char_height := char_info.y1 - char_info.y0;
 
-      // offset.x += char_kern * font_scale;
+      offset.x += char_kern * scale;
       char_origin := position + offset;
-      char_offset: Vector2 = .{ char_info.x0, char_info.y0 };
-      char_offset *= em_to_pixel;
-      char_offset += .{ char_width, char_height } * 0.5;
-      char_position := char_origin + char_offset * scale;
+      char_position := char_origin +
+        Vector2.{ char_info.x1 + char_info.x0, -(char_info.y1 + char_info.y0) } * 0.5 * scale;
+
+      band_min_max := (char_info.band_max_y << 16) | char_info.band_max_x;
+      band_scale:  Vector2 = .{ char_info.band_scale_x,  char_info.band_scale_y };
+      band_offset: Vector2 = .{ char_info.band_offset_x, char_info.band_offset_y };
+
       line[i] = .{
+        usage     = .TEXT,
+        color     = 0xffffffff,
         position  = char_position,
         size      = .{ char_width, char_height } * scale,
-        uv_offset = .{ char_info.u0, char_info.v0 },
-        uv_size   = .{ char_width, char_height },
-        usage     = .TEXT,
+        tex       = .{ char_info.x0, char_info.y1, char_info.x1, char_info.y0 },
+        glyph_band_texel = char_info.glyph_band_texel,
+        band_min_max = band_min_max,
+        band_scale = band_scale,
+        band_offset = band_offset,
       };
-      offset.x += char_info.advance * font_scale;
+      offset.x += char_info.advance * scale;
     }
 
     if center {
@@ -513,7 +514,7 @@ text_layout :: (text: string, font: Font, size: float, position: Vector2, center
       for *quad: line quad.position.x -= text_half_len;
     }
     offset.x = 0;
-    offset.y += font.line_gap * em_to_pixel * scale;
+    offset.y += font.line_gap * scale;
   }
   return quads;
 }
