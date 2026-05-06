@@ -10,7 +10,7 @@ layout(buffer_reference, std430) readonly buffer Quads {
 };
 
 layout(push_constant) uniform constants {
-    TextPushConstant data;
+    UiPushConstant data;
 } PushConstants;
 
 // 2 f16 per curve point / 2 u16 per band

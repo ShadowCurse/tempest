@@ -19,7 +19,7 @@ struct GridPushConstant {
     VkDeviceAddress scene_buffer;
 };
 
-struct TextPushConstant {
+struct UiPushConstant {
     VkDeviceAddress quads;
     vec2 screen_size;
     VkDeviceAddress data_buffer;

@@ -1,13 +1,13 @@
 Quad :: struct {
-    usage:            QuadUsage; @u32
-    color:            RGBA;      @u32
-    position:         Vector2;
-    tex:              Vector4; // also border_width
-    size:             Vector2;
-    glyph_band_texel: u32;     // also border color
-    band_min_max:     u32;
-    band_scale:       Vector2;
-    band_offset:      Vector2;
+  usage:            QuadUsage; @u32
+  color:            RGBA;      @u32
+  position:         Vector2;
+  tex:              Vector4; // also border_width
+  size:             Vector2;
+  glyph_band_texel: u32;     // also border color
+  band_min_max:     u32;
+  band_scale:       Vector2;
+  band_offset:      Vector2;
 } @ShaderType
 
 QuadUsage :: enum u32 {

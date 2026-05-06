@@ -4,8 +4,8 @@ WATCHED_FILES :: string.[
   "shaders/grid_vert.glsl",
   "shaders/mesh_frag.glsl",
   "shaders/mesh_vert.glsl",
-  "shaders/text_frag.glsl",
-  "shaders/text_vert.glsl",
+  "shaders/ui_frag.glsl",
+  "shaders/ui_vert.glsl",
 ];
 
 file_watcher: FileWatcher;
@@ -48,7 +48,7 @@ timestamp_array: EnumArray(Timestamp, u64);
 timestamp_pool:  VkQueryPool;
 
 compute_pipeline: Pipeline;
-text_pipeline:    Pipeline;
+ui_pipeline:    Pipeline;
 grid_pipeline:    Pipeline;
 mesh_pipeline:    Pipeline;
 
@@ -209,7 +209,7 @@ main :: () {
   }
 
   compute_pipeline = create_full_screen_effect_comptue_pipeline();
-  text_pipeline    = create_text_pipeline();
+  ui_pipeline    = create_ui_pipeline();
   grid_pipeline    = create_grid_pipeline();
   mesh_pipeline    = create_mesh_pipeline();
 
@@ -454,16 +454,15 @@ main :: () {
         cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_START);
         defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.UI_END);
 
-        cmd_bind_pipeline(render_command, text_pipeline, .GRAPHICS);
-        constant: TextPushConstant = .{
+        cmd_bind_pipeline(render_command, ui_pipeline, .GRAPHICS);
+        constant: UiPushConstant = .{
           quads         = ui_buffers[current_frame_idx].device_address,
           screen_size   = .{ xx window_width, xx window_height },
-          // scaling     = ui.font_size / font.size * font.distance_range,
           data_buffer   = font_buffer.device_address,
           curves_offset = font_buffer_info.curves_offset,
           bands_offset  = font_buffer_info.bands_offset,
         };
-        cmd_push_constants(render_command, text_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+        cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
         cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
         // cmd_draw(render_command, 6, 1, 0, 0);
       }
@@ -634,14 +633,14 @@ create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
   };
 }
 
-TextPushConstant :: struct {
+UiPushConstant :: struct {
   quads:         VkDeviceAddress;
   screen_size:   Vector2;
   data_buffer:  VkDeviceAddress;
   curves_offset: u32;
   bands_offset:  u32;
 } @ShaderType
-create_text_pipeline :: () -> Pipeline {
+create_ui_pipeline :: () -> Pipeline {
   layout_create_info: VkDescriptorSetLayoutCreateInfo = .{
     flags        = .PUSH_DESCRIPTOR_BIT,
   };
@@ -650,7 +649,7 @@ create_text_pipeline :: () -> Pipeline {
   push_constants: VkPushConstantRange = .{
     stageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
     offset     = 0,
-    size       = size_of(TextPushConstant),
+    size       = size_of(UiPushConstant),
   };
   pipeline_layout_create_info: VkPipelineLayoutCreateInfo = .{
     pSetLayouts            = *dsl,
@@ -660,19 +659,19 @@ create_text_pipeline :: () -> Pipeline {
   };
   layout := create_pipeline_layout(pipeline_layout_create_info);
 
-  text_vert_code := platform_read_entire_file("shaders_compiled/text_vert.spv",, temp);
-  text_vert_module_create_info: VkShaderModuleCreateInfo = .{
-    pCode    = xx text_vert_code.data,
-    codeSize = xx text_vert_code.count,
+  vert_code := platform_read_entire_file("shaders_compiled/ui_vert.spv",, temp);
+  vert_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx vert_code.data,
+    codeSize = xx vert_code.count,
   };
-  text_frag_code := platform_read_entire_file("shaders_compiled/text_frag.spv",, temp);
-  text_frag_module_create_info: VkShaderModuleCreateInfo = .{
-    pCode    = xx text_frag_code.data,
-    codeSize = xx text_frag_code.count,
+  frag_code := platform_read_entire_file("shaders_compiled/ui_frag.spv",, temp);
+  frag_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx frag_code.data,
+    codeSize = xx frag_code.count,
   };
   stages: []VkPipelineShaderStageCreateInfo = .[
-    .{ pNext = *text_vert_module_create_info, stage = .VERTEX_BIT,   pName = "main" },
-    .{ pNext = *text_frag_module_create_info, stage = .FRAGMENT_BIT, pName = "main" },
+    .{ pNext = *vert_module_create_info, stage = .VERTEX_BIT,   pName = "main" },
+    .{ pNext = *frag_module_create_info, stage = .FRAGMENT_BIT, pName = "main" },
   ];
 
   input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
@@ -860,19 +859,19 @@ create_mesh_pipeline :: () -> Pipeline {
   };
   layout := create_pipeline_layout(pipeline_layout_create_info);
 
-  text_vert_code := platform_read_entire_file("shaders_compiled/mesh_vert.spv",, temp);
-  text_vert_module_create_info: VkShaderModuleCreateInfo = .{
-    pCode    = xx text_vert_code.data,
-    codeSize = xx text_vert_code.count,
+  vert_code := platform_read_entire_file("shaders_compiled/mesh_vert.spv",, temp);
+  vert_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx vert_code.data,
+    codeSize = xx vert_code.count,
   };
-  text_frag_code := platform_read_entire_file("shaders_compiled/mesh_frag.spv",, temp);
-  text_frag_module_create_info: VkShaderModuleCreateInfo = .{
-    pCode    = xx text_frag_code.data,
-    codeSize = xx text_frag_code.count,
+  frag_code := platform_read_entire_file("shaders_compiled/mesh_frag.spv",, temp);
+  frag_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx frag_code.data,
+    codeSize = xx frag_code.count,
   };
   stages: []VkPipelineShaderStageCreateInfo = .[
-    .{ pNext = *text_vert_module_create_info, stage = .VERTEX_BIT,   pName = "main" },
-    .{ pNext = *text_frag_module_create_info, stage = .FRAGMENT_BIT, pName = "main" },
+    .{ pNext = *vert_module_create_info, stage = .VERTEX_BIT,   pName = "main" },
+    .{ pNext = *frag_module_create_info, stage = .FRAGMENT_BIT, pName = "main" },
   ];
 
   input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
@@ -965,8 +964,8 @@ rebuild_pipelines_if_needed :: () {
     if changed_file == {
       case "shaders/gradient_comp.glsl";
         rebuild_gradient_shader = true;
-      case "shaders/text_frag.glsl"; #through;
-      case "shaders/text_vert.glsl";
+      case "shaders/ui_frag.glsl"; #through;
+      case "shaders/ui_vert.glsl";
         rebuild_ui_shader = true;
       case "shaders/mesh_frag.glsl"; #through;
       case "shaders/mesh_vert.glsl";
@@ -986,10 +985,10 @@ rebuild_pipelines_if_needed :: () {
   }
   if rebuild_ui_shader {
     log("Rebuiding UI pipeline");
-    if compile_shader("shaders/text_frag.glsl") && compile_shader("shaders/text_vert.glsl") {
+    if compile_shader("shaders/ui_frag.glsl") && compile_shader("shaders/ui_vert.glsl") {
       device_wait_idle();
-      destroy_pipeline(text_pipeline);
-      text_pipeline = create_text_pipeline();
+      destroy_pipeline(ui_pipeline);
+      ui_pipeline = create_ui_pipeline();
     } else log_error("Failed to rebuild UI pipeline");
   }
   if rebuild_mesh_shader {
