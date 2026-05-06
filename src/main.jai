@@ -407,6 +407,7 @@ main :: () {
         if draw_cube {
           constant: MeshPushConstant = .{
             Matrix4_Identity,
+            Matrix4_Identity,
             mesh_buffer.device_address,
             scene_buffer.device_address,
             xx cube_mesh_info.vertices_buffer_offset,
@@ -528,6 +529,7 @@ draw_aabb :: (cmd: RenderCommand, aabb: *AABB, transform: Matrix4) {
   translate(*m, tt.xyz);
   constant: MeshPushConstant = .{
     m,
+    adjugate(m),
     mesh_buffer.device_address,
     scene_buffer.device_address,
     xx cube_mesh_info.vertices_buffer_offset,
@@ -554,6 +556,7 @@ draw_node :: (
     info := *meshe_infos[node.mesh_idx];
     constant: MeshPushConstant = .{
       final_transform,
+      adjugate(final_transform),
       mesh_buffer.device_address,
       scene_buffer.device_address,
       xx info.vertices_buffer_offset,
@@ -843,6 +846,7 @@ create_grid_pipeline :: () -> Pipeline {
 
 MeshPushConstant :: struct {
   transform:       Matrix4;
+  transform_inv:   Matrix4;
   mesh_buffer:     VkDeviceAddress;
   scene_buffer:    VkDeviceAddress;
   vertices_offset: u32;

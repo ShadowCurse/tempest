@@ -10,6 +10,7 @@ struct SceneInfo {
 
 struct MeshPushConstant {
     mat4 transform;
+    mat4 transform_inv;
     VkDeviceAddress mesh_buffer;
     VkDeviceAddress scene_buffer;
     uint vertices_offset;
