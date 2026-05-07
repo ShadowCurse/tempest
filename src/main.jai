@@ -52,8 +52,9 @@ ui_pipeline:    Pipeline;
 grid_pipeline:    Pipeline;
 mesh_pipeline:    Pipeline;
 
-cube_mesh_info:   GpuMeshInfo;
-meshe_infos:      FixedArray(GpuMeshInfo, 8192, MeshIdx);
+cube_mesh_idx:   MeshIdx;
+sphere_mesh_idx: MeshIdx;
+gpu_mesh_infos:  FixedArray(GpuMeshInfo, 8192, MeshIdx);
 
 // rendering settings
 visual_aabb:  bool          = false;
@@ -109,6 +110,8 @@ main :: () {
   init(*default_scene);
   load_gltf(*default_scene, "crystal.glb");
   load_gltf(*default_scene, "bistro.glb");
+  cube_mesh_idx   = add_mesh(*default_scene, create_box(1.0, 1.0, 1.0,, temp));
+  sphere_mesh_idx = add_mesh(*default_scene, create_sphere_uv(2.0, 32, 32));
 
   {
     imm_command := *render_commands[FRAMES];
@@ -154,35 +157,12 @@ main :: () {
     }
 
     mesh_buffer_offset := 0;
-    {
-      begin_render_command(imm_command);
-      defer submit_wait_reset(imm_command);
-      defer end_render_command(imm_command);
-
-      cube := create_box(1.0, 1.0, 1.0,, temp);
-      vertices_bytes := cube.vertices.count * size_of(Vertex);
-      indices_bytes  := cube.indices.count * size_of(u32);
-      total_bytes    := vertices_bytes + indices_bytes;
-      assert(vertices_bytes + indices_bytes < staging_buffer_host_mem.count);
-      memcpy(staging_buffer_host_mem.data, cube.vertices.data, vertices_bytes);
-      memcpy(staging_buffer_host_mem.data + vertices_bytes, cube.indices.data, indices_bytes);
-      cube_mesh_info = .{ 0, xx vertices_bytes, xx cube.indices.count, xx cube.vertices.count };
-      log("uploadin cube mesh to GPU: info: %", cube_mesh_info);
-
-      cmd_copy_buffer_slice_to_buffer_slice(
-        imm_command,
-        slice(mesh_buffer,    cast(u32)mesh_buffer_offset, cast(u32)(mesh_buffer_offset + total_bytes)),
-        slice(staging_buffer, 0,                           cast(u32)total_bytes)
-      );
-      mesh_buffer_offset += total_bytes;
-    }
-
     for *mesh: default_scene.meshes {
       begin_render_command(imm_command);
       defer submit_wait_reset(imm_command);
       defer end_render_command(imm_command);
 
-      mesh_info := array_add(*meshe_infos);
+      mesh_info := array_add(*gpu_mesh_infos);
       if mesh.vertices.count == 0 || mesh.indices.count == 0 then continue;
 
       vertices_bytes := mesh.vertices.count * size_of(Vertex);
@@ -215,7 +195,7 @@ main :: () {
 
   ui: Context;
   init(*ui, *font);
-  draw_cube    := false;
+  draw_sphere  := false;
   draw_crystal := false;
   draw_bistro  := false;
 
@@ -263,7 +243,7 @@ main :: () {
         label(*ui, tprint("pressed_id: %", ui.pressed_id));
         label(*ui, tprint("hover_id: %", ui.hover_id));
         toggle(*ui, "Visualize AABB", *visual_aabb);
-        toggle(*ui, "Draw Cube",      *draw_cube);
+        toggle(*ui, "Draw Sphere",    *draw_sphere);
         toggle(*ui, "Draw Crystal",   *draw_crystal);
         toggle(*ui, "Draw Bistro",    *draw_bistro);
         slider(*ui, "Gradient", 0.0, 1.0, *v);
@@ -404,22 +384,23 @@ main :: () {
 
         cmd_bind_pipeline(render_command, mesh_pipeline, .GRAPHICS);
         cmd_set_polygon_mode(render_command, polygon_mode);
-        if draw_cube {
+        if draw_sphere {
+          mesh_info := gpu_mesh_infos[sphere_mesh_idx];
           constant: MeshPushConstant = .{
             Matrix4_Identity,
             Matrix4_Identity,
             mesh_buffer.device_address,
             scene_buffer.device_address,
-            xx cube_mesh_info.vertices_buffer_offset,
+            xx mesh_info.vertices_buffer_offset,
           };
           cmd_push_constants(render_command, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
           cmd_bind_index_buffer(
             render_command,
             mesh_buffer.buffer,
-            cube_mesh_info.indices_buffer_offset,
+            mesh_info.indices_buffer_offset,
             .UINT32
           );
-          cmd_draw_indexed(render_command, cube_mesh_info.index_count, 1, 0, 0, 0);
+          cmd_draw_indexed(render_command, mesh_info.index_count, 1, 0, 0, 0);
         }
 
         if draw_crystal {
@@ -520,6 +501,8 @@ draw_aabb :: (cmd: RenderCommand, aabb: *AABB, transform: Matrix4) {
   cmd_set_polygon_mode(cmd, .LINE);
   defer cmd_set_polygon_mode(cmd, polygon_mode);
 
+  cube_mesh_info := gpu_mesh_infos[cube_mesh_idx];
+
   m := transform;
   s, t := aabb_to_scale_and_translation(aabb);
   scale(*m, s);
@@ -553,7 +536,7 @@ draw_node :: (
   transform := mat4_from_trs(node.translation, node.rotation, node.scale);
   final_transform := transform * parent_transform;
   if node.mesh_idx {
-    info := *meshe_infos[node.mesh_idx];
+    info := *gpu_mesh_infos[node.mesh_idx];
     constant: MeshPushConstant = .{
       final_transform,
       adjugate(final_transform),

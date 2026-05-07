@@ -64,17 +64,11 @@ init :: (scene: *Scene) {
   array_add(*scene.materials, .{});
 }
 
-Loading :: struct {
-  data: *cgltf_data = ---;
-  prev_nodes_count: u32;
-  prev_meshes_count: u32;
-  prev_materials_count: u32;
-};
 load_gltf :: (scene: *Scene, name: string) {
   path := tprint("resources/scenes/%\0", name);
   log("Loading gltf scene from path: %", path);
 
-  l: Loading;
+  l: GltfLoading;
   options: cgltf_options;
   assert(cgltf_parse_file(*options, path.data, *l.data) == .success);
   assert(cgltf_load_buffers(*options, l.data, path.data) == .success);
@@ -87,7 +81,7 @@ load_gltf :: (scene: *Scene, name: string) {
   l.prev_meshes_count    = scene.meshes.count;
   l.prev_materials_count = scene.materials.count;
 
-  setup_node :: (scene_node: *SceneNode, node: *cgltf_node, parent_idx: SceneNodeIdx, l: Loading) {
+  setup_node :: (scene_node: *SceneNode, node: *cgltf_node, parent_idx: SceneNodeIdx, l: GltfLoading) {
     scene_node.* = .{
       parent_idx      = parent_idx,
       children_count  = ifx cast(u32)node.children_count,
@@ -101,7 +95,7 @@ load_gltf :: (scene: *Scene, name: string) {
     memcpy(*scene_node.name, node_name.data, min(node_name.count, scene_node.name.count));
   }
 
-  add_children :: (scene: *Scene, parent: *cgltf_node, parent_idx: SceneNodeIdx, l: Loading) {
+  add_children :: (scene: *Scene, parent: *cgltf_node, parent_idx: SceneNodeIdx, l: GltfLoading) {
     if parent.children_count {
       scene_parent := *scene.nodes[parent_idx];
       scene_parent.first_child_idx = cast(SceneNodeIdx)scene.nodes.count;
@@ -111,7 +105,8 @@ load_gltf :: (scene: *Scene, name: string) {
         child_idx := scene_parent.first_child_idx + cast(SceneNodeIdx)it;
         node := array_add(*scene.nodes);
         setup_node(node, child, parent_idx, l);
-        log("Scene node: % name: % mesh_idx: % children: %", child_idx, to_string(node.name), node.mesh_idx, node.children_count);
+        log("Scene node: % name: % mesh_idx: % children: %", child_idx, to_string(node.name), node.mesh_idx,
+                                                             node.children_count);
       }
       for 0..parent.children_count - 1 {
         child     := (parent.children + it).*;
@@ -156,7 +151,7 @@ load_gltf :: (scene: *Scene, name: string) {
 
   for 0..l.data.meshes_count - 1 {
     mesh := l.data.meshes + it;
-    add_mesh(scene, mesh, l);
+    add_gltf_mesh(scene, mesh, l);
   }
 
   for 0..l.data.materials_count - 1 {
@@ -167,6 +162,12 @@ load_gltf :: (scene: *Scene, name: string) {
       roughness = material.pbr_metallic_roughness.roughness_factor,
     });
   }
+}
+
+add_mesh :: (scene: *Scene, mesh: Mesh) -> MeshIdx {
+  mesh_idx := scene.meshes.count;
+  array_add(*scene.meshes, mesh);
+  return cast(MeshIdx)mesh_idx;
 }
 
 get_node_by_name :: (scene: *Scene, name: string) -> SceneNodeIdx, *SceneNode {
@@ -420,7 +421,13 @@ create_cylinder :: (radius: float, sectors: u32, heigth: float) -> Mesh {
 
 #scope_file
 
-add_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: Loading) {
+GltfLoading :: struct {
+  data: *cgltf_data = ---;
+  prev_nodes_count: u32;
+  prev_meshes_count: u32;
+  prev_materials_count: u32;
+};
+add_gltf_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: GltfLoading) {
   assert(mesh.primitives_count == 1, "Cannot load the scene: mesh has too many primitives");
   assert(mesh.primitives_count == 1);
   primitive      := *mesh.primitives[0];
