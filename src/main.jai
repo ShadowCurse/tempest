@@ -111,7 +111,8 @@ main :: () {
   load_gltf(*default_scene, "crystal.glb");
   load_gltf(*default_scene, "bistro.glb");
   cube_mesh_idx   = add_mesh(*default_scene, create_box(1.0, 1.0, 1.0,, temp));
-  sphere_mesh_idx = add_mesh(*default_scene, create_sphere_uv(2.0, 32, 32));
+  sphere_mesh_idx = add_mesh(*default_scene, create_sphere_uv(1.0, 32, 32,,
+                                                              allocator(*default_scene.mesh_arena)));
 
   {
     imm_command := *render_commands[FRAMES];
@@ -401,6 +402,10 @@ main :: () {
             .UINT32
           );
           cmd_draw_indexed(render_command, mesh_info.index_count, 1, 0, 0, 0);
+
+          if visual_aabb {
+            draw_aabb(render_command, default_scene.meshes[sphere_mesh_idx].aabb, Matrix4_Identity);
+          }
         }
 
         if draw_crystal {
@@ -497,7 +502,7 @@ recreate_depth_image :: () {
   submit_wait_reset(imm_command);
 }
 
-draw_aabb :: (cmd: RenderCommand, aabb: *AABB, transform: Matrix4) {
+draw_aabb :: (cmd: RenderCommand, aabb: AABB, transform: Matrix4) {
   cmd_set_polygon_mode(cmd, .LINE);
   defer cmd_set_polygon_mode(cmd, polygon_mode);
 
@@ -548,7 +553,7 @@ draw_node :: (
     cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
     cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
 
-    if visual_aabb draw_aabb(cmd, *scene.meshes[node.mesh_idx].aabb, final_transform);
+    if visual_aabb draw_aabb(cmd, scene.meshes[node.mesh_idx].aabb, final_transform);
   } else {
     if node.children_count {
       for 0..node.children_count - 1 {

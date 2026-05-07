@@ -13,7 +13,7 @@ AABB :: struct {
 };
 
 // Scale and translation to apply to unit cube to convert it to AABB
-aabb_to_scale_and_translation :: (aabb: *AABB) -> Vector3, Vector3 {
+aabb_to_scale_and_translation :: (aabb: AABB) -> Vector3, Vector3 {
   dim := aabb.max - aabb.min;
   center := (aabb.max + aabb.min) / 2.0;
   return dim, center;
@@ -316,10 +316,9 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
   }
   assert(ii.count == total_indices, "% != %", ii.count, total_indices);
 
-  half_r := radius / 2.0;
   return .{
     0,
-    .{ .{-half_r, -half_r, -half_r}, .{half_r, half_r, half_r} },
+    .{ .{-radius, -radius, -radius}, .{radius, radius, radius} },
     indices,
     vertices,
   };
@@ -409,10 +408,9 @@ create_cylinder :: (radius: float, sectors: u32, heigth: float) -> Mesh {
   }
   assert(ii.count == total_indices, "% != %", ii.count, total_indices);
 
-  half_r := radius / 2.0;
   return .{
     0,
-    .{ .{-half_r, -half_r, -half_h}, .{half_r, half_r, half_h} },
+    .{ .{-radius, -radius, -half_h}, .{radius, radius, half_h} },
     indices,
     vertices,
   };
