@@ -36,22 +36,54 @@ Material :: struct {
 
 SceneNodeIdx :: #type,distinct u32;
 SceneNode :: struct {
-  name:             [64]u8;// = "NullNode";
-  parent_idx:       SceneNodeIdx;
-  first_child_idx:  SceneNodeIdx;
-  children_count:   u32;
-  mesh_idx:         MeshIdx;
-  translation:      Vector3;
-  rotation:         Quaternion;
-  scale:            Vector3 = .{1, 1, 1};
+  name:            [64]u8;
+  parent_idx:      SceneNodeIdx;
+  first_child_idx: SceneNodeIdx;
+  last_child_idx:  SceneNodeIdx;
+  next_sibling:    SceneNodeIdx;
+
+  translation:     Vector3;
+  rotation:        Quaternion;
+  scale:           Vector3 = .{1, 1, 1};
+
+  mesh_idx:        MeshIdx;
 }
 
+// Here the scene tree is flattnend and packed so all children are contigious in memory
 Scene :: struct {
   root_nodes:    FixedArray(SceneNodeIdx, 8);
   nodes:         FixedArray(SceneNode,    8192, SceneNodeIdx);
   meshes:        FixedArray(Mesh,         8192, MeshIdx);
   materials:     FixedArray(Material,     8192, MaterialIdx);
   mesh_arena:    BufferAllocator;
+}
+
+add_node :: (scene: *Scene, name: string) -> SceneNodeIdx, *SceneNode {
+  parent_idx := 0;
+  node_idx := cast(SceneNodeIdx)scene.nodes.count;
+  node     := array_add(*scene.nodes);
+  node.* = .{};
+  memcpy(node.name.data, name.data, min(node.name.count, name.count));
+  return node_idx, node;
+}
+
+add_node :: (scene: *Scene, parent_idx: SceneNodeIdx, name: string) -> SceneNodeIdx, *SceneNode {
+  node_idx := cast(SceneNodeIdx)scene.nodes.count;
+  node     := array_add(*scene.nodes);
+  node.* = .{ parent_idx = parent_idx };
+  memcpy(node.name.data, name.data, min(node.name.count, name.count));
+
+  parent   := *scene.nodes[parent_idx];
+  if !parent.first_child_idx {
+    parent.first_child_idx = node_idx;
+    parent.last_child_idx  = node_idx;
+  } else {
+    last := *scene.nodes[parent.last_child_idx];
+    last.next_sibling      = node_idx;
+    parent.last_child_idx  = node_idx;
+  }
+
+  return node_idx, node;
 }
 
 init :: (scene: *Scene) {
@@ -64,7 +96,7 @@ init :: (scene: *Scene) {
   array_add(*scene.materials, .{});
 }
 
-load_gltf :: (scene: *Scene, name: string) {
+load_gltf :: (scene: *Scene, name: string) -> SceneNodeIdx {
   path := tprint("resources/scenes/%\0", name);
   log("Loading gltf scene from path: %", path);
 
@@ -81,72 +113,30 @@ load_gltf :: (scene: *Scene, name: string) {
   l.prev_meshes_count    = scene.meshes.count;
   l.prev_materials_count = scene.materials.count;
 
-  setup_node :: (scene_node: *SceneNode, node: *cgltf_node, parent_idx: SceneNodeIdx, l: GltfLoading) {
-    scene_node.* = .{
-      parent_idx      = parent_idx,
-      children_count  = ifx cast(u32)node.children_count,
-      mesh_idx        = ifx node.mesh then cast(MeshIdx)(l.prev_meshes_count + node.mesh - l.data.meshes),
-      translation     = (cast(*Vector3)    *node.translation).*,
-      rotation        = (cast(*Quaternion) *node.rotation).*,
-      scale           = (cast(*Vector3)    *node.scale).*,
-    };
-
-    node_name := to_string(node.name);
-    memcpy(*scene_node.name, node_name.data, min(node_name.count, scene_node.name.count));
+  setup_node :: (scene_node: *SceneNode, node: *cgltf_node, l: GltfLoading) {
+    scene_node.translation = (cast(*Vector3)    *node.translation).*;
+    scene_node.rotation    = (cast(*Quaternion) *node.rotation).*;
+    scene_node.scale       = (cast(*Vector3)    *node.scale).*;
+    scene_node.mesh_idx    = ifx node.mesh then cast(MeshIdx)(l.prev_meshes_count + node.mesh - l.data.meshes);
   }
 
-  add_children :: (scene: *Scene, parent: *cgltf_node, parent_idx: SceneNodeIdx, l: GltfLoading) {
-    if parent.children_count {
-      scene_parent := *scene.nodes[parent_idx];
-      scene_parent.first_child_idx = cast(SceneNodeIdx)scene.nodes.count;
-
-      for 0..parent.children_count - 1 {
-        child     := (parent.children + it).*;
-        child_idx := scene_parent.first_child_idx + cast(SceneNodeIdx)it;
-        node := array_add(*scene.nodes);
-        setup_node(node, child, parent_idx, l);
-        log("Scene node: % name: % mesh_idx: % children: %", child_idx, to_string(node.name), node.mesh_idx,
-                                                             node.children_count);
-      }
-      for 0..parent.children_count - 1 {
-        child     := (parent.children + it).*;
-        child_idx := scene_parent.first_child_idx + cast(SceneNodeIdx)it;
-        add_children(scene, child, child_idx, l);
+  add_node_to_scene :: (scene: *Scene, node: *cgltf_node, parent_idx: SceneNodeIdx, l: GltfLoading) {
+    node_name := to_string(node.name);
+    log("Scene adding node: %", node_name);
+    new_node_idx, new_node := add_node(scene, parent_idx, node_name);
+    setup_node(new_node, node, l);
+    if node.children_count {
+      for 0..node.children_count - 1 {
+        child := (node.children + it).*;
+        add_node_to_scene(scene, child, new_node_idx, l);
       }
     }
   }
 
-  assert(gltf_scene.nodes_count != 0, "No nodes in the scene: %", path);
-  root_node_idx := cast(SceneNodeIdx)l.prev_nodes_count;
-  array_add(*scene.root_nodes, root_node_idx);
-  root_node := array_add(*scene.nodes);
-  root_node.first_child_idx = root_node_idx + 1;
-  root_node.children_count  = cast(u32)gltf_scene.nodes_count;
-  log(
-    "Scene root node: % name: % mesh_idx: % children: %",
-    root_node_idx,
-    to_string(root_node.name),
-    root_node.mesh_idx,
-    root_node.children_count,
-  );
-
+  root_idx, root := add_node(scene, "root");
   for 0..gltf_scene.nodes_count - 1 {
-    child := (gltf_scene.nodes + it).*;
-    child_idx := root_node.first_child_idx + cast(SceneNodeIdx)it;
-    node := array_add(*scene.nodes);
-    setup_node(node, child, root_node_idx, l);
-    log(
-      "Scene node: % name: % mesh_idx: % children: %",
-      child_idx,
-      to_string(node.name),
-      node.mesh_idx,
-      node.children_count,
-    );
-  }
-  for 0..gltf_scene.nodes_count - 1 {
-    child := (gltf_scene.nodes + it).*;
-    child_idx := root_node.first_child_idx + cast(SceneNodeIdx)it;
-    add_children(scene, child, child_idx, l);
+    node := (gltf_scene.nodes + it).*;
+    add_node_to_scene(scene, node, root_idx, l);
   }
 
   for 0..l.data.meshes_count - 1 {
@@ -162,6 +152,7 @@ load_gltf :: (scene: *Scene, name: string) {
       roughness = material.pbr_metallic_roughness.roughness_factor,
     });
   }
+  return root_idx;
 }
 
 add_mesh :: (scene: *Scene, mesh: Mesh) -> MeshIdx {

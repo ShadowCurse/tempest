@@ -108,11 +108,28 @@ main :: () {
 
   default_scene: Scene;
   init(*default_scene);
-  load_gltf(*default_scene, "crystal.glb");
-  load_gltf(*default_scene, "bistro.glb");
+  crystal_idx := load_gltf(*default_scene, "crystal.glb");
+  bistro_idx  := load_gltf(*default_scene, "bistro.glb");
   cube_mesh_idx   = add_mesh(*default_scene, create_box(1.0, 1.0, 1.0,, temp));
   sphere_mesh_idx = add_mesh(*default_scene, create_sphere_uv(1.0, 32, 32,,
                                                               allocator(*default_scene.mesh_arena)));
+
+  cylinder_mesh_idx := add_mesh(*default_scene, create_cylinder(0.5, 32, 1.0,,
+                                                              allocator(*default_scene.mesh_arena)));
+
+  node2_idx,   node2   := add_node(*default_scene, "test");
+
+  node1_c_idx,   node1_c   := add_node(*default_scene, node2_idx, "test");
+  node1_c.mesh_idx = cylinder_mesh_idx;
+  node1_c.rotation = quat_from_axis_angle(.{y = 1.0}, PI / 2.0);
+
+  node2_c_idx, node2_c := add_node(*default_scene, node2_idx, "test");
+  node2_c.mesh_idx = sphere_mesh_idx;
+  node2_c.translation = .{x = 1.5};
+
+  node3_c_idx, node3_c := add_node(*default_scene, node2_idx, "test");
+  node3_c.mesh_idx = sphere_mesh_idx;
+  node3_c.translation = .{x = -1.5};
 
   {
     imm_command := *render_commands[FRAMES];
@@ -385,37 +402,9 @@ main :: () {
 
         cmd_bind_pipeline(render_command, mesh_pipeline, .GRAPHICS);
         cmd_set_polygon_mode(render_command, polygon_mode);
-        if draw_sphere {
-          mesh_info := gpu_mesh_infos[sphere_mesh_idx];
-          constant: MeshPushConstant = .{
-            Matrix4_Identity,
-            Matrix4_Identity,
-            mesh_buffer.device_address,
-            scene_buffer.device_address,
-            xx mesh_info.vertices_buffer_offset,
-          };
-          cmd_push_constants(render_command, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-          cmd_bind_index_buffer(
-            render_command,
-            mesh_buffer.buffer,
-            mesh_info.indices_buffer_offset,
-            .UINT32
-          );
-          cmd_draw_indexed(render_command, mesh_info.index_count, 1, 0, 0, 0);
-
-          if visual_aabb {
-            draw_aabb(render_command, default_scene.meshes[sphere_mesh_idx].aabb, Matrix4_Identity);
-          }
-        }
-
-        if draw_crystal {
-          _, crystal := get_node_by_name(*default_scene, "crystal");
-          draw_node(render_command, default_scene, crystal, Matrix4_Identity);
-        }
-        if draw_bistro {
-          bistro_root_idx := default_scene.root_nodes[1];
-          draw_node(render_command, default_scene, default_scene.nodes[bistro_root_idx], Matrix4_Identity);
-        }
+        if draw_sphere  then draw_node(render_command, default_scene, node2_idx, Matrix4_Identity);
+        if draw_crystal then draw_node(render_command, default_scene, crystal_idx, Matrix4_Identity);
+        if draw_bistro  then draw_node(render_command, default_scene, bistro_idx, Matrix4_Identity);
       }
 
       // grid
@@ -535,9 +524,10 @@ draw_aabb :: (cmd: RenderCommand, aabb: AABB, transform: Matrix4) {
 draw_node :: (
   cmd:              RenderCommand,
   scene:            Scene,
-  node:             SceneNode,
+  node_idx:         SceneNodeIdx,
   parent_transform: Matrix4,
 ) {
+  node := *scene.nodes[node_idx];
   transform := mat4_from_trs(node.translation, node.rotation, node.scale);
   final_transform := transform * parent_transform;
   if node.mesh_idx {
@@ -554,14 +544,13 @@ draw_node :: (
     cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
 
     if visual_aabb draw_aabb(cmd, scene.meshes[node.mesh_idx].aabb, final_transform);
-  } else {
-    if node.children_count {
-      for 0..node.children_count - 1 {
-        idx := node.first_child_idx + cast(SceneNodeIdx) it;
-        child := *scene.nodes[idx];
-        draw_node(cmd, scene, child, final_transform);
-      }
-    }
+  }
+
+  if node.first_child_idx {
+    draw_node(cmd, scene, node.first_child_idx, final_transform);
+  }
+  if node.next_sibling {
+    draw_node(cmd, scene, node.next_sibling, parent_transform);
   }
 }
 
