@@ -367,7 +367,8 @@ finish_widgets :: (c: *Context) {
   current_p := c.global_parent.position;
   w := *c.global_parent;
   while w != null {
-    current_p += w.position;
+    widget_p := w.position;
+    current_p += widget_p;
     color: ColorType = w.color;
     check_rect_interaction(c, w.id, current_p, w.size);
     if w.flags & .CLICK {
@@ -400,7 +401,7 @@ finish_widgets :: (c: *Context) {
     if w.first {
       w = w.first;
     } else if w.next {
-      current_p -= w.position;
+      current_p -= widget_p;
       w = w.next;
     } else {
       if w.parent && w.parent.parent current_p = w.parent.parent.position;
