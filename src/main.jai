@@ -60,6 +60,20 @@ gpu_mesh_infos:  FixedArray(GpuMeshInfo, 8192, MeshIdx);
 visual_aabb:  bool          = false;
 polygon_mode: VkPolygonMode = .FILL;
 
+//camera
+camera_position:            Vector3 = .{ 0.0, -5.0, 5.0 };
+camera_rotation:            Vector2 = .{ 0.78, 0.0 };
+camera_view:                Matrix4;
+camera_view_inv:            Matrix4;
+camera_projection:          Matrix4;
+camera_projection_inv:      Matrix4;
+camera_mouse_ray_direction: Vector3;
+
+// selection
+selection_on:            bool;
+selected_scene_node_idx: SceneNodeIdx;
+selected_intersection:   TriangleIntersectionResult;
+
 main :: () {
   if !platform_init() return;
   defer platform_quit();
@@ -117,17 +131,17 @@ main :: () {
   cylinder_mesh_idx := add_mesh(*default_scene, create_cylinder(0.5, 32, 1.0,,
                                                               allocator(*default_scene.mesh_arena)));
 
-  node2_idx,   node2   := add_node(*default_scene, "test");
+  node2_idx,   node2   := add_node(*default_scene, "root");
 
-  node1_c_idx,   node1_c   := add_node(*default_scene, node2_idx, "test");
+  node1_c_idx,   node1_c   := add_node(*default_scene, node2_idx, "center");
   node1_c.mesh_idx = cylinder_mesh_idx;
   node1_c.rotation = quat_from_axis_angle(.{y = 1.0}, PI / 2.0);
 
-  node2_c_idx, node2_c := add_node(*default_scene, node2_idx, "test");
+  node2_c_idx, node2_c := add_node(*default_scene, node2_idx, "ball1");
   node2_c.mesh_idx = sphere_mesh_idx;
   node2_c.translation = .{x = 1.5};
 
-  node3_c_idx, node3_c := add_node(*default_scene, node2_idx, "test");
+  node3_c_idx, node3_c := add_node(*default_scene, node2_idx, "ball2");
   node3_c.mesh_idx = sphere_mesh_idx;
   node3_c.translation = .{x = -1.5};
 
@@ -217,9 +231,6 @@ main :: () {
   draw_crystal := false;
   draw_bistro  := false;
 
-  camera_position: Vector3 = .{ 0.0, -5.0, 5.0 };
-  camera_rotation: Vector2 = .{ 0.78, 0.0 };
-
   v := 0.1;
   need_swapchain_recreation := false;
   last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
@@ -254,8 +265,8 @@ main :: () {
         label(*ui, tprint("GPU GRID ms: %", grid_ms));
         label(*ui, tprint("GPU MESH ms: %", mesh_ms));
         label(*ui, tprint("GPU UI ms: %", ui_ms));
-        label(*ui, tprint("LMB pressed: %", pressed(mouse_state, .LMB)));
-        label(*ui, tprint("LMB just pressed: %", just_pressed(mouse_state, .LMB)));
+        label(*ui, tprint("mouse pos: %", mouse_position));
+        label(*ui, tprint("mouse ray: %", camera_mouse_ray_direction));
         label(*ui, tprint("pos: %", camera_position));
         label(*ui, tprint("rot: %", camera_rotation));
         label(*ui, tprint("pressed_id: %", ui.pressed_id));
@@ -280,11 +291,17 @@ main :: () {
       if pressed(keyboard_state, .LCTRL) camera_velocity.y += 1.0;
       if pressed(keyboard_state, .SPACE) camera_velocity.y -= 1.0;
     }
+
+    selection_on = false;
     if !ui.consumed_mouse_event {
       if pressed(mouse_state, .LMB) {
         camera_rotation.y -= mouse_movement.x * (1.0 / 120.0);
         camera_rotation.x -= mouse_movement.y * (1.0 / 120.0);
         camera_rotation.x = clamp(camera_rotation.x, 0, PI);
+      }
+      if just_pressed(mouse_state, .RMB) {
+        selection_on = true;
+        selected_intersection = .{};
       }
     }
 
@@ -381,18 +398,32 @@ main :: () {
 
       camera_position += rotate(camera_velocity * 5.0 * (1.0 / 120.0), camera_to_world_rotation);
 
-      view := quat_to_mat4(world_to_camera_rotation);
-      translate(*view, rotate(-camera_position, world_to_camera_rotation));
+      camera_view = quat_to_mat4(world_to_camera_rotation);
+      translate(*camera_view, rotate(-camera_position, world_to_camera_rotation));
 
-      view_inv := quat_to_mat4(camera_to_world_rotation);
-      translate(*view_inv, camera_position);
+      camera_view_inv := quat_to_mat4(camera_to_world_rotation);
+      translate(*camera_view_inv, camera_position);
 
-      projection := perspective(PI / 2.0, cast(float)window_width / cast(float)window_height, 0.1, 10000.0);
+      camera_projection = perspective(PI / 2.0,
+                                      cast(float)window_width / cast(float)window_height,
+                                      0.1, 10000.0);
+      _, camera_projection_inv = inverse_lengyel(camera_projection);
+
+      camera_mouse_clip := Vector4.{
+        (mouse_position.x / cast(float)window_width  * 2.0) - 1.0,
+        ((mouse_position.y / cast(float)window_height * 2.0) - 1.0),
+        1.0,
+        1.0
+      };
+      camera_mouse_near_plane := transpose(camera_view_inv) * transpose(camera_projection_inv) * camera_mouse_clip;
+      camera_mouse_near_plane_world := camera_mouse_near_plane.xyz / camera_mouse_near_plane.w;
+      camera_mouse_ray_direction = normalize(camera_mouse_near_plane_world - camera_position);
+
       scene := scene_buffer.host_ptr;
       scene.* = .{
-        camera_view       = view,
-        camera_view_inv   = view_inv,
-        camera_projection = projection,
+        camera_view       = camera_view,
+        camera_view_inv   = camera_view_inv,
+        camera_projection = camera_projection,
       };
 
       // mesh
@@ -543,7 +574,25 @@ draw_node :: (
     cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
     cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
 
-    if visual_aabb draw_aabb(cmd, scene.meshes[node.mesh_idx].aabb, final_transform);
+    if visual_aabb || node_idx == selected_scene_node_idx {
+      draw_aabb(cmd, scene.meshes[node.mesh_idx].aabb, final_transform);
+    }
+
+    if selection_on {
+      _, t := inverse_lengyel(final_transform);
+      // The row-major matrix strikes again
+      t = transpose(t);
+      ray: Ray = .{
+                  (t * Vector4.{ xyz = camera_position,            w = 1.0 }).xyz,
+        normalize((t * Vector4.{ xyz = camera_mouse_ray_direction, w = 0.0 }).xyz),
+      };
+      s, r := mesh_ray_intersection(scene.meshes[node.mesh_idx], ray);
+      if s && r.t < selected_intersection.t {
+        log("intersects: % at t: % previous t: %", to_string(node.name), r.t, selected_intersection.t);
+        selected_scene_node_idx = node_idx;
+        selected_intersection = r;
+      }
+    }
   }
 
   if node.first_child_idx {

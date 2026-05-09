@@ -7,18 +7,6 @@ Vertex :: struct {
   _:        float;
 } @ShaderType
 
-AABB :: struct {
-  min: Vector3;
-  max: Vector3;
-};
-
-// Scale and translation to apply to unit cube to convert it to AABB
-aabb_to_scale_and_translation :: (aabb: AABB) -> Vector3, Vector3 {
-  dim := aabb.max - aabb.min;
-  center := (aabb.max + aabb.min) / 2.0;
-  return dim, center;
-}
-
 MeshIdx :: #type,distinct u32;
 Mesh :: struct {
   material_idx: MaterialIdx;
@@ -407,6 +395,23 @@ create_cylinder :: (radius: float, sectors: u32, heigth: float) -> Mesh {
   };
 }
 
+mesh_ray_intersection :: (mesh: Mesh, ray: Ray) -> (success: bool, result: TriangleIntersectionResult) {
+  if !aabb_ray_intersection(mesh.aabb, ray) then return false, .{};
+
+  i := 0;
+  result: TriangleIntersectionResult;
+  while i < mesh.indices.count {
+    defer i += 3;
+
+    p0 := mesh.vertices[mesh.indices[i + 0]].position;
+    p1 := mesh.vertices[mesh.indices[i + 1]].position;
+    p2 := mesh.vertices[mesh.indices[i + 2]].position;
+
+    intersects, r := triangle_ray_intersection(p0, p1, p2, ray);
+    if intersects && r.t < result.t then result = r;
+  }
+  return result.t != FLOAT32_MAX, result;
+}
 
 #scope_file
 

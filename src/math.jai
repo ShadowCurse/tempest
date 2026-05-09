@@ -206,4 +206,88 @@ rgb_to_vector3 :: (hex: u32) -> Vector3 {
   };
 }
 
+max :: (v: Vector3) -> float {
+  return max(max(v.x, v.y), max(v.y, v.z));
+}
+
+min :: (v: Vector3) -> float {
+  return min(min(v.x, v.y), min(v.y, v.z));
+}
+
+AABB :: struct {
+  min: Vector3;
+  max: Vector3;
+};
+
+// Scale and translation to apply to unit cube to convert it to AABB
+aabb_to_scale_and_translation :: (aabb: AABB) -> Vector3, Vector3 {
+  dim := aabb.max - aabb.min;
+  center := (aabb.max + aabb.min) / 2.0;
+  return dim, center;
+}
+
+Ray :: struct {
+  origin:    Vector3;
+  direction: Vector3;
+}
+
+aabb_ray_intersection :: (aabb: AABB, ray: Ray) -> bool {
+  low  := (aabb.min - ray.origin) / ray.direction;
+  high := (aabb.max - ray.origin) / ray.direction;
+
+  close := min(low, high);
+  far   := max(low, high);
+
+  t_close := max(close);
+  t_far   := min(far);
+
+  return t_close < t_far;
+}
+
+triangle_winding_ccw :: (p0: Vector3, p1: Vector3, p2: Vector3, direction: Vector3) -> bool {
+  p1p0 := p1 - p0;
+  p1p2 := p2 - p0;
+  n    := cross(p1p0, p1p2);
+  d    := dot(n, direction);
+  return 0.0 < d;
+}
+
+TriangleIntersectionResult :: struct {
+  u, v: float;
+  t:    float = FLOAT32_MAX;
+  n:    Vector3;
+}
+triangle_ray_intersection :: (
+  p0: Vector3, p1: Vector3, p2: Vector3,
+  ray: Ray,
+  $only_ccw: bool = true,
+) -> (success: bool, result: TriangleIntersectionResult) {
+  e1 := p1 - p0;
+  e2 := p2 - p0;
+  n  := cross(e1, e2);
+  d  := dot(n, ray.direction);
+
+  if abs(d) < 1.0e-6 return false, .{};
+
+  #if only_ccw {
+    if (d < 0.0) return false, .{};
+  }
+
+  inv_d := 1.0 / d;
+  ao    := p0 - ray.origin;
+  dao   := cross(ao, ray.direction);
+  u     :=  dot(e2, dao) * inv_d;
+  v     := -dot(e1, dao) * inv_d;
+  t     :=  dot(ao, n)   * inv_d;
+  if 0.0 <= t && 0.0 <= u && 0.0 <= v && (u + v) <= 1.0 {
+    return true, .{ u, v, t, n };
+  } else {
+    return false, .{};
+  }
+}
+
 using,except(translate) #import "Math";
+
+#scope_file
+
+#import "Basic";
