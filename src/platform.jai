@@ -16,11 +16,11 @@ platform_init :: () -> success: bool {
       SDL_WINDOW_VULKAN, // | SDL_WINDOW_RESIZABLE,
   );
   if !window {
-    log_error("Cannot create SDL window: %\n", SDL_GetError());
+    log_error("Cannot create SDL window: %\n", to_string(SDL_GetError()));
     return false;
   }
   if !SDL_ShowWindow(window) {
-      log_error("Cannot show a window: %", SDL_GetError());
+      log_error("Cannot show a window: %", to_string(SDL_GetError()));
       return false;
   }
   return true;
@@ -46,7 +46,7 @@ platform_vulkan_extensions :: () -> []*u8 {
 
 platform_create_surface :: (instance: vk.VkInstance, surface: *vk.VkSurfaceKHR) {
   if !SDL_Vulkan_CreateSurface(window, xx instance, null, xx surface)
-    log_error("Cannot create Vulkan surface. Error: %", SDL_GetError());
+    log_error("Cannot create Vulkan surface. Error: %", to_string(SDL_GetError()));
 }
 
 platform_read_entire_file :: (path: string) -> string, bool {
