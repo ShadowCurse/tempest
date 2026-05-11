@@ -396,7 +396,7 @@ finish_widgets :: (c: *Context) {
       if w.text_flags & .CENTER text_offset_x = w.size.x / 2.0;
       else                      text_offset_x = w.margin;
       text_position := current_p + .{ text_offset_x, text_offset_y };
-      draw_text(c, text_position, w.text, cast(bool)(w.text_flags & .CENTER));
+      draw_text(c, text_position, w.text, cast(bool)(w.text_flags & .CENTER), w.size.x);
     }
     if w.first {
       w = w.first;
@@ -465,13 +465,21 @@ draw_border :: (c:*Context, position: Vector2, size: Vector2, color: ColorType, 
   draw_rect(c, position, size, .NONE, color, width);
 }
 
-draw_text :: (c: *Context, position: Vector2, text: string, centered: bool) {
-  text_layout(text, c.font, c.font_size, position, centered,, allocator(*c.draw_buffer));
+draw_text :: (c: *Context, position: Vector2, text: string, centered: bool, max_width := 1000.0) {
+  text_layout(text, c.font, c.font_size, position, centered, max_width,, allocator(*c.draw_buffer));
 }
 
-text_layout :: (text: string, font: Font, size: float, position: Vector2, center: bool) -> []Quad {
+text_layout :: (
+  text: string,
+  font: Font,
+  size: float,
+  position: Vector2,
+  center: bool,
+  max_width := 1000.0,
+) -> []Quad {
   scale := size;
   offset: Vector2;
+  max_width = position.x + max_width;
 
   quads, lines := text_split_in_lines(text);
   line_start   := 0;
@@ -484,30 +492,21 @@ text_layout :: (text: string, font: Font, size: float, position: Vector2, center
       char_info  := get_char_info(font, char);
       char_kern  := ifx 0 < i then get_kerning(font, text[i + line_start - 1], char);
 
-      char_width  := char_info.x1 - char_info.x0;
-      char_height := char_info.y1 - char_info.y0;
-
       offset.x += char_kern * scale;
-      char_origin := position + offset;
-      char_position := char_origin +
-        Vector2.{ char_info.x1 + char_info.x0, -(char_info.y1 + char_info.y0) } * 0.5 * scale;
-
-      band_min_max := (char_info.band_max_y << 16) | char_info.band_max_x;
-      band_scale:  Vector2 = .{ char_info.band_scale_x,  char_info.band_scale_y };
-      band_offset: Vector2 = .{ char_info.band_offset_x, char_info.band_offset_y };
-
-      line[i] = .{
-        usage     = .TEXT,
-        color     = 0xffffffff,
-        position  = char_position,
-        size      = .{ char_width, char_height } * scale,
-        tex       = .{ char_info.x0, char_info.y1, char_info.x1, char_info.y0 },
-        glyph_band_texel = char_info.glyph_band_texel,
-        band_min_max = band_min_max,
-        band_scale = band_scale,
-        band_offset = band_offset,
-      };
-      offset.x += char_info.advance * scale;
+      if !text_setup_quad(*line[i], char_info, char_kern, scale, position + offset, max_width) {
+        char_info = get_char_info(font, #char ".");
+        char_kern = 1;
+        offset.x = max_width - position.x -
+                   ((char_info.x1 - char_info.x0) * 3.0 + char_info.advance * 2.0) * scale;
+        for j: i - 3..i - 1 {
+          text_setup_quad(*line[j], char_info, char_kern, scale, position + offset);
+          offset.x += char_info.advance * scale;
+        }
+        for j: i..line.count - 1 text_setup_quad(*line[j], .{}, 0, 0, .{}, max_width);
+        break;
+      } else {
+        offset.x += char_info.advance * scale;
+      }
     }
 
     if center {
@@ -542,7 +541,7 @@ text_split_in_lines :: (text: string) -> quads: []Quad, lines: [][]Quad {
     }
 
     lines := new_array(line_breaks.count, []Quad, initialized = false,, temp);
-    quads := new_array(total_quads, Quad, initialized = false);
+    quads := new_array(total_quads,         Quad, initialized = false);
     quads_offset := 0;
     for line_breaks {
       line_length := ifx it_index == 0 it else it - line_breaks[it_index - 1] - 1;
@@ -550,6 +549,42 @@ text_split_in_lines :: (text: string) -> quads: []Quad, lines: [][]Quad {
       quads_offset += line_length;
     }
     return quads, lines;
+}
+
+text_setup_quad :: (
+  quad: *Quad,
+  char_info: CharInfo,
+  kerning: s32,
+  scale: float,
+  position: Vector2,
+  max_width := 1000.0,
+) -> bool {
+  char_width  := char_info.x1 - char_info.x0;
+  char_height := char_info.y1 - char_info.y0;
+
+  if max_width < position.x + char_width then return false;
+
+  char_position := position + Vector2.{
+    char_info.x1 + char_info.x0,
+    -(char_info.y1 + char_info.y0)
+  } * 0.5 * scale;
+
+  band_min_max        := (char_info.band_max_y << 16) | char_info.band_max_x;
+  band_scale:  Vector2 = .{ char_info.band_scale_x,  char_info.band_scale_y };
+  band_offset: Vector2 = .{ char_info.band_offset_x, char_info.band_offset_y };
+
+  quad.* = .{
+    usage     = .TEXT,
+    color     = 0xffffffff,
+    position  = char_position,
+    size      = .{ char_width, char_height } * scale,
+    tex       = .{ char_info.x0, char_info.y1, char_info.x1, char_info.y0 },
+    glyph_band_texel = char_info.glyph_band_texel,
+    band_min_max = band_min_max,
+    band_scale = band_scale,
+    band_offset = band_offset,
+  };
+  return true;
 }
 
 #scope_file
