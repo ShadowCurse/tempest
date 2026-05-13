@@ -12,6 +12,11 @@ DEVICE_EXTENSIONS := *u8.[
     "VK_EXT_swapchain_maintenance1",
     "VK_KHR_push_descriptor",
     "VK_EXT_extended_dynamic_state3",
+
+    // these 2 required for VK_EXT_present_timing
+    "VK_KHR_present_id2",
+    "VK_KHR_calibrated_timestamps",
+    "VK_EXT_present_timing",
     // "VK_KHR_unified_image_layouts",
 ];
 MINIMAL_API_VERSION := #run api_version(0, 1, 3, 0);
@@ -43,6 +48,8 @@ swapchain_semaphores: []VkSemaphore;
 swapchain_fences: []VkFence;
 swapchain_format: VkFormat = .UNDEFINED;
 swapchain_extent: VkExtent2D;
+swapchain_past_presentation_timings: []VkPastPresentationTimingEXT;
+swapchain_present_stage_times:       []VkPresentStageTimeEXT;
 
 graphics_command_pool: VkCommandPool;
 
@@ -163,6 +170,27 @@ get_buffer_address :: (buffer: VkBuffer) -> VkDeviceAddress {
   info: VkBufferDeviceAddressInfo = .{ buffer = buffer };
   result = vkGetBufferDeviceAddress(device, *info);
   return result;
+}
+
+get_swapchain_timing_properties :: () -> (refresh_duration: u64,
+                                          refresh_interval: u64,
+                                          properties_counter: u64) {
+  timing_props: VkSwapchainTimingPropertiesEXT;
+  counter: u64;
+  _ = vkGetSwapchainTimingPropertiesEXT(device, swapchain, *timing_props, *counter);
+  return timing_props.refreshDuration, timing_props.refreshInterval, counter;
+}
+
+get_past_presentation_timing :: () -> []VkPastPresentationTimingEXT {
+  past_timing_info: VkPastPresentationTimingInfoEXT = .{ swapchain = swapchain };
+  past_timing_properties: VkPastPresentationTimingPropertiesEXT = .{};
+  if vkGetPastPresentationTimingEXT(device, *past_timing_info, *past_timing_properties) then return .[];
+  past_timing_properties.pPresentationTimings = swapchain_past_presentation_timings.data;
+  if vkGetPastPresentationTimingEXT(device, *past_timing_info, *past_timing_properties) then return .[];
+  return .{
+    data = swapchain_past_presentation_timings.data,
+    count = past_timing_properties.presentationTimingCount
+  };
 }
 
 bind_buffer_memory :: (buffer: VkBuffer, device_memory: VkDeviceMemory, offset: u32) {
@@ -507,7 +535,25 @@ graphics_queue_submit :: (cmd: VkCommandBuffer, semaphore: VkSemaphore, fence: V
 
 present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
   fence := *swapchain_fences[image_idx];
-  present_info_fence: VkSwapchainPresentFenceInfoKHR = .{ swapchainCount = 1, pFences = fence };
+
+ timing_info: VkPresentTimingInfoEXT = .{
+    flags = xx VkPresentTimingInfoFlagBitsEXT.PRESENT_AT_NEAREST_REFRESH_CYCLE_BIT_EXT,
+    // note(sc): no absolute or relative options are available for now
+    targetTime          = 0,
+    timeDomainId        = 0,
+    presentStageQueries = xx VkPresentStageFlagBitsEXT.IMAGE_FIRST_PIXEL_OUT_BIT_EXT,
+    targetTimeDomainPresentStage = xx VkPresentStageFlagBitsEXT.IMAGE_FIRST_PIXEL_OUT_BIT_EXT,
+  };
+  present_timings_info: VkPresentTimingsInfoEXT = .{
+    swapchainCount = 1,
+    pTimingInfos   = *timing_info
+  };
+
+  present_info_fence: VkSwapchainPresentFenceInfoKHR = .{
+    pNext = *present_timings_info,
+    swapchainCount = 1,
+    pFences = fence
+  };
   present_info: VkPresentInfoKHR = .{
     pNext              = *present_info_fence,
     pSwapchains        = *swapchain,
@@ -625,7 +671,7 @@ contains_all_extensions :: (prefix: string, extensions: []VkExtensionProperties,
     for to_find, i: to_find_slices {
       for tf, j: to_find {
         bit := 1 << (i * to_find_slices.count + j);
-        if bitfind & bit == 0 log_error("[%]: Missing extension: %", prefix, tf);
+        if bitfind & bit == 0 log_error("[%]: Missing extension: %", prefix, to_string(tf));
       }
     }
   }
@@ -956,7 +1002,13 @@ init_device :: () {
   physical_device_features_1_4: VkPhysicalDeviceVulkan14Features;
   maintenance5: VkPhysicalDeviceMaintenance5Features;
 
+  present_timings: VkPhysicalDevicePresentTimingFeaturesEXT = .{
+    presentTiming         = xx true,
+    presentAtAbsoluteTime = xx true,
+    presentAtRelativeTime = xx true,
+  };
   swapchain_maintenance1: VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR = .{
+    pNext                 = *present_timings,
     swapchainMaintenance1 = xx true,
   };
   physical_device_features_1_3: VkPhysicalDeviceVulkan13Features = .{
@@ -982,7 +1034,7 @@ init_device :: () {
     physical_device_features_1_3.pNext = *maintenance5;
   }
   dynamic_state3: VkPhysicalDeviceExtendedDynamicState3FeaturesEXT = .{
-    pNext               = *physical_device_features_1_3,
+    pNext                            = *physical_device_features_1_3,
     extendedDynamicState3PolygonMode = xx true,
   };
   physical_device_features_1_2: VkPhysicalDeviceVulkan12Features = .{
@@ -991,7 +1043,7 @@ init_device :: () {
     descriptorIndexing  = xx true,
   };
   physical_device_features: VkPhysicalDeviceFeatures = .{
-    shaderInt64 = xx true,
+    shaderInt64      = xx true,
     fillModeNonSolid = xx true,
   };
 
@@ -1043,9 +1095,32 @@ get_swapchain_images :: () -> []VkImage {
   return data;
 }
 
+get_swapchain_time_domain_properties :: () -> []VkTimeDomainKHR, []u64, u64, VkResult {
+  count: u32 = ---;
+  domains: []VkTimeDomainKHR = ---;
+  ids:     []u64 = ---;
+  counter: u64 = ---;
+  data: VkSwapchainTimeDomainPropertiesEXT = .{};
+  result: VkResult = ---;
+  result = vkGetSwapchainTimeDomainPropertiesEXT(device, swapchain, *data, *counter);
+  if result return .[], .[], 0, result;
+  if count == 0 return .[], .[], 0, .SUCCESS;
+  domains = new_array(data.timeDomainCount, VkTimeDomainKHR, initialized = false);
+  ids     = new_array(data.timeDomainCount, u64,             initialized = false);
+  data.pTimeDomains   = domains.data;
+  data.pTimeDomainIds = ids.data;
+  result = vkGetSwapchainTimeDomainPropertiesEXT(device, swapchain, *data, *counter);
+  return domains, ids, counter, result;
+}
+
 init_swapchain :: (width: u32, height: u32, old_swapchain: VkSwapchainKHR) {
-  surface_capabilities: VkSurfaceCapabilitiesKHR = ---;
-  assert(!vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, *surface_capabilities));
+  present_timing_surface: VkPresentTimingSurfaceCapabilitiesEXT = .{};
+  surface_capabilities2: VkSurfaceCapabilities2KHR = .{ pNext   = *present_timing_surface };
+  surface_info: VkPhysicalDeviceSurfaceInfo2KHR = .{ surface = surface };
+  assert(!vkGetPhysicalDeviceSurfaceCapabilities2KHR(physical_device, *surface_info, *surface_capabilities2));
+  log("present_timing_surface: %", present_timing_surface);
+
+  surface_capabilities := *surface_capabilities2.surfaceCapabilities;
 
   log(#string DONE
 Surface capabilities:
@@ -1092,6 +1167,7 @@ DONE
     }
 
     create_info: VkSwapchainCreateInfoKHR = .{
+      flags            = .PRESENT_TIMING_BIT_EXT,
       surface          = surface,
       minImageCount    = surface_capabilities.minImageCount,
       imageFormat      = surface_format.format,
@@ -1149,6 +1225,24 @@ DONE
       }
       log("Created swapchain: images: % extent: w: % h: %\n",
           swapchain_images.count, swapchain_extent.width, swapchain_extent.height);
+
+      domains, ids, counter, err2 :=  get_swapchain_time_domain_properties(,,temp);
+      assert(!err2);
+      log("Swapchain domains: %", domains);
+      log("Swapchain ids: %", ids);
+      log("Swapchain counter: %", counter);
+
+      assert(!vkSetSwapchainPresentTimingQueueSizeEXT(device, swapchain, cast(u32)swapchain_images.count));
+      swapchain_past_presentation_timings = new_array(swapchain_images.count, VkPastPresentationTimingEXT,
+                                                      initialized = false);
+      swapchain_present_stage_times        = new_array(swapchain_images.count, VkPresentStageTimeEXT,
+                                                      initialized = false);
+      for * swapchain_past_presentation_timings {
+        it.* = .{
+          presentStageCount = 1,
+          pPresentStages = swapchain_present_stage_times.data + it_index,
+        };
+      }
     }
   }
 }
@@ -1195,20 +1289,25 @@ DONE
   "vkEnumeratePhysicalDevices",
   "vkGetPhysicalDeviceProperties",
   "vkGetPhysicalDeviceFeatures",
+  "vkGetPhysicalDeviceFeatures2",
   "vkGetPhysicalDeviceMemoryProperties",
   "vkEnumerateDeviceLayerProperties",
   "vkEnumerateDeviceExtensionProperties",
   "vkGetPhysicalDeviceQueueFamilyProperties",
   "vkGetPhysicalDeviceSurfaceSupportKHR",
+  "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
   "vkDeviceWaitIdle",
   "vkCreateDevice",
   "vkDestroyDevice",
   "vkGetDeviceQueue",
-  "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
   "vkGetPhysicalDeviceSurfaceFormatsKHR",
   "vkCreateSwapchainKHR",
   "vkDestroySwapchainKHR",
   "vkGetSwapchainImagesKHR",
+  "vkSetSwapchainPresentTimingQueueSizeEXT",
+  "vkGetSwapchainTimingPropertiesEXT",
+  "vkGetSwapchainTimeDomainPropertiesEXT",
+  "vkGetPastPresentationTimingEXT",
   "vkCreateImageView",
   "vkDestroyImage",
   "vkDestroyImageView",

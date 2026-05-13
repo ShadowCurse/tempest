@@ -232,8 +232,10 @@ main :: () {
   draw_bistro  := false;
 
   v := 0.1;
-  need_swapchain_recreation := false;
+  need_swapchain_recreation      := false;
   last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
+  last_present_time_ns: u64       = 0;
+  dt_s: float                     = 0.0;
   while !quit {
     reset_temporary_storage();
     platform_new_frame();
@@ -252,6 +254,14 @@ main :: () {
     ui_ns      := timestamp_array[Timestamp.UI_END] - timestamp_array[Timestamp.UI_START];
     ui_ms      := cast(float)ui_ns / 1000_000.0;
 
+    for get_past_presentation_timing() {
+      if it.reportComplete {
+        present_time := it.pPresentStages[0].time;
+        dt_s = cast(float)(present_time - last_present_time_ns) / 1000.0 / 1000.0 / 1000.0;
+        last_present_time_ns = present_time;
+      }
+    }
+
     {
       ui.mouse_position = mouse_position;
       ui.mouse_just_pressed  = just_pressed(mouse_state, .LMB);
@@ -261,12 +271,12 @@ main :: () {
         panel_start(*ui, "Panel", .{ 300.0, 750.0 }, .{ 1.0, 1.0 });
         defer panel_end(*ui);
 
+        label(*ui, tprint("FPS: %", 1.0 / dt_s));
+        label(*ui, tprint("dt s: %", dt_s));
         label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
         label(*ui, tprint("GPU GRID ms: %", grid_ms));
         label(*ui, tprint("GPU MESH ms: %", mesh_ms));
         label(*ui, tprint("GPU UI ms: %", ui_ms));
-        label(*ui, tprint("mouse pos: %", mouse_position));
-        label(*ui, tprint("mouse ray: %", camera_mouse_ray_direction));
         label(*ui, tprint("pos: %", camera_position));
         label(*ui, tprint("rot: %", camera_rotation));
         label(*ui, tprint("pressed_id: %", ui.pressed_id));

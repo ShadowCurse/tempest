@@ -110,7 +110,6 @@ load_gltf :: (scene: *Scene, name: string) -> SceneNodeIdx {
 
   add_node_to_scene :: (scene: *Scene, node: *cgltf_node, parent_idx: SceneNodeIdx, l: GltfLoading) {
     node_name := to_string(node.name);
-    log("Scene adding node: %", node_name);
     new_node_idx, new_node := add_node(scene, parent_idx, node_name);
     setup_node(new_node, node, l);
     if node.children_count {
