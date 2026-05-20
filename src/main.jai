@@ -75,6 +75,9 @@ selected_scene_node_idx: SceneNodeIdx;
 selected_intersection:   TriangleIntersectionResult;
 
 main :: () {
+  init_prof();
+  defer deinit_prof();
+
   if !platform_init() return;
   defer platform_quit();
   if !vulkan_init(true) return;
@@ -237,6 +240,12 @@ main :: () {
   last_present_time_ns: u64       = 0;
   dt_s: float                     = 0.0;
   while !quit {
+    prof_print();
+    prof_new_frame();
+
+    prof_record_thread_start();
+    defer prof_record_thread_end();
+
     reset_temporary_storage();
     platform_new_frame();
     new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
@@ -263,11 +272,16 @@ main :: () {
     }
 
     {
+      prof_scope("build_ui");
+
       ui.mouse_position = mouse_position;
       ui.mouse_just_pressed  = just_pressed(mouse_state, .LMB);
       ui.mouse_down     = pressed(mouse_state, .LMB);
 
       {
+
+        prof_scope("build_ui_widgets");
+
         panel_start(*ui, "Panel", .{ 300.0, 750.0 }, .{ 1.0, 1.0 });
         defer panel_end(*ui);
 
@@ -1144,6 +1158,7 @@ GpuMeshInfo :: struct {
 #import,file "scene.jai";
 #import,file "vulkan.jai";
 #import,file "shaders.jai";
+#import,file "profiler.jai";
 #import,file "platform.jai";
 #import,file "file_watch.jai";
 #import,file "allocators.jai";
