@@ -31,7 +31,7 @@ platform_quit :: () {
   SDL_Quit();
 }
 
-platform_vulkan_proc_addr :: () -> vk.PFN_vkGetInstanceProcAddr  {
+platform_vulkan_proc_addr :: () -> PFN_vkGetInstanceProcAddr  {
   return xx SDL_Vulkan_GetVkGetInstanceProcAddr();
 }
 
@@ -44,7 +44,7 @@ platform_vulkan_extensions :: () -> []*u8 {
   return slice;
 }
 
-platform_create_surface :: (instance: vk.VkInstance, surface: *vk.VkSurfaceKHR) {
+platform_create_surface :: (instance: VkInstance, surface: *VkSurfaceKHR) {
   if !SDL_Vulkan_CreateSurface(window, xx instance, null, xx surface)
     log_error("Cannot create Vulkan surface. Error: %", to_string(SDL_GetError()));
 }
@@ -1252,10 +1252,5 @@ SDLKeyboardScancode :: enum u32 {
   RHYPER               :: 0X20000007;
 };
 
-#import,file "utils.jai";
-#import,file "math.jai";
-#import,file "static_bitset.jai";
-#import "SDL3";
-#import "File";
-#import "Basic";
-vk :: #import "Vulkan";
+#scope_file
+using,except(VkInstance, PFN_vkGetInstanceProcAddr, VkSurfaceKHR) sdl3 :: #import "SDL3";

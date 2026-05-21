@@ -586,11 +586,3 @@ text_setup_quad :: (
   };
   return true;
 }
-
-#scope_file
-
-#import,file "math.jai";
-#import,file "font.jai";
-#import,file "utils.jai";
-#import,file "allocators.jai";
-#import "Basic";

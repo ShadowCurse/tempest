@@ -63,7 +63,3 @@ inotify_add_watch :: (watcher: *FileWatcher, path: string) -> s32 {
   flags := IN_MODIFY | IN_CLOSE_WRITE;
   return inotify_add_watch(watcher.fd, c_path, xx flags);
 }
-
-#import "Linux";
-#import "POSIX";
-#import "Basic";

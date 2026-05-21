@@ -23,9 +23,3 @@ compile_shader :: (path: string) -> bool {
   }
   return true;
 }
-
-#scope_file
-
-#import "Basic";
-#import "String";
-#import "Process";

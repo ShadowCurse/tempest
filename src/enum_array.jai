@@ -40,8 +40,3 @@ operator []= :: (ea: *EnumArray, index: ea.ENUM, value: ea.V) {
   i: u64 = xx index;
   ea.values[i] = value;
 }
-
-#scope_file
-
-#import,file "utils.jai";
-#import "Basic";

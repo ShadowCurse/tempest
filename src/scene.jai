@@ -504,10 +504,3 @@ add_gltf_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: GltfLoading) {
   // log("Mesh %: % vertices: % indices: %", mesh_idx, mesh_name, vertices.count, indices.count);
   array_add(*scene.meshes, Mesh.{ material_idx, aabb, indices, vertices });
 }
-
-#import,file "math.jai";
-#import,file "allocators.jai";
-#import,file "fixed_array.jai";
-#import,file "fixed_slice.jai";
-#import "cgltf";
-#import "Basic";

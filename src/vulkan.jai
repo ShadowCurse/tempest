@@ -1,25 +1,25 @@
 VALIDATION_LAYERS_NAMES := *u8.[
-    "VK_LAYER_KHRONOS_validation",
+  "VK_LAYER_KHRONOS_validation",
 ];
 INSTANCE_EXTENSIONS := *u8.[
-    "VK_EXT_debug_utils",
-    "VK_EXT_surface_maintenance1",
-    "VK_KHR_get_surface_capabilities2",
+  "VK_EXT_debug_utils",
+  "VK_EXT_surface_maintenance1",
+  "VK_KHR_get_surface_capabilities2",
 ];
 DEVICE_EXTENSIONS := *u8.[
-    "VK_KHR_swapchain",
-    "VK_KHR_maintenance5",
-    "VK_EXT_swapchain_maintenance1",
-    "VK_KHR_push_descriptor",
-    "VK_EXT_extended_dynamic_state3",
+  "VK_KHR_swapchain",
+  "VK_KHR_maintenance5",
+  "VK_EXT_swapchain_maintenance1",
+  "VK_KHR_push_descriptor",
+  "VK_EXT_extended_dynamic_state3",
 
-    // these 2 required for VK_EXT_present_timing
-    "VK_KHR_present_id2",
-    "VK_KHR_calibrated_timestamps",
-    "VK_EXT_present_timing",
-    // "VK_KHR_unified_image_layouts",
+  // these 2 required for VK_EXT_present_timing
+  "VK_KHR_present_id2",
+  "VK_KHR_calibrated_timestamps",
+  "VK_EXT_present_timing",
+  // "VK_KHR_unified_image_layouts",
 ];
-MINIMAL_API_VERSION := #run api_version(0, 1, 3, 0);
+MINIMAL_API_VERSION :: #run api_version(0, 1, 3, 0);
 
 instance:              VkInstance;
 instance_version:      ApiVersion;
@@ -591,36 +591,36 @@ api_version :: (variant: u32, major: u32, minor: u32, patch: u32) -> ApiVersion 
             ((major   & ((1 <<  7) - 1)) << 22) |
             ((minor   & ((1 << 10) - 1)) << 12) |
             ((patch   & ((1 << 12) - 1)));
-}
+} @NoProfile
 api_version_patch :: (version: ApiVersion) -> u32 {
   v: u32 = xx version;
   MASK: u32 = (1 << 12) - 1;
   return v & MASK;
-}
+} @NoProfile
 api_version_minor :: (version: ApiVersion) -> u32 {
   v: u32 = xx version;
   MASK: u32 = (1 << 10) - 1;
   SHIFT: u32 = 12;
   return (v >> SHIFT) & MASK;
-}
+} @NoProfile
 api_version_major :: (version: ApiVersion) -> u32 {
   v: u32 = xx version;
   MASK: u32 = (1 << 7) - 1;
   SHIFT: u32 = 22;
   return (v >> SHIFT) & MASK;
-}
+} @NoProfile
 api_version_variant :: (version: ApiVersion) -> u32 {
   v: u32 = xx version;
   MASK: u32 = (1 << 3) - 1;
   SHIFT: u32 = 29;
   return (v >> SHIFT) & MASK;
-}
+} @NoProfile
 
 get_api_version :: () -> ApiVersion, bool {
     version: ApiVersion = ---;
     result := vkEnumerateInstanceVersion(*version) == .VK_SUCCESS;
     return version, result;
-}
+} @NoProfile
 
 get_instance_extensions :: () -> []VkExtensionProperties, VkResult {
     count: u32 = ---;
@@ -1366,15 +1366,3 @@ DONE
 
 VK_REMAINING_MIP_LEVELS   :: 4294967295;
 VK_REMAINING_ARRAY_LAYERS :: 4294967295;
-
-#import,file "allocators.jai";
-using,only(
-  platform_vulkan_proc_addr,
-  platform_vulkan_extensions,
-  platform_create_surface,
-  window_width,
-  window_height,
-) platform :: #import,file "platform.jai";
-#import "Basic";
-#import "Vulkan";
-#import "Flat_Pool";

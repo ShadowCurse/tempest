@@ -286,8 +286,4 @@ triangle_ray_intersection :: (
   }
 }
 
-using,except(translate) #import "Math";
-
-#scope_file
-
-#import "Basic";
+using,except(translate) math :: #import "Math";

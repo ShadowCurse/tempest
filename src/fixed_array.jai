@@ -49,7 +49,3 @@ for_expansion :: (fa: *FixedArray, body: Code, flags: For_Flags) #expand {
     #insert body;
   }
 }
-
-#scope_file
-
-#import "Basic";

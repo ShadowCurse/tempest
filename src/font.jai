@@ -92,13 +92,3 @@ get_kerning :: (font: Font, char_1: u8, char_2: u8) -> s32 {
     );
     return info.kerning;
 }
-
-#scope_file
-
-#import,file "platform.jai";
-#import,file "allocators.jai";
-#import,file "utils.jai";
-#import "cslug";
-#import "Json";
-#import "Basic";
-#import "String";

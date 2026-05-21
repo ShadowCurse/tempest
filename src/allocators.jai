@@ -253,17 +253,15 @@ pop :: (arena: *GpuImageArena, image: GpuImage) {
   arena.end -= image.total_bytes;
 }
 
-align_of :: ($T: Type) -> s64 #expand {
-  return #run -> s64 {
-    info := type_info(struct{ p: u8; t: T; });
-    return info.members[1].offset_in_bytes;
-  };
-}
+align_of :: ($T: Type) -> s64 {
+  info := type_info(struct{ p: u8; t: T; });
+  return info.members[1].offset_in_bytes;
+} @NoProfile
 
-align_up :: inline (n: $T, $$PAGE_SIZE: $D) -> T {
-  page_size: T = xx PAGE_SIZE;
-  return (n + page_size - 1) & ~(page_size - 1);
-}
+align_up :: inline (n: $T, alignment: $D) -> T {
+  a := cast(T)alignment;
+  return (n + a - 1) & ~(a - 1);
+} @NoProfile
 
 alloc_aligned :: (size: s64, alignment: s64) -> *void {
   a := context.allocator;
@@ -313,9 +311,3 @@ new_array :: (count: s64, $T: Type, $initialized := true) -> result: []T {
   }
   return result;
 }
-
-#scope_file
-
-#import,file "vulkan.jai";
-#import "Basic";
-#import "Vulkan";

@@ -5,7 +5,7 @@ FixedSlice :: struct($T: Type, $I: Type = u32) {
 
 fixed_slice :: (slice: []$T) -> FixedSlice(T) {
   return .{ slice, 0 };
-}
+} @NoProfile
 
 push :: (fa: *FixedSlice, item: fa.T) {
   assert(fa.count + 1 <= fa.data.count);
@@ -53,7 +53,3 @@ for_expansion :: (fa: *FixedSlice, body: Code, flags: For_Flags) #expand {
     #insert body;
   }
 }
-
-#scope_file
-
-#import "Basic";
