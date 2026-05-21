@@ -53,7 +53,8 @@ init_prof :: () {
   #if !PROF_ZONES_COUNT return;
   take_thread_id();
   if context.thread_id == 0 then global_freq = get_perf_counter_frequency();
-  context.prof_zones = new_array(PROF_ZONES_COUNT, Zone);
+  // context.prof_zones = new_array(PROF_ZONES_COUNT, Zone);
+  context.prof_zones = NewArray(PROF_ZONES_COUNT, Zone);
 }
 
 deinit_prof :: () {
@@ -94,7 +95,11 @@ prof_print :: () {
   log("-----------");
   freq:    float64 = cast(float64)global_freq;
   elapsed: float64 = cast(float64)(context.prof_time.end - context.prof_time.start);
-  for PROF_ZONES_NAMES {
+  name_buf: [PROF_ZONE_LONGEST_NAME_LEN]u8;
+  for PROF_ZONES_INFOS {
+    memset(*name_buf, #char " ", name_buf.count);
+    memcpy(*name_buf, it.name.data, it.name.count);
+
     zone := *context.prof_zones[it_index];
     if zone.hit_count != 0 {
       without_children_ms := cast(float64)zone.without_children / freq * 1000.0;
@@ -105,14 +110,15 @@ prof_print :: () {
 t: % | %:% | hit: % | exclusive: % cycles | % ms | %\% | inclusive: % cycles | % ms | %\%,
 DONE,
         context.thread_id,
-        it.name, it.line,
-        zone.hit_count,
-        zone.without_children,
-        without_children_ms,
-        without_children,
-        zone.with_children,
-        with_children_ms,
-        with_children,
+        cast(string)name_buf,
+        formatInt(it.line,               minimum_digits = 6, padding = #char " "),
+        formatInt(zone.hit_count,        minimum_digits = 3, padding = #char " "),
+        formatInt(zone.without_children, minimum_digits = 9, padding = #char " "),
+        formatFloat(without_children_ms, width = 2, trailing_width = 2),
+        formatFloat(without_children,    width = 2, trailing_width = 2),
+        formatInt(zone.with_children,    minimum_digits = 9, padding = #char " "),
+        formatFloat(with_children_ms,    width = 2, trailing_width = 2),
+        formatFloat(with_children,       width = 2, trailing_width = 2),
       );
     }
   }
@@ -154,9 +160,14 @@ global_last_thread_id:  u32;
 #add_context prof_current_zone: *Zone;
 
 #placeholder PROF_ZONES_COUNT;
-#placeholder PROF_ZONES_NAMES;
+#placeholder PROF_ZONES_INFOS;
+PROF_ZONE_LONGEST_NAME_LEN :: #run -> s64 {
+  longest := 0;
+  for PROF_ZONES_INFOS if longest < it.name.count then longest = it.name.count;
+  return longest;
+};
 
-#import,file "allocators.jai";
+// #import,file "allocators.jai";
 #import "Basic";
 #import "POSIX";
 #import "Atomics";
