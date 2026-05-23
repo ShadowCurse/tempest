@@ -49,12 +49,26 @@ Zone :: struct {
   _:                u64;
 };
 
+ZoneNode :: struct {
+  zone_index:  u32;
+  parent:      u32;
+  first_child: u32;
+  last_child:  u32;
+  next:        u32;
+  dt:          u64;
+}
+
 init_prof :: () {
   #if !PROF_ZONES_COUNT return;
   take_thread_id();
   if context.thread_id == 0 then global_freq = get_perf_counter_frequency();
-  // context.prof_zones = new_array(PROF_ZONES_COUNT, Zone);
   context.prof_zones = NewArray(PROF_ZONES_COUNT, Zone);
+
+  // ~3MB
+  context.prof_graph_array = NewArray(100000, ZoneNode);
+  // 0 is the root
+  context.prof_graph_array_last = 1;
+  context.prof_graph_current    = 0;
 }
 
 deinit_prof :: () {
@@ -75,13 +89,15 @@ prof_record_thread_end :: () {
 
 take_thread_id :: () {
   #if !PROF_ZONES_COUNT return;
-  // assert(thread_id == null, "% attempted taking multiple thread ids", std.Thread.getCurrentId());
   context.thread_id = atomic_add(*global_last_thread_id, 1);
 }
 
 prof_new_frame :: () {
   #if !PROF_ZONES_COUNT return;
   memset(context.prof_zones.data, 0, context.prof_zones.count * size_of(Zone));
+
+  context.prof_graph_array_last = 1;
+  context.prof_graph_current    = 0;
 }
 
 // Marks the scope to be profiled. Replaced by profiler with
@@ -92,7 +108,6 @@ prof_scope :: ($name: string) {}
 prof_print :: () {
   #if !PROF_ZONES_COUNT return;
 
-  log("-----------");
   freq:    float64 = cast(float64)global_freq;
   elapsed: float64 = cast(float64)(context.prof_time.end - context.prof_time.start);
   name_buf: [PROF_ZONE_LONGEST_NAME_LEN]u8;
@@ -123,15 +138,51 @@ DONE,
     }
   }
   log("-----------");
+  print_node :: (current_node_idx: u32, padding: u32) {
+    current := *context.prof_graph_array[current_node_idx];
+    for 0..padding print(" ");
+    log("%:%: %", PROF_ZONES_INFOS[current.zone_index].name, PROF_ZONES_INFOS[current.zone_index].line, current.dt);
+    if current.first_child {
+     print_node(current.first_child, padding + 1);
+    }
+    if current.next {
+      print_node(current.next, padding);
+    }
+  }
+  print_node(0, 0);
+  log("-----------");
 }
 
 #scope_module
 
 prof_start :: (zone_index: u32) -> ZonePoint {
+  current_counter := get_perf_counter();
+
+  current_node_idx := context.prof_graph_current;
+  new_node_idx     := context.prof_graph_array_last;
+  current          := *context.prof_graph_array[current_node_idx];
+  new_node         := *context.prof_graph_array[new_node_idx];
+  new_node.* = .{
+    zone_index = zone_index,
+    parent     = current_node_idx,
+  };
+  new_node.dt -= current_counter;
+
+  if current.last_child {
+    current_last_child := *context.prof_graph_array[current.last_child];
+    current_last_child.next = new_node_idx;
+  }
+
+  current.last_child         = new_node_idx;
+  if !current.first_child then current.first_child = new_node_idx;
+  context.prof_graph_current = new_node_idx;
+  context.prof_graph_array_last += 1;
+
+
   parent := context.prof_current_zone;
   context.prof_current_zone = *context.prof_zones[zone_index];
   return .{
-    start_time            = get_perf_counter(),
+    start_time            = current_counter,
     parent                = parent,
     current               = context.prof_current_zone,
     current_with_children = context.prof_current_zone.with_children,
@@ -139,13 +190,24 @@ prof_start :: (zone_index: u32) -> ZonePoint {
 }
 
 prof_end :: (zone_index: u32, point: ZonePoint) {
-  end_time := get_perf_counter();
-  elapsed := end_time - point.start_time;
+  current_counter := get_perf_counter();
+
+  current := *context.prof_graph_array[context.prof_graph_current];
+  current.dt += current_counter;
+  context.prof_graph_current = current.parent;
+
+  end_time := current_counter;
+  elapsed  := end_time - point.start_time;
   point.current.hit_count += 1;
   point.current.without_children += elapsed;
   point.current.with_children = point.current_with_children + elapsed;
   if point.parent then point.parent.without_children -= elapsed;
   context.prof_current_zone = point.parent;
+}
+
+prof_zone :: (zone_index: u32) #expand {
+  __prof_zone_time := context.Prof_Module.prof_start(zone_index);
+  `defer context.Prof_Module.prof_end(zone_index, __prof_zone_time);
 }
 
 #scope_file
@@ -154,10 +216,14 @@ global_freq:            u64;
 global_last_thread_id:  u32;
 
 #add_context Prof_Module :: #this;
-#add_context thread_id:         u32;
-#add_context prof_time:         Time;
-#add_context prof_zones:        []Zone;
-#add_context prof_current_zone: *Zone;
+#add_context thread_id:             u32;
+#add_context prof_time:             Time;
+#add_context prof_zones:            []Zone;
+#add_context prof_current_zone:     *Zone;
+// TODO: use fixed_slice
+#add_context prof_graph_array:      []ZoneNode;
+#add_context prof_graph_array_last: u32;
+#add_context prof_graph_current:    u32;
 
 #placeholder PROF_ZONES_COUNT;
 #placeholder PROF_ZONES_INFOS;

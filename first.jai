@@ -220,36 +220,23 @@ zone_infos: [..]ZoneInfo;
 prof_scope_message: *Message;
 injected_final_profiling_code := false;
 
-PROF_BLOCK_FUNCTION :: #string DONE
-__prof_zone_time_%1 := context.Prof_Module.prof_start(%1);
-defer context.Prof_Module.prof_end(%1, __prof_zone_time_%1);
+PROF_BLOCK_ZONE :: #string DONE
+context.Prof_Module.prof_zone(%1);
 DONE;
-PROF_BLOCK_SCOPE_START :: "__prof_zone_time_%1 := context.Prof_Module.prof_start(%1);";
-PROF_BLOCK_SCOPE_END   :: "context.Prof_Module.prof_end(%1, __prof_zone_time_%1);";
 
 insert_instrumentation_into_scope :: (block: *Code_Block, zone_index: s64, location: Code_Node.Location) {
   literal_start := New(Code_Literal);
   literal_start.kind = .LITERAL;
   literal_start.value_type = .STRING;
-  literal_start.values._string = tprint(PROF_BLOCK_SCOPE_START, zone_index);
+  literal_start.values._string = tprint(PROF_BLOCK_ZONE, zone_index);
   insert_start := New(Code_Directive_Insert);
   insert_start.kind = .DIRECTIVE_INSERT;
   insert_start.expression = literal_start;
   insert_start.location = location;
 
-  literal_end := New(Code_Literal);
-  literal_end.kind = .LITERAL;
-  literal_end.value_type = .STRING;
-  literal_end.values._string = tprint(PROF_BLOCK_SCOPE_END, zone_index);
-  insert_end := New(Code_Directive_Insert);
-  insert_end.kind = .DIRECTIVE_INSERT;
-  insert_end.expression = literal_end;
-  insert_end.location = location;
-
-  new_statements := NewArray(block.statements.count + 2, *Code_Node, initialized = false);
+  new_statements := NewArray(block.statements.count + 1, *Code_Node, initialized = false);
   memcpy(new_statements.data + 1, block.statements.data, block.statements.count * size_of(*Code_Node));
-  new_statements[0]                        = insert_start;
-  new_statements[new_statements.count - 1] = insert_end;
+  new_statements[0] = insert_start;
   block.statements = new_statements;
 }
 
@@ -274,10 +261,11 @@ instrument_prof_scopes :: (block: *Code_Block) -> bool {
             info := array_add(*zone_infos);
             info.name = name;
             info.line = cast(u64)it.location.l0;
+            // log("found: % at %/%", name, idx, len);
 
             insert_instrumentation_into_scope(block, zone_index, it.location);
             idx += 1;
-            len -= 1;
+            len += 1;
           }
         }
       case .WHILE; found |= instrument_prof_scopes((it.(*Code_While)).block);
@@ -361,25 +349,8 @@ instrument_prof_functions :: (message: *Message) {
       info.name = h.name;
       info.line = cast(u64)h.l0;
 
-      // note(sc): Functions need `defer` version since there can be early returns
-      literal := New(Code_Literal);
-      literal.kind = .LITERAL;
-      literal.value_type = .STRING;
-      literal.values._string = tprint(PROF_BLOCK_FUNCTION, zone_index);
-      insert := New(Code_Directive_Insert);
-      insert.kind = .DIRECTIVE_INSERT;
-      insert.expression = literal;
-      insert.location = body.location;
-
-
-      new_statements := NewArray(body.block.statements.count + 1, *Code_Node, initialized = false);
-      memcpy(new_statements.data + 1, body.block.statements.data,
-             body.block.statements.count * size_of(*Code_Node));
-      new_statements[0] = insert;
-      body.block.statements = new_statements;
-
-      compiler_modify_procedure(message.workspace, body);
-      need_to_modify_procedure = false;
+      insert_instrumentation_into_scope(body.block, zone_index, body.location);
+      need_to_modify_procedure = true;
     }
 }
 
