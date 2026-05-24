@@ -10,9 +10,10 @@ Quad :: struct {
   band_offset:      Vector2;
 } @ShaderType
 
-QuadUsage :: enum u32 {
-  COLOR :: 0;
-  TEXT  :: 1;
+QuadUsage :: enum_flags u32 {
+  COLOR    :: 1 << 0;
+  NO_ROUND :: 1 << 1;
+  TEXT     :: 1 << 2;
 }
 
 ColorType :: enum u8 {
@@ -448,16 +449,32 @@ draw_rect :: (
   background_color: ColorType,
   border_color:     ColorType,
   border_width:     float,
+  rounded:          bool = true,
+) {
+  bg := c.colors.*[background_color];
+  bc := c.colors.*[border_color];
+  draw_rect(c, position, size, bg, bc, border_width, rounded);
+}
+
+draw_rect :: (
+  c:                *Context,
+  position:         Vector2,
+  size:             Vector2,
+  background_color: RGBA,
+  border_color:     RGBA,
+  border_width:     float,
+  rounded:          bool,
 ) {
   rect_position := rect_center(position, size);
   quad := new(Quad,, allocator(*c.draw_buffer));
+  if !quad return;
   quad.* = .{
-    usage            = .COLOR,
-    color            = c.colors.*[background_color],
+    usage            = .COLOR | ifx !rounded QuadUsage.NO_ROUND,
+    color            = background_color,
     position         = rect_position,
     size             = size,
     tex              = .{ border_width, 0, 0, 0 },
-    glyph_band_texel = cast(u32)(c.colors.*)[border_color],
+    glyph_band_texel = cast(u32)border_color,
   };
 }
 

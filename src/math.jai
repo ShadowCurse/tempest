@@ -198,6 +198,10 @@ quat_to_mat4 :: (quat: Quaternion) -> Matrix4 {
 
 RGBA :: #type,distinct u32;
 
+rgba :: (r: u8, g: u8, b: u8, a: u8) -> RGBA {
+  return (cast(RGBA)r) << 24 | (cast(RGBA)g) << 16 | (cast(RGBA)b) << 8 | cast(RGBA)a;
+}
+
 rgb_to_vector3 :: (hex: u32) -> Vector3 {
   return .{
     cast(float)(hex >> 16 & 0xff) / 255.0,

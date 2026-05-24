@@ -210,6 +210,9 @@ prof_zone :: (zone_index: u32) #expand {
   `defer context.Prof_Module.prof_end(zone_index, __prof_zone_time);
 }
 
+#placeholder PROF_ZONES_COUNT;
+#placeholder PROF_ZONES_INFOS;
+
 #scope_file
 
 global_freq:            u64;
@@ -225,8 +228,6 @@ global_last_thread_id:  u32;
 #add_context prof_graph_array_last: u32;
 #add_context prof_graph_current:    u32;
 
-#placeholder PROF_ZONES_COUNT;
-#placeholder PROF_ZONES_INFOS;
 PROF_ZONE_LONGEST_NAME_LEN :: #run -> s64 {
   longest := 0;
   for PROF_ZONES_INFOS if longest < it.name.count then longest = it.name.count;

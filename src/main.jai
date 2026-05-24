@@ -93,7 +93,7 @@ main :: () {
   cpu_to_gpu_memory := allocate_gpu_memory(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
   init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, .TRANSFER_SRC_BIT | .SHADER_DEVICE_ADDRESS_BIT);
   staging_buffer        = push(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
-  for * ui_buffers it.* = push(*cpu_to_gpu_buffer_arena, Quad, 1024);
+  for * ui_buffers it.* = push(*cpu_to_gpu_buffer_arena, Quad, 1 << 15);
   scene_buffer          = push(*cpu_to_gpu_buffer_arena, SceneInfo);
 
   gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
@@ -224,7 +224,7 @@ main :: () {
   }
 
   compute_pipeline = create_full_screen_effect_comptue_pipeline();
-  ui_pipeline    = create_ui_pipeline();
+  ui_pipeline      = create_ui_pipeline();
   grid_pipeline    = create_grid_pipeline();
   mesh_pipeline    = create_mesh_pipeline();
 
@@ -239,16 +239,18 @@ main :: () {
   last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
   last_present_time_ns: u64       = 0;
   dt_s: float                     = 0.0;
+
+  prof_new_frame();
   while !quit {
-    prof_print();
+    reset_temporary_storage();
+    platform_new_frame();
+    new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
+
+    perf_draw(*ui);
     prof_new_frame();
 
     prof_record_thread_start();
     defer prof_record_thread_end();
-
-    reset_temporary_storage();
-    platform_new_frame();
-    new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
 
     rebuild_pipelines_if_needed();
 
@@ -1151,6 +1153,56 @@ GpuMeshInfo :: struct {
   indices_buffer_offset:  u32;
   index_count:            u32;
   vertex_count:           u32;
+}
+
+perf_draw :: (ui: *Context) {
+  size:     Vector2 = .{ 1000, 600 };
+  position: Vector2 = .{ (window_width - size.x) / 2.0, (window_height - size.y) / 2.0 };
+  padding := 10.0;
+  draw_rect(ui, position, size, .BACKGROUND1, .GREEN, 5.0);
+
+  // start from the first child to walt the top level functions following `next`
+  first_child := context.prof_graph_array[0].first_child;
+
+  top_level_ns: u64 = 0;
+  current_node_idx := first_child;
+  while current_node_idx {
+    current := *context.prof_graph_array[current_node_idx];
+    top_level_ns += current.dt;
+    current_node_idx = current.next;
+  }
+  ns_to_px := (size.x - padding * 2.0) / cast(float32)top_level_ns;
+
+  draw_node :: (
+    ui: *Context,
+    current_node_idx: u32,
+    ns_to_px: float32,
+    position: Vector2,
+    depth: u32
+  ) {
+    if 200 < depth return;
+
+    current := *context.prof_graph_array[current_node_idx];
+    current_width := cast(float32)current.dt * ns_to_px;
+    if 2.0 < current_width {
+      bg := rgba(255, 180 + cast(u8)position.x, 180 + cast(u8)position.y * 2, 255);
+      size: Vector2 = .{ current_width, 10.0 };
+      draw_rect(ui, position, size, bg, 0, 0.0, false);
+      if point_in_rect(position, size, mouse_position) {
+        node_name := context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name;
+        draw_text(ui, position, node_name, false);
+      }
+      if current.first_child {
+        new_position := position + .{ y = 20.0 };
+        draw_node(ui, current.first_child, ns_to_px, new_position, depth + 1);
+      }
+    }
+    if current.next {
+      new_position := position + .{ x = current_width };
+      draw_node(ui, current.next, ns_to_px, new_position, depth + 1);
+    }
+  }
+  draw_node(ui, first_child, ns_to_px, position + .{ padding, padding }, 0);
 }
 
 #load "ui.jai";
