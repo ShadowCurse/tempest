@@ -1146,9 +1146,9 @@ DONE
   surface_format: VkSurfaceFormatKHR;
   for surface_formats {
       if it.format == .B8G8R8A8_UNORM && it.colorSpace == .COLOR_SPACE_SRGB_NONLINEAR_KHR {
-          surface_format = it;
-          surface_format_found = true;
-          break;
+        surface_format = it;
+        surface_format_found = true;
+        break;
       }
   }
 
@@ -1157,12 +1157,12 @@ DONE
     swapchain_extent = surface_capabilities.currentExtent;
     if swapchain_extent.width == 0xffff_ffff {
       swapchain_extent.width = min(
-          max(width, surface_capabilities.minImageExtent.width),
-          surface_capabilities.maxImageExtent.width,
+        max(width, surface_capabilities.minImageExtent.width),
+        surface_capabilities.maxImageExtent.width,
       );
       swapchain_extent.height = min(
-          max(height, surface_capabilities.minImageExtent.height),
-          surface_capabilities.maxImageExtent.height,
+        max(height, surface_capabilities.minImageExtent.height),
+        surface_capabilities.maxImageExtent.height,
       );
     }
 
@@ -1205,11 +1205,11 @@ DONE
           format           = surface_format.format,
           components       = .{ .IDENTITY, .IDENTITY, .IDENTITY, .IDENTITY },
           subresourceRange = .{
-              aspectMask     = .COLOR_BIT,
-              baseMipLevel   = 0,
-              levelCount     = 1,
-              baseArrayLayer = 0,
-              layerCount     = 1,
+            aspectMask     = .COLOR_BIT,
+            baseMipLevel   = 0,
+            levelCount     = 1,
+            baseArrayLayer = 0,
+            layerCount     = 1,
           },
         };
         swapchain_image_views[it] = create_image_view(view_create_info);
