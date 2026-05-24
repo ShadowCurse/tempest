@@ -1,5 +1,6 @@
-#define UI_QUAD_USAGE_COLOR 0x00000000u
-#define UI_QUAD_USAGE_TEXT  0x00000001u
+#define UI_QUAD_USAGE_COLOR    (1 << 0)
+#define UI_QUAD_USAGE_NO_ROUND (1 << 1)
+#define UI_QUAD_USAGE_TEXT     (1 << 2)
 
 #extension GL_EXT_buffer_reference : require
 
