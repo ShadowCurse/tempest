@@ -11,6 +11,6 @@ void main() {
     Vertex vertex = get_vertex_from_mesh_bytes(gl_VertexIndex);
     vec4 p = scene.data.camera_projection * scene.data.camera_view * pc.transform * vec4(vertex.position, 1.0);
     gl_Position = p;
-    vec3 n = normalize(pc.transform_inv * vertex.normal);
+    vec3 n = normalize(mat3(pc.transform_inv) * vertex.normal);
     out_color = abs(n);
 }
