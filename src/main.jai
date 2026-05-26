@@ -240,7 +240,7 @@ main :: () {
   last_present_time_ns: u64       = 0;
   dt_s: float                     = 0.0;
 
-  prof_new_frame();
+  // prof_new_frame();
   while !quit {
     reset_temporary_storage();
     platform_new_frame();
@@ -1155,19 +1155,45 @@ GpuMeshInfo :: struct {
   vertex_count:           u32;
 }
 
+selected_bound := -1;
 perf_draw :: (ui: *Context) {
   size:     Vector2 = .{ 1000, 600 };
   position: Vector2 = .{ (window_width - size.x) / 2.0, (window_height - size.y) / 2.0 };
   padding := 10.0;
   draw_rect(ui, position, size, .BACKGROUND1, .GREEN, 5.0);
 
-  // start from the first child to walt the top level functions following `next`
-  first_child := context.prof_graph_array[0].first_child;
+  box_width := (size.x - padding * 2.0 - cast(float32)FRAMES_TO_CAPTURE * 2.0) / cast(float32)FRAMES_TO_CAPTURE;
+  current_frame_bound := context.prof_tree.current_frame_bound;
+  selected_bound = -1;
+  // The last frame is not yet written, so need to skip
+  for 0..FRAMES_TO_CAPTURE - 2 {
+    end := context.prof_tree.frame_bound[current_frame_bound];
+    prev_frame_start_bound_idx := ifx current_frame_bound then
+                                      current_frame_bound - 1
+                                  else cast(u32)context.prof_tree.frame_bound.count - 1;
+    current_frame_bound = prev_frame_start_bound_idx;
+    start := context.prof_tree.frame_bound[prev_frame_start_bound_idx];
+    diff := (end - start) & (PROF_TREE_NODES - 1);
+    p := position + .{ x = padding + (box_width + 2.0) * it, y = padding };
+    s := Vector2.{ box_width, 4000.0 * cast(float32)diff / cast(float32)PROF_TREE_NODES};
+    if point_in_rect(p, s, mouse_position) {
+      draw_text(ui, position, tprint("%", it), false);
+      selected_bound = it;
+    }
+    draw_rect(ui, p, s, .BLUE, .GREEN, 5.0, false);
+  }
+
+  frame_start_bound_idx := ifx selected_bound == -1 then context.prof_tree.current_frame_bound
+                           else cast(u32)selected_bound;
+  frame_start_node_idx := context.prof_tree.frame_bound[frame_start_bound_idx];
+
+  // start from the first child to walk the top level functions following `next` chain
+  first_child := context.prof_tree.nodes[frame_start_node_idx].first_child;
 
   top_level_ns: u64 = 0;
   current_node_idx := first_child;
   while current_node_idx {
-    current := *context.prof_graph_array[current_node_idx];
+    current := *context.prof_tree.nodes[current_node_idx];
     top_level_ns += current.dt;
     current_node_idx = current.next;
   }
@@ -1182,7 +1208,7 @@ perf_draw :: (ui: *Context) {
   ) {
     if 200 < depth return;
 
-    current := *context.prof_graph_array[current_node_idx];
+    current := *context.prof_tree.nodes[current_node_idx];
     current_width := cast(float32)current.dt * ns_to_px;
     if 2.0 < current_width {
       bg := rgba(255, 180 + cast(u8)position.x, 180 + cast(u8)position.y * 2, 255);
@@ -1202,7 +1228,7 @@ perf_draw :: (ui: *Context) {
       draw_node(ui, current.next, ns_to_px, new_position, depth + 1);
     }
   }
-  draw_node(ui, first_child, ns_to_px, position + .{ padding, padding }, 0);
+  draw_node(ui, first_child, ns_to_px, position + .{ padding, padding + 20.0 }, 0);
 }
 
 #load "ui.jai";
