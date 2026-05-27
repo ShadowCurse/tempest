@@ -1163,7 +1163,7 @@ perf_draw :: (ui: *Context) {
   draw_rect(ui, position, size, .BACKGROUND1, .GREEN, 5.0);
 
   box_width := (size.x - padding * 2.0 - cast(float32)FRAMES_TO_CAPTURE * 2.0) / cast(float32)FRAMES_TO_CAPTURE;
-  current_frame_bound := context.prof_tree.current_frame_bound;
+  current_frame_bound := context.prof_current_frame;
   selected_bound = -1;
   // The last frame is not yet written, so need to skip
   for 0..FRAMES_TO_CAPTURE - 2 {
@@ -1183,8 +1183,7 @@ perf_draw :: (ui: *Context) {
     draw_rect(ui, p, s, .BLUE, .GREEN, 5.0, false);
   }
 
-  frame_start_bound_idx := ifx selected_bound == -1 then context.prof_tree.current_frame_bound
-                           else cast(u32)selected_bound;
+  frame_start_bound_idx := ifx selected_bound == -1 then context.prof_current_frame else FRAMES_TO_CAPTURE - 1;
   frame_start_node_idx := context.prof_tree.frame_bound[frame_start_bound_idx];
 
   // start from the first child to walk the top level functions following `next` chain

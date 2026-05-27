@@ -49,6 +49,11 @@ Zone :: struct {
   _:                u64;
 };
 
+Zones :: struct {
+  zones:   []Zone;
+  current: *Zone;
+}
+
 ZoneNode :: struct {
   zone_index:  u32;
   parent:      u32;
@@ -64,7 +69,6 @@ ZoneTree :: struct {
   first_free_node_idx: u32;
   current_node_idx:    u32;
   first_range_idx:     u32;
-  current_frame_bound: u32;
 }
 
 PROF_TREE_NODES   :: 1 << 16;
@@ -74,20 +78,24 @@ init_prof :: () {
   #if !PROF_ZONES_COUNT return;
   take_thread_id();
   if context.thread_id == 0 then global_freq = get_perf_counter_frequency();
-  context.prof_zones = NewArray(PROF_ZONES_COUNT * FRAMES_TO_CAPTURE, Zone);
 
+  context.prof_zones = .{
+    zones   = NewArray(PROF_ZONES_COUNT * FRAMES_TO_CAPTURE, Zone),
+    current = null,
+  };
   context.prof_tree = .{
     nodes               = NewArray(PROF_TREE_NODES, ZoneNode),
     first_free_node_idx = 0,
     current_node_idx    = 0,
     frame_bound         = NewArray(FRAMES_TO_CAPTURE, u32),
-    current_frame_bound = 0,
   };
 }
 
 deinit_prof :: () {
   #if !PROF_ZONES_COUNT return;
-  free(context.prof_zones.data);
+  free(context.prof_zones.zones.data);
+  free(context.prof_tree.nodes.data);
+  free(context.prof_tree.frame_bound.data);
 }
 
 // note(sc): called once per thread
@@ -109,10 +117,9 @@ take_thread_id :: () {
 prof_new_frame :: () {
   #if !PROF_ZONES_COUNT return;
 
-  context.prof_tree.current_frame_bound = (context.prof_tree.current_frame_bound + 1) %
-                                         cast(u32)context.prof_tree.frame_bound.count;
-  context.prof_tree.frame_bound[context.prof_tree.current_frame_bound] = context.prof_tree.first_free_node_idx;
+  context.prof_current_frame = (context.prof_current_frame + 1) % FRAMES_TO_CAPTURE ;
 
+  context.prof_tree.frame_bound[context.prof_current_frame] = context.prof_tree.first_free_node_idx;
   context.prof_tree.current_node_idx = context.prof_tree.first_free_node_idx;
   context.prof_tree.nodes[context.prof_tree.current_node_idx] = .{};
   context.prof_tree.first_free_node_idx = (context.prof_tree.first_free_node_idx + 1) %
@@ -134,7 +141,7 @@ prof_print :: () {
     memset(*name_buf, #char " ", name_buf.count);
     memcpy(*name_buf, it.name.data, it.name.count);
 
-    zone := *context.prof_zones[it_index];
+    zone := *context.prof_zones.zones[it_index + cast(u32)PROF_ZONES_INFOS.count * context.prof_current_frame];
     if zone.hit_count != 0 {
       without_children_ms := cast(float64)zone.without_children / freq * 1000.0;
       without_children    := cast(float64)zone.without_children / elapsed * 100.0;
@@ -169,7 +176,7 @@ DONE,
     }
   }
 
-  frame_start_bound_idx := context.prof_tree.current_frame_bound;
+  frame_start_bound_idx := context.prof_current_frame;
   frame_start_node_idx := context.prof_tree.frame_bound[frame_start_bound_idx];
   print_node(frame_start_node_idx, 0);
   log("-----------");
@@ -199,15 +206,15 @@ prof_start :: (zone_index: u32) -> ZonePoint {
   if !current.first_child then current.first_child = new_node_idx;
   context.prof_tree.current_node_idx = new_node_idx;
   context.prof_tree.first_free_node_idx = (context.prof_tree.first_free_node_idx + 1) %
-                                    cast(u32)context.prof_tree.nodes.count;
+                                          cast(u32)context.prof_tree.nodes.count;
 
-  parent := context.prof_current_zone;
-  context.prof_current_zone = *context.prof_zones[zone_index];
+  parent := context.prof_zones.current;
+  context.prof_zones.current = *context.prof_zones.zones[zone_index];
   return .{
     start_time            = current_counter,
     parent                = parent,
-    current               = context.prof_current_zone,
-    current_with_children = context.prof_current_zone.with_children,
+    current               = context.prof_zones.current,
+    current_with_children = context.prof_zones.current.with_children,
   };
 }
 
@@ -224,7 +231,7 @@ prof_end :: (zone_index: u32, point: ZonePoint) {
   point.current.without_children += elapsed;
   point.current.with_children = point.current_with_children + elapsed;
   if point.parent then point.parent.without_children -= elapsed;
-  context.prof_current_zone = point.parent;
+  context.prof_zones.current= point.parent;
 }
 
 prof_zone :: (zone_index: u32) #expand {
@@ -241,12 +248,11 @@ global_freq:            u64;
 global_last_thread_id:  u32;
 
 #add_context Prof_Module :: #this;
-#add_context thread_id:             u32;
-#add_context prof_time:             Time;
-#add_context prof_zones:            []Zone;
-#add_context prof_current_zone:     *Zone;
-
-#add_context prof_tree: ZoneTree;
+#add_context thread_id:          u32;
+#add_context prof_time:          Time;
+#add_context prof_current_frame: u32;
+#add_context prof_zones:         Zones;
+#add_context prof_tree:          ZoneTree;
 
 PROF_ZONE_LONGEST_NAME_LEN :: #run -> s64 {
   longest := 0;
