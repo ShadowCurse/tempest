@@ -277,8 +277,8 @@ main :: () {
       prof_scope("build_ui");
 
       ui.mouse_position = mouse_position;
-      ui.mouse_just_pressed  = just_pressed(mouse_state, .LMB);
-      ui.mouse_down     = pressed(mouse_state, .LMB);
+      ui.mouse_just_pressed = just_pressed(mouse_state, .LMB);
+      ui.mouse_down         = pressed(mouse_state, .LMB);
 
       {
         panel_start(*ui, "Panel", .{ 300.0, 750.0 }, .{ 1.0, 1.0 });
@@ -307,12 +307,13 @@ main :: () {
 
     camera_velocity: Vector3;
     if !ui.consumed_keyboard_event {
-      if pressed(keyboard_state, .W)     camera_velocity.z += 1.0;
-      if pressed(keyboard_state, .S)     camera_velocity.z -= 1.0;
-      if pressed(keyboard_state, .A)     camera_velocity.x -= 1.0;
-      if pressed(keyboard_state, .D)     camera_velocity.x += 1.0;
-      if pressed(keyboard_state, .LCTRL) camera_velocity.y += 1.0;
-      if pressed(keyboard_state, .SPACE) camera_velocity.y -= 1.0;
+      if pressed(keyboard_state, .W)       camera_velocity.z += 1.0;
+      if pressed(keyboard_state, .S)       camera_velocity.z -= 1.0;
+      if pressed(keyboard_state, .A)       camera_velocity.x -= 1.0;
+      if pressed(keyboard_state, .D)       camera_velocity.x += 1.0;
+      if pressed(keyboard_state, .LCTRL)   camera_velocity.y += 1.0;
+      if pressed(keyboard_state, .SPACE)   camera_velocity.y -= 1.0;
+      if just_pressed(keyboard_state, .F1) context.prof_enabled = !context.prof_enabled;
     }
 
     selection_on = false;
@@ -1157,6 +1158,8 @@ GpuMeshInfo :: struct {
 
 selected_bound := -1;
 perf_draw :: (ui: *Context) {
+  #if !context.Prof_Module.PROF_ZONES_COUNT return;
+
   size:     Vector2 = .{ 1000, 600 };
   position: Vector2 = .{ (window_width - size.x) / 2.0, (window_height - size.y) / 2.0 };
   padding := 10.0;
@@ -1164,7 +1167,9 @@ perf_draw :: (ui: *Context) {
 
   box_width := (size.x - padding * 2.0 - cast(float32)FRAMES_TO_CAPTURE * 2.0) / cast(float32)FRAMES_TO_CAPTURE;
   current_frame_bound := context.prof_current_frame;
-  selected_bound = -1;
+
+  if just_pressed(mouse_state, .LMB) then selected_bound = -1;
+
   // The last frame is not yet written, so need to skip
   for 0..FRAMES_TO_CAPTURE - 2 {
     end := context.prof_tree.frame_bound[current_frame_bound];
@@ -1175,15 +1180,15 @@ perf_draw :: (ui: *Context) {
     start := context.prof_tree.frame_bound[prev_frame_start_bound_idx];
     diff := (end - start) & (PROF_TREE_NODES - 1);
     p := position + .{ x = padding + (box_width + 2.0) * it, y = padding };
-    s := Vector2.{ box_width, 4000.0 * cast(float32)diff / cast(float32)PROF_TREE_NODES};
-    if point_in_rect(p, s, mouse_position) {
+    s := Vector2.{ box_width, cast(float32)diff * 0.1 };
+    if point_in_rect(p, s, mouse_position) && just_pressed(mouse_state, .LMB) {
       draw_text(ui, position, tprint("%", it), false);
       selected_bound = it;
     }
     draw_rect(ui, p, s, .BLUE, .GREEN, 5.0, false);
   }
 
-  frame_start_bound_idx := ifx selected_bound == -1 then context.prof_current_frame else FRAMES_TO_CAPTURE - 1;
+  frame_start_bound_idx := ifx selected_bound == -1 then context.prof_current_frame else selected_bound;
   frame_start_node_idx := context.prof_tree.frame_bound[frame_start_bound_idx];
 
   // start from the first child to walk the top level functions following `next` chain
@@ -1227,7 +1232,7 @@ perf_draw :: (ui: *Context) {
       draw_node(ui, current.next, ns_to_px, new_position, depth + 1);
     }
   }
-  draw_node(ui, first_child, ns_to_px, position + .{ padding, padding + 20.0 }, 0);
+  draw_node(ui, first_child, ns_to_px, position + .{ padding, padding + 300.0 }, 0);
 }
 
 #load "ui.jai";

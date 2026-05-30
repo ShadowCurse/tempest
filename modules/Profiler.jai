@@ -1,3 +1,23 @@
+global_freq:            u64;
+global_last_thread_id:  u32;
+
+#add_context Prof_Module :: #this;
+#add_context prof_enabled:       bool = true;
+#add_context prof_thread_id:     u32;
+#add_context prof_time:          Time;
+#add_context prof_current_frame: u32;
+#add_context prof_zones:         Zones;
+#add_context prof_tree:          ZoneTree;
+
+PROF_ZONE_LONGEST_NAME_LEN :: #run -> s64 {
+  longest := 0;
+  for PROF_ZONES_INFOS if longest < it.name.count then longest = it.name.count;
+  return longest;
+};
+
+PROF_TREE_NODES   :: 1 << 16;
+FRAMES_TO_CAPTURE :: 60;
+
 get_perf_counter :: rdtc;
 
 rdtc :: inline () -> u64 {
@@ -71,13 +91,10 @@ ZoneTree :: struct {
   first_range_idx:     u32;
 }
 
-PROF_TREE_NODES   :: 1 << 16;
-FRAMES_TO_CAPTURE :: 60;
-
 init_prof :: () {
   #if !PROF_ZONES_COUNT return;
-  take_thread_id();
-  if context.thread_id == 0 then global_freq = get_perf_counter_frequency();
+  prof_take_thread_id();
+  if context.prof_thread_id == 0 then global_freq = get_perf_counter_frequency();
 
   context.prof_zones = .{
     zones   = NewArray(PROF_ZONES_COUNT * FRAMES_TO_CAPTURE, Zone),
@@ -101,21 +118,26 @@ deinit_prof :: () {
 // note(sc): called once per thread
 prof_record_thread_start :: () {
   #if !PROF_ZONES_COUNT return;
+  if !context.prof_enabled return;
+
   context.prof_time.start = get_perf_counter();
 }
 
 prof_record_thread_end :: () {
   #if !PROF_ZONES_COUNT return;
+  if !context.prof_enabled return;
+
   context.prof_time.end = get_perf_counter();
 }
 
-take_thread_id :: () {
+prof_take_thread_id :: () {
   #if !PROF_ZONES_COUNT return;
-  context.thread_id = atomic_add(*global_last_thread_id, 1);
+  context.prof_thread_id = atomic_add(*global_last_thread_id, 1);
 }
 
 prof_new_frame :: () {
   #if !PROF_ZONES_COUNT return;
+  if !context.prof_enabled return;
 
   context.prof_current_frame = (context.prof_current_frame + 1) % FRAMES_TO_CAPTURE ;
 
@@ -184,7 +206,12 @@ DONE,
 
 #scope_module
 
+#placeholder PROF_ZONES_COUNT;
+#placeholder PROF_ZONES_INFOS;
+
 prof_start :: (zone_index: u32) -> ZonePoint {
+  if !context.prof_enabled return .{};
+
   current_counter := get_perf_counter();
 
   current_node_idx := context.prof_tree.current_node_idx;
@@ -219,6 +246,8 @@ prof_start :: (zone_index: u32) -> ZonePoint {
 }
 
 prof_end :: (zone_index: u32, point: ZonePoint) {
+  if !context.prof_enabled return;
+
   current_counter := get_perf_counter();
 
   current := *context.prof_tree.nodes[context.prof_tree.current_node_idx];
@@ -235,32 +264,12 @@ prof_end :: (zone_index: u32, point: ZonePoint) {
 }
 
 prof_zone :: (zone_index: u32) #expand {
-  __prof_zone_time := context.Prof_Module.prof_start(zone_index);
-  `defer context.Prof_Module.prof_end(zone_index, __prof_zone_time);
+  __prof_zone_time := prof_start(zone_index);
+  `defer prof_end(zone_index, __prof_zone_time);
 }
-
-#placeholder PROF_ZONES_COUNT;
-#placeholder PROF_ZONES_INFOS;
 
 #scope_file
 
-global_freq:            u64;
-global_last_thread_id:  u32;
-
-#add_context Prof_Module :: #this;
-#add_context thread_id:          u32;
-#add_context prof_time:          Time;
-#add_context prof_current_frame: u32;
-#add_context prof_zones:         Zones;
-#add_context prof_tree:          ZoneTree;
-
-PROF_ZONE_LONGEST_NAME_LEN :: #run -> s64 {
-  longest := 0;
-  for PROF_ZONES_INFOS if longest < it.name.count then longest = it.name.count;
-  return longest;
-};
-
-// #import,file "allocators.jai";
 #import "Basic";
 #import "POSIX";
 #import "Atomics";
