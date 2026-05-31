@@ -246,7 +246,7 @@ main :: () {
     platform_new_frame();
     new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
 
-    perf_draw(*ui);
+    prof_draw(*ui);
     prof_new_frame();
 
     prof_record_thread_start();
@@ -1157,7 +1157,7 @@ GpuMeshInfo :: struct {
 }
 
 selected_bound := -1;
-perf_draw :: (ui: *Context) {
+prof_draw :: (ui: *Context) {
   #if !context.Prof_Module.PROF_ZONES_COUNT return;
 
   size:     Vector2 = .{ 1000, 600 };
@@ -1170,22 +1170,30 @@ perf_draw :: (ui: *Context) {
 
   if just_pressed(mouse_state, .LMB) then selected_bound = -1;
 
-  // The last frame is not yet written, so need to skip
-  for 0..FRAMES_TO_CAPTURE - 2 {
+  // The nodes buffer might be too small to hold all frames. Only last PROF_TREE_NODES of frames are valid
+  diff_sum: u32 = 0;
+  for 0..FRAMES_TO_CAPTURE - 1 {
     end := context.prof_tree.frame_bound[current_frame_bound];
     prev_frame_start_bound_idx := ifx current_frame_bound then
                                       current_frame_bound - 1
                                   else cast(u32)context.prof_tree.frame_bound.count - 1;
-    current_frame_bound = prev_frame_start_bound_idx;
+    defer current_frame_bound = prev_frame_start_bound_idx;
     start := context.prof_tree.frame_bound[prev_frame_start_bound_idx];
     diff := (end - start) & (PROF_TREE_NODES - 1);
-    p := position + .{ x = padding + (box_width + 2.0) * it, y = padding };
+    diff_sum += diff;
+    p := position + .{ x = padding + (box_width + 2.0) * current_frame_bound, y = padding };
     s := Vector2.{ box_width, cast(float32)diff * 0.1 };
-    if point_in_rect(p, s, mouse_position) && just_pressed(mouse_state, .LMB) {
-      draw_text(ui, position, tprint("%", it), false);
-      selected_bound = it;
+    if point_in_rect(p, s, mouse_position) {
+      draw_text(ui, position, tprint("Frame: % Nodes: %", current_frame_bound, diff), false);
+      if just_pressed(mouse_state, .LMB) {
+        selected_bound = current_frame_bound;
+      }
     }
-    draw_rect(ui, p, s, .BLUE, .GREEN, 5.0, false);
+    color: ColorType = .BACKGROUND2;
+    if diff_sum < PROF_TREE_NODES       then color = .BLUE;
+    if current_frame_bound == selected_bound             then color = .RED;
+    if current_frame_bound == context.prof_current_frame then color = .GREEN;
+    draw_rect(ui, p, s, color, .GREEN, 5.0, false);
   }
 
   frame_start_bound_idx := ifx selected_bound == -1 then context.prof_current_frame else selected_bound;
