@@ -8,6 +8,15 @@ enum_elements_count :: ($T: Type) -> s64 {
   return unique.count;
 } @NoProfile
 
+enum_max_value :: ($T: Type) -> s64 {
+  info := type_info(T);
+  assert(info.type == .ENUM);
+  enum_info := cast(*Type_Info_Enum)info;
+  m := 0;
+  for enum_info.values m = max(m, it);
+  return m;
+} @NoProfile
+
 str_from_char :: (char: *u8) -> string {
   return .{ data = char, count = 1 };
 } @NoProfile
