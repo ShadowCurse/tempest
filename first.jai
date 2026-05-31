@@ -141,6 +141,19 @@ write_shader_structs :: () {
 
 DONE
   );
+#import "Sort";
+  quick_sort(
+    shader_structs,
+    (a: ShaderStruct, b: ShaderStruct) -> s32 {
+      c := 0;
+      while c < min(a.name.count, b.name.count) {
+             if a.name[c] < b.name[c] then return -1;
+        else if b.name[c] < a.name[c] then return  1;
+        c += 1;
+      }
+      return 1;
+    }
+  );
   for shader_structs print_struct(*builder, it);
   code := builder_to_string(*builder);
 

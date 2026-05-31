@@ -2,19 +2,8 @@
 
 #define VkDeviceAddress uint64_t
 
-struct Vertex {
-    vec3 position;
-    float uv_x;
-    vec3 normal;
-    float uv_y;
-    vec3 color;
-    float _;
-};
-
-struct SceneInfo {
-    mat4 camera_view;
-    mat4 camera_view_inv;
-    mat4 camera_projection;
+struct GridPushConstant {
+    VkDeviceAddress scene_buffer;
 };
 
 struct MeshPushConstant {
@@ -23,18 +12,6 @@ struct MeshPushConstant {
     VkDeviceAddress mesh_buffer;
     VkDeviceAddress scene_buffer;
     uint vertices_offset;
-};
-
-struct GridPushConstant {
-    VkDeviceAddress scene_buffer;
-};
-
-struct UiPushConstant {
-    VkDeviceAddress quads;
-    vec2 screen_size;
-    VkDeviceAddress data_buffer;
-    uint curves_offset;
-    uint bands_offset;
 };
 
 #define QuadUsage uint
@@ -49,5 +26,28 @@ struct Quad {
     uint band_min_max;
     vec2 band_scale;
     vec2 band_offset;
+};
+
+struct SceneInfo {
+    mat4 camera_view;
+    mat4 camera_view_inv;
+    mat4 camera_projection;
+};
+
+struct UiPushConstant {
+    VkDeviceAddress quads;
+    vec2 screen_size;
+    VkDeviceAddress data_buffer;
+    uint curves_offset;
+    uint bands_offset;
+};
+
+struct Vertex {
+    vec3 position;
+    float uv_x;
+    vec3 normal;
+    float uv_y;
+    vec3 color;
+    float _;
 };
 
