@@ -33,37 +33,32 @@ ColorType :: enum u8 {
   BUTTON_NORMAL  :: GREEN;
   BUTTON_HOVERED :: GREEN1;
   BUTTON_PRESSED :: GREEN2;
-};
+}
 
-Colors :: [#run enum_elements_count(ColorType)]RGBA;
-
-DefaultColors :: RGBA.[
-  0x00000000,
-  // FOREGROUND
-  0xfef8f2ff,
-  // BACKGROUND
-  0x000000ff,
-  0x111111ff,
-  0x222222ff,
-  0x333333ff,
-  // BORDER
-  0x292f36ff,
-  // RED
-  0xfb3741ff,
-  // GREEN
-  0x608030ff,
-  0x74c365ff,
-  0x95C561ff,
-  // BLUE
-  0x1282a2ff,
-];
+Colors :: #run -> EnumArray(ColorType, RGBA) {
+  colors: EnumArray(ColorType, RGBA) = ---;
+  colors.values = RGBA.[
+    /* NONE;        */ 0x000000ff,
+    /* FOREGROUND;  */ 0xfef8f2ff,
+    /* BACKGROUND;  */ 0x000000ff,
+    /* BACKGROUND1; */ 0x111111ff,
+    /* BACKGROUND2; */ 0x222222ff,
+    /* BACKGROUND3; */ 0x333333ff,
+    /* BORDER;      */ 0x292f36ff,
+    /* RED;         */ 0xfb3741ff,
+    /* GREEN;       */ 0x608030ff,
+    /* GREEN1;      */ 0x74c365ff,
+    /* GREEN2;      */ 0x95C561ff,
+    /* BLUE;        */ 0x1282a2ff,
+  ];
+  return colors;
+}
 
 // note(sc): maybe add ui context to the `context` to avoid using global one
 // but for now use explicitly passed one
 Context :: struct {
   draw_buffer: BufferAllocator;
 
-  colors:    *Colors;
   font_size: float = 20.0;
   font:      *Font;
 
@@ -88,7 +83,6 @@ Context :: struct {
 }
 
 init :: (c: *Context, font: *Font) {
-  c.colors = *DefaultColors;
   c.font   = font;
   c.current_parent = *c.global_parent;
 }
@@ -138,7 +132,8 @@ Widget :: struct {
   flags:              WidgetFlags;
   text_flags:         WidgetTextFlags;
   text:               string;
-  color:              ColorType;
+  bg_color:           RGBA;
+  border_color:       RGBA;
   border:             float;
   margin:             float;
 
@@ -251,7 +246,7 @@ panel_start :: (c: *Context, name: string, size: Vector2, position: Vector2 = .{
   flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .FIXED_SIZE_X | .FIXED_SIZE_Y;
   if position != .{} flags |= .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
   widget = build_widget(c, name, flags, 0, size, position);
-  widget.color = .BACKGROUND;
+  widget.bg_color = Colors[ColorType.BACKGROUND];
   c.current_parent = widget;
 }
 
@@ -269,7 +264,7 @@ button :: (c: *Context, text: string) -> bool {
   pressed := c.pressed_id == widget.id;
   result := pressed && !widget.was_pressed;
   widget.was_pressed = pressed;
-  widget.color = .BUTTON_NORMAL;
+  widget.bg_color = Colors[ColorType.BUTTON_NORMAL];
   return result;
 }
 
@@ -278,7 +273,7 @@ toggle :: (c: *Context, text: string, v: *bool) {
   tag := tprint("%_toggle", text);
   toggle_size := c.font_size;
   toggle := build_widget(c, tag, flags, .CENTER, .{ toggle_size , toggle_size  });
-  toggle.color = ifx v.* then .GREEN1 else .BACKGROUND1;
+  toggle.bg_color = Colors[ifx v.* then ColorType.GREEN1 else .BACKGROUND1];
 
   pressed := c.pressed_id == toggle.id;
   result  := pressed && !toggle.was_pressed;
@@ -331,14 +326,14 @@ slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
   tag   := tprint("%_bg", name);
   flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .FIXED_SIZE_Y;
   bg    := build_widget(c, tag, flags, 0, .{ y = 20.0 });
-  bg.color = .BACKGROUND3;
+  bg.bg_color = Colors[ColorType.BACKGROUND3];
 
   tag   = tprint("%_knob", name);
   flags = .DRAG_HORIZONTAL | .DRAW_BACKGROUND | .DRAW_BORDER |
           .FIXED_SIZE_X | .FIXED_SIZE_Y | .FIXED_POSITION_X | .FIXED_POSITION_Y;
   knob := build_widget(c, tag, flags, 0, .{ 20.0, 20.0 }, .{ (bg.size.x - 20.0) * ratio, bg.position.y });
 
-  knob.color = .BUTTON_PRESSED;
+  knob.bg_color = Colors[ColorType.BUTTON_PRESSED];
   if c.pressed_id == knob.id {
     new_ratio := (knob.position.x + knob.position_delta.x) / (bg.size.x - 20.0);
     new_ratio = clamp(new_ratio, 0.0, 1.0);
@@ -370,11 +365,11 @@ finish_widgets :: (c: *Context) {
   while w != null {
     widget_p := w.position;
     current_p += widget_p;
-    color: ColorType = w.color;
+    bg_color := w.bg_color;
     check_rect_interaction(c, w.id, current_p, w.size);
     if w.flags & .CLICK {
-      if c.hover_id   == w.id color = .BUTTON_HOVERED;
-      if c.pressed_id == w.id color = .BUTTON_PRESSED;
+      if c.hover_id   == w.id then bg_color = Colors[ColorType.BUTTON_HOVERED];
+      if c.pressed_id == w.id then bg_color = Colors[ColorType.BUTTON_PRESSED];
     }
     if c.pressed_id == w.id && c.mouse_down {
       delta := c.mouse_position - c.old_mouse_position;
@@ -386,9 +381,9 @@ finish_widgets :: (c: *Context) {
     }
     if w.flags & .DRAW_BACKGROUND {
       if w.flags & .DRAW_BORDER {
-        draw_rect(c, current_p, w.size, color, .BORDER, w.border);
+        draw_rect(c, current_p, w.size, bg_color, Colors[ColorType.BORDER], w.border);
       } else {
-        draw_rect(c, current_p, w.size, color, .NONE, 0.0);
+        draw_rect(c, current_p, w.size, bg_color, Colors[ColorType.NONE], 0.0);
       }
     } else if w.flags & .DRAW_BORDER draw_border(c, current_p, w.size, .BORDER, w.border);
     if w.flags & .DRAW_TEXT {
@@ -451,8 +446,8 @@ draw_rect :: (
   border_width:     float,
   rounded:          bool = true,
 ) {
-  bg := c.colors.*[background_color];
-  bc := c.colors.*[border_color];
+  bg := Colors[background_color];
+  bc := Colors[border_color];
   draw_rect(c, position, size, bg, bc, border_width, rounded);
 }
 
@@ -463,7 +458,7 @@ draw_rect :: (
   background_color: RGBA,
   border_color:     RGBA,
   border_width:     float,
-  rounded:          bool,
+  rounded:          bool = true,
 ) {
   rect_position := rect_center(position, size);
   quad := new(Quad,, allocator(*c.draw_buffer));
