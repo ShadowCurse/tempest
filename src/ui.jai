@@ -74,12 +74,12 @@ Context :: struct {
   consumed_mouse_event:    bool;
   consumed_keyboard_event: bool;
 
-  global_parent:     Widget;
+  global_parent:      Widget;
   global_parent.border = 2.0;
   global_parent.margin = 8.0;
 
-  current_parent:    *Widget;
-  widgets:           [64]Widget;
+  current_parent:        *Widget;
+  widgets:           [256]Widget;
 }
 
 init :: (c: *Context, font: *Font) {
