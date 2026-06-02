@@ -168,12 +168,12 @@ find_oldest_widget :: (c: *Context) -> *Widget {
   result: *Widget;
   oldest_frame: u32 = c.frame;
   for *c.widgets {
-    if it.last_frame_update <= oldest_frame {
+    if it.last_frame_update < oldest_frame {
         oldest_frame = it.last_frame_update;
         result = it;
     }
   }
-  assert(result != null, "Cannot init new panel");
+  assert(result != null, "Cannot find oldest widget. Most likely due to widgets array exhaustion");
   return result;
 }
 
