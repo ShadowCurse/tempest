@@ -240,11 +240,13 @@ main :: () {
   last_present_time_ns: u64       = 0;
   dt_s: float                     = 0.0;
 
-  // prof_new_frame();
   while !quit {
     reset_temporary_storage();
     platform_new_frame();
     new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
+    ui.mouse_position     = mouse_position;
+    ui.mouse_just_pressed = just_pressed(mouse_state, .LMB);
+    ui.mouse_down         = pressed(mouse_state, .LMB);
 
     prof_draw(*ui);
     prof_new_frame();
@@ -276,10 +278,6 @@ main :: () {
     {
       prof_scope("build_ui");
 
-      ui.mouse_position = mouse_position;
-      ui.mouse_just_pressed = just_pressed(mouse_state, .LMB);
-      ui.mouse_down         = pressed(mouse_state, .LMB);
-
       {
         panel_start(*ui, "Panel", .{ 300.0, 750.0 }, .{ 1.0, 1.0 });
         defer panel_end(*ui);
@@ -301,7 +299,6 @@ main :: () {
         slider(*ui, "Gradient", 0.0, 1.0, *v);
         select(*ui, "Polygon mode2", *polygon_mode, .["FILL", "LINE", "POINT"]);
       }
-
       finish_widgets(*ui);
     }
 
@@ -499,7 +496,6 @@ main :: () {
         };
         cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
         cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
-        // cmd_draw(render_command, 6, 1, 0, 0);
       }
     }
     cmd_end_rendering(render_command);
@@ -1163,7 +1159,8 @@ prof_draw :: (ui: *Context) {
   size:     Vector2 = .{ 1000, 600 };
   position: Vector2 = .{ (window_width - size.x) / 2.0, (window_height - size.y) / 2.0 };
   padding := 10.0;
-  draw_rect(ui, position, size, .BACKGROUND1, .GREEN, 5.0);
+  panel_start(ui, "Prof", size, position);
+  defer panel_end(ui);
 
   box_width := (size.x - padding * 2.0 - cast(float32)FRAMES_TO_CAPTURE * 2.0) / cast(float32)FRAMES_TO_CAPTURE;
   current_frame_bound := context.prof_current_frame;
@@ -1174,26 +1171,27 @@ prof_draw :: (ui: *Context) {
   diff_sum: u32 = 0;
   for 0..FRAMES_TO_CAPTURE - 1 {
     end := context.prof_tree.frame_bound[current_frame_bound];
-    prev_frame_start_bound_idx := ifx current_frame_bound then
-                                      current_frame_bound - 1
+    prev_frame_start_bound_idx := ifx current_frame_bound then current_frame_bound - 1
                                   else cast(u32)context.prof_tree.frame_bound.count - 1;
     defer current_frame_bound = prev_frame_start_bound_idx;
+
     start := context.prof_tree.frame_bound[prev_frame_start_bound_idx];
     diff := (end - start) & (PROF_TREE_NODES - 1);
     diff_sum += diff;
-    p := position + .{ x = padding + (box_width + 2.0) * current_frame_bound, y = padding };
-    s := Vector2.{ box_width, cast(float32)diff * 0.1 };
-    if point_in_rect(p, s, mouse_position) {
-      draw_text(ui, position, tprint("Frame: % Nodes: %", current_frame_bound, diff), false);
-      if just_pressed(mouse_state, .LMB) {
-        selected_bound = current_frame_bound;
-      }
-    }
+    p: Vector2 = .{ x = padding + (box_width + 2.0) * current_frame_bound, y = padding };
+    s: Vector2 = .{ box_width, cast(float32)diff * 0.1 };
     color: ColorType = .BACKGROUND2;
-    if diff_sum < PROF_TREE_NODES       then color = .BLUE;
+    if diff_sum < PROF_TREE_NODES                        then color = .BLUE;
     if current_frame_bound == selected_bound             then color = .RED;
     if current_frame_bound == context.prof_current_frame then color = .GREEN;
-    draw_rect(ui, p, s, color, .GREEN, 5.0, false);
+    if button_ext(
+      ui,
+      tprint("prof_frame_%", current_frame_bound),
+      .FIXED_POSITION_X | .FIXED_POSITION_Y | .FIXED_SIZE_X | .FIXED_SIZE_Y | .DRAW_BACKGROUND,
+      p,
+      s,
+      Colors[color],
+    ) then selected_bound = current_frame_bound;
   }
 
   frame_start_bound_idx := ifx selected_bound == -1 then context.prof_current_frame else selected_bound;
@@ -1225,11 +1223,15 @@ prof_draw :: (ui: *Context) {
     if 2.0 < current_width {
       bg := rgba(255, 180 + cast(u8)position.x, 180 + cast(u8)position.y * 2, 255);
       size: Vector2 = .{ current_width, 10.0 };
-      draw_rect(ui, position, size, bg, 0, 0.0, false);
-      if point_in_rect(position, size, mouse_position) {
-        node_name := context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name;
-        draw_text(ui, position, node_name, false);
-      }
+      button_ext(
+        ui,
+        context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name,
+        .FIXED_POSITION_X | .FIXED_POSITION_Y | .FIXED_SIZE_X | .FIXED_SIZE_Y | .DRAW_BACKGROUND,
+        position,
+        size,
+        bg,
+      );
+
       if current.first_child {
         new_position := position + .{ y = 20.0 };
         draw_node(ui, current.first_child, ns_to_px, new_position, depth + 1);
@@ -1240,7 +1242,7 @@ prof_draw :: (ui: *Context) {
       draw_node(ui, current.next, ns_to_px, new_position, depth + 1);
     }
   }
-  draw_node(ui, first_child, ns_to_px, position + .{ padding, padding + 300.0 }, 0);
+  draw_node(ui, first_child, ns_to_px, .{ padding, padding + 300.0 }, 0);
 }
 
 #load "ui.jai";
