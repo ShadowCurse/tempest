@@ -268,6 +268,23 @@ button :: (c: *Context, text: string) -> bool {
   return result;
 }
 
+button_ext :: (
+  c: *Context,
+  text: string,
+  add_flags: WidgetFlags,
+  position: Vector2,
+  size: Vector2,
+  color: RGBA
+) -> bool {
+  flags := .CLICK | add_flags;
+  widget  := build_widget(c, text, flags, .CENTER, size, position);
+  pressed := c.pressed_id == widget.id;
+  result  := pressed && !widget.was_pressed;
+  widget.was_pressed = pressed;
+  widget.bg_color = color;
+  return result;
+}
+
 toggle :: (c: *Context, text: string, v: *bool) {
   flags: WidgetFlags = .CLICK | .DRAW_BACKGROUND | .FIXED_SIZE_X | .FIXED_SIZE_Y;
   tag := tprint("%_toggle", text);
