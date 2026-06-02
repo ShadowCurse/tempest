@@ -207,9 +207,9 @@ build_widget :: (
   widget.border            = ifx flags & .DRAW_BORDER parent.border;
   widget.margin            = parent.margin;
 
-  if flags & .FIXED_SIZE_X { if widget.id == 0 widget.size.x = size.x; }
+  if flags & .FIXED_SIZE_X { widget.size.x = size.x; }
   else widget.size.x = parent.size.x - parent.margin * 2.0;
-  if flags & .FIXED_SIZE_Y { if widget.id == 0 widget.size.y = size.y; }
+  if flags & .FIXED_SIZE_Y { widget.size.y = size.y; }
   else widget.size.y = ifx flags & .DRAW_TEXT c.font_size + parent.margin * 2.0;
 
   if flags & .FIXED_POSITION_X {
