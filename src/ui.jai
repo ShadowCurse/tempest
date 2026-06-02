@@ -506,13 +506,17 @@ text_layout :: (
 
       offset.x += char_kern * scale;
       if !text_setup_quad(*line[i], char_info, char_kern, scale, position + offset, max_width) {
-        char_info = get_char_info(font, #char ".");
-        char_kern = 1;
-        offset.x = max_width - position.x -
-                   ((char_info.x1 - char_info.x0) * 3.0 + char_info.advance * 2.0) * scale;
-        for j: i - 3..i - 1 {
-          text_setup_quad(*line[j], char_info, char_kern, scale, position + offset);
-          offset.x += char_info.advance * scale;
+        if 3 <= i {
+          char_info = get_char_info(font, #char ".");
+          char_kern = 1;
+          offset.x = max_width - position.x -
+                     ((char_info.x1 - char_info.x0) * 3.0 + char_info.advance * 2.0) * scale;
+          for j: i - 3..i - 1 {
+            text_setup_quad(*line[j], char_info, char_kern, scale, position + offset);
+            offset.x += char_info.advance * scale;
+          }
+        } else {
+          log("Widget with text % is too narrow for the text to render", text, flags = .WARNING);
         }
         for j: i..line.count - 1 text_setup_quad(*line[j], .{}, 0, 0, .{}, max_width);
         break;
