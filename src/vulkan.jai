@@ -48,6 +48,7 @@ swapchain_semaphores: []VkSemaphore;
 swapchain_fences: []VkFence;
 swapchain_format: VkFormat = .UNDEFINED;
 swapchain_extent: VkExtent2D;
+swapchain_present_timing_surface:    VkPresentTimingSurfaceCapabilitiesEXT;
 swapchain_past_presentation_timings: []VkPastPresentationTimingEXT;
 swapchain_present_stage_times:       []VkPresentStageTimeEXT;
 
@@ -182,15 +183,19 @@ get_swapchain_timing_properties :: () -> (refresh_duration: u64,
 }
 
 get_past_presentation_timing :: () -> []VkPastPresentationTimingEXT {
-  past_timing_info: VkPastPresentationTimingInfoEXT = .{ swapchain = swapchain };
-  past_timing_properties: VkPastPresentationTimingPropertiesEXT = .{};
-  if vkGetPastPresentationTimingEXT(device, *past_timing_info, *past_timing_properties) then return .[];
-  past_timing_properties.pPresentationTimings = swapchain_past_presentation_timings.data;
-  if vkGetPastPresentationTimingEXT(device, *past_timing_info, *past_timing_properties) then return .[];
-  return .{
-    data = swapchain_past_presentation_timings.data,
-    count = past_timing_properties.presentationTimingCount
-  };
+  result: []VkPastPresentationTimingEXT = .[];
+  if swapchain_present_timing_surface.presentTimingSupported {
+    past_timing_info: VkPastPresentationTimingInfoEXT = .{ swapchain = swapchain };
+    past_timing_properties: VkPastPresentationTimingPropertiesEXT = .{};
+    if vkGetPastPresentationTimingEXT(device, *past_timing_info, *past_timing_properties) then return .[];
+    past_timing_properties.pPresentationTimings = swapchain_past_presentation_timings.data;
+    if vkGetPastPresentationTimingEXT(device, *past_timing_info, *past_timing_properties) then return .[];
+    result = .{
+      data = swapchain_past_presentation_timings.data,
+      count = past_timing_properties.presentationTimingCount
+    };
+  }
+  return result;
 }
 
 bind_buffer_memory :: (buffer: VkBuffer, device_memory: VkDeviceMemory, offset: u32) {
@@ -536,21 +541,7 @@ graphics_queue_submit :: (cmd: VkCommandBuffer, semaphore: VkSemaphore, fence: V
 present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
   fence := *swapchain_fences[image_idx];
 
- timing_info: VkPresentTimingInfoEXT = .{
-    flags = xx VkPresentTimingInfoFlagBitsEXT.PRESENT_AT_NEAREST_REFRESH_CYCLE_BIT_EXT,
-    // note(sc): no absolute or relative options are available for now
-    targetTime          = 0,
-    timeDomainId        = 0,
-    presentStageQueries = xx VkPresentStageFlagBitsEXT.IMAGE_FIRST_PIXEL_OUT_BIT_EXT,
-    targetTimeDomainPresentStage = xx VkPresentStageFlagBitsEXT.IMAGE_FIRST_PIXEL_OUT_BIT_EXT,
-  };
-  present_timings_info: VkPresentTimingsInfoEXT = .{
-    swapchainCount = 1,
-    pTimingInfos   = *timing_info
-  };
-
   present_info_fence: VkSwapchainPresentFenceInfoKHR = .{
-    pNext = *present_timings_info,
     swapchainCount = 1,
     pFences = fence
   };
@@ -562,6 +553,25 @@ present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
     waitSemaphoreCount = 1,
     pImageIndices      = *image_idx,
   };
+
+  timing_info: VkPresentTimingInfoEXT = ---;
+  present_timings_info: VkPresentTimingsInfoEXT = ---;
+  if swapchain_present_timing_surface.presentTimingSupported {
+    timing_info = .{
+      flags = xx VkPresentTimingInfoFlagBitsEXT.PRESENT_AT_NEAREST_REFRESH_CYCLE_BIT_EXT,
+      // note(sc): no absolute or relative options are available for now
+      targetTime                   = 0,
+      timeDomainId                 = 0,
+      presentStageQueries          = xx VkPresentStageFlagBitsEXT.IMAGE_FIRST_PIXEL_OUT_BIT_EXT,
+      targetTimeDomainPresentStage = xx VkPresentStageFlagBitsEXT.IMAGE_FIRST_PIXEL_OUT_BIT_EXT,
+    };
+    present_timings_info = .{
+      swapchainCount = 1,
+      pTimingInfos   = *timing_info
+    };
+    present_info_fence.pNext = *present_timings_info;
+  }
+
   r := vkQueuePresentKHR(graphics_queue, *present_info);
   if r != .VK_SUCCESS && r != .VK_SUBOPTIMAL_KHR {
     log_error("Cannot present to graphics queue: %", r);
@@ -971,6 +981,7 @@ DONE
             present_queue_family  = xx present_queue_family;
             compute_queue_family  = xx compute_queue_family;
             transfer_queue_family = xx transfer_queue_family;
+            return;
         }
     }
 }
@@ -1114,11 +1125,10 @@ get_swapchain_time_domain_properties :: () -> []VkTimeDomainKHR, []u64, u64, VkR
 }
 
 init_swapchain :: (width: u32, height: u32, old_swapchain: VkSwapchainKHR) {
-  present_timing_surface: VkPresentTimingSurfaceCapabilitiesEXT = .{};
-  surface_capabilities2: VkSurfaceCapabilities2KHR = .{ pNext   = *present_timing_surface };
+  surface_capabilities2: VkSurfaceCapabilities2KHR = .{ pNext   = *swapchain_present_timing_surface };
   surface_info: VkPhysicalDeviceSurfaceInfo2KHR = .{ surface = surface };
   assert(!vkGetPhysicalDeviceSurfaceCapabilities2KHR(physical_device, *surface_info, *surface_capabilities2));
-  log("present_timing_surface: %", present_timing_surface);
+  log("present_timing_surface: %", swapchain_present_timing_surface);
 
   surface_capabilities := *surface_capabilities2.surfaceCapabilities;
 
@@ -1166,8 +1176,10 @@ DONE
       );
     }
 
+    flags: VkSwapchainCreateFlagsKHR = 0;
+    if swapchain_present_timing_surface.presentTimingSupported then flags |= .PRESENT_TIMING_BIT_EXT;
     create_info: VkSwapchainCreateInfoKHR = .{
-      flags            = .PRESENT_TIMING_BIT_EXT,
+      flags            = flags,
       surface          = surface,
       minImageCount    = surface_capabilities.minImageCount,
       imageFormat      = surface_format.format,
@@ -1226,22 +1238,24 @@ DONE
       log("Created swapchain: images: % extent: w: % h: %\n",
           swapchain_images.count, swapchain_extent.width, swapchain_extent.height);
 
-      domains, ids, counter, err2 :=  get_swapchain_time_domain_properties(,,temp);
-      assert(!err2);
-      log("Swapchain domains: %", domains);
-      log("Swapchain ids: %", ids);
-      log("Swapchain counter: %", counter);
+      if swapchain_present_timing_surface.presentTimingSupported {
+        domains, ids, counter, err2 :=  get_swapchain_time_domain_properties(,,temp);
+        assert(!err2);
+        log("Swapchain domains: %", domains);
+        log("Swapchain ids: %", ids);
+        log("Swapchain counter: %", counter);
 
-      assert(!vkSetSwapchainPresentTimingQueueSizeEXT(device, swapchain, cast(u32)swapchain_images.count));
-      swapchain_past_presentation_timings = new_array(swapchain_images.count, VkPastPresentationTimingEXT,
-                                                      initialized = false);
-      swapchain_present_stage_times        = new_array(swapchain_images.count, VkPresentStageTimeEXT,
-                                                      initialized = false);
-      for * swapchain_past_presentation_timings {
-        it.* = .{
-          presentStageCount = 1,
-          pPresentStages = swapchain_present_stage_times.data + it_index,
-        };
+        assert(!vkSetSwapchainPresentTimingQueueSizeEXT(device, swapchain, cast(u32)swapchain_images.count));
+        swapchain_past_presentation_timings = new_array(swapchain_images.count, VkPastPresentationTimingEXT,
+                                                        initialized = false);
+        swapchain_present_stage_times       = new_array(swapchain_images.count, VkPresentStageTimeEXT,
+                                                        initialized = false);
+        for * swapchain_past_presentation_timings {
+          it.* = .{
+            presentStageCount = 1,
+            pPresentStages = swapchain_present_stage_times.data + it_index,
+          };
+        }
       }
     }
   }
