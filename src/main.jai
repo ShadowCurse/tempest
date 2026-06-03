@@ -1152,7 +1152,8 @@ GpuMeshInfo :: struct {
   vertex_count:           u32;
 }
 
-selected_bound := -1;
+prof_selected_bound := -1;
+prof_drawn_nodes := 0;
 prof_draw :: (ui: *Context) {
   #if !context.Prof_Module.PROF_ZONES_COUNT return;
 
@@ -1165,7 +1166,7 @@ prof_draw :: (ui: *Context) {
   box_width := (size.x - padding * 2.0 - cast(float32)FRAMES_TO_CAPTURE * 2.0) / cast(float32)FRAMES_TO_CAPTURE;
   current_frame_bound := context.prof_current_frame;
 
-  if just_pressed(mouse_state, .LMB) then selected_bound = -1;
+  if just_pressed(mouse_state, .LMB) then prof_selected_bound = -1;
 
   // The nodes buffer might be too small to hold all frames. Only last PROF_TREE_NODES of frames are valid
   diff_sum: u32 = 0;
@@ -1182,7 +1183,7 @@ prof_draw :: (ui: *Context) {
     s: Vector2 = .{ box_width, cast(float32)diff * 0.1 };
     color: ColorType = .BACKGROUND2;
     if diff_sum < PROF_TREE_NODES                        then color = .BLUE;
-    if current_frame_bound == selected_bound             then color = .RED;
+    if current_frame_bound == prof_selected_bound        then color = .RED;
     if current_frame_bound == context.prof_current_frame then color = .GREEN;
     if button_ext(
       ui,
@@ -1191,10 +1192,11 @@ prof_draw :: (ui: *Context) {
       p,
       s,
       Colors[color],
-    ) then selected_bound = current_frame_bound;
+    ) then prof_selected_bound = current_frame_bound;
   }
 
-  frame_start_bound_idx := ifx selected_bound == -1 then context.prof_current_frame else selected_bound;
+  frame_start_bound_idx := ifx prof_selected_bound == -1 then context.prof_current_frame
+                           else prof_selected_bound;
   frame_start_node_idx := context.prof_tree.frame_bound[frame_start_bound_idx];
 
   // start from the first child to walk the top level functions following `next` chain
@@ -1216,6 +1218,7 @@ prof_draw :: (ui: *Context) {
     position: Vector2,
     depth: u32
   ) {
+    prof_drawn_nodes += 1;
     if 200 < depth return;
 
     current := *context.prof_tree.nodes[current_node_idx];
@@ -1225,7 +1228,7 @@ prof_draw :: (ui: *Context) {
       size: Vector2 = .{ current_width, 10.0 };
       button_ext(
         ui,
-        context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name,
+        tprint("%_%", context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name, prof_drawn_nodes),
         .FIXED_POSITION_X | .FIXED_POSITION_Y | .FIXED_SIZE_X | .FIXED_SIZE_Y | .DRAW_BACKGROUND,
         position,
         size,
@@ -1242,6 +1245,7 @@ prof_draw :: (ui: *Context) {
       draw_node(ui, current.next, ns_to_px, new_position, depth + 1);
     }
   }
+  prof_drawn_nodes = 0;
   draw_node(ui, first_child, ns_to_px, .{ padding, padding + 300.0 }, 0);
 }
 

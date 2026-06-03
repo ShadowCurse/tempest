@@ -79,7 +79,7 @@ Context :: struct {
   global_parent.margin = 8.0;
 
   current_parent:        *Widget;
-  widgets:           [256]Widget;
+  widgets:           [1024]Widget;
 }
 
 init :: (c: *Context, font: *Font) {
