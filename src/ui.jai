@@ -348,11 +348,15 @@ slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
   tag   = tprint("%_knob", name);
   flags = .DRAG_HORIZONTAL | .DRAW_BACKGROUND | .DRAW_BORDER |
           .FIXED_SIZE_X | .FIXED_SIZE_Y | .FIXED_POSITION_X | .FIXED_POSITION_Y;
-  knob := build_widget(c, tag, flags, 0, .{ 20.0, 20.0 }, .{ (bg.size.x - 20.0) * ratio, bg.position.y });
+  knob_size := 20.0;
+  knob_position_offset := knob_size / 2.0;
+  knob_travel_distance := bg.size.x - knob_size;
+  knob_position: Vector2 = .{ knob_position_offset + knob_travel_distance * ratio, bg.position.y };
+  knob := build_widget(c, tag, flags, 0, .{ 20.0, 20.0 }, knob_position);
 
   knob.bg_color = Colors[ColorType.BUTTON_PRESSED];
   if c.pressed_id == knob.id {
-    new_ratio := (knob.position.x + knob.position_delta.x) / (bg.size.x - 20.0);
+    new_ratio := (knob_position.x - knob_position_offset + knob.position_delta.x) / knob_travel_distance;
     new_ratio = clamp(new_ratio, 0.0, 1.0);
     v.* = (hi - lo) * new_ratio;
   }
