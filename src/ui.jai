@@ -108,6 +108,7 @@ WidgetFlags :: enum_flags u32 {
   DRAW_BACKGROUND;
   DRAW_TEXT;
   DRAW_BORDER;
+  DRAW_ROUNDED;
   FIXED_SIZE_X;
   FIXED_SIZE_Y;
   FIXED_POSITION_X;
@@ -243,7 +244,7 @@ build_widget :: (
 
 panel_start :: (c: *Context, name: string, size: Vector2, position: Vector2 = .{}) {
   widget: *Widget;
-  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .FIXED_SIZE_X | .FIXED_SIZE_Y;
+  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
   if position != .{} flags |= .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
   widget = build_widget(c, name, flags, 0, size, position);
   widget.bg_color = Colors[ColorType.BACKGROUND];
@@ -260,7 +261,7 @@ label :: (c: *Context, text: string) {
 }
 
 button :: (c: *Context, text: string) -> bool {
-  widget := build_widget(c, text, .CLICK | .DRAW_TEXT | .DRAW_BACKGROUND, .CENTER);
+  widget := build_widget(c, text, .CLICK | .DRAW_TEXT | .DRAW_BACKGROUND | .DRAW_ROUNDED, .CENTER);
   pressed := c.pressed_id == widget.id;
   result := pressed && !widget.was_pressed;
   widget.was_pressed = pressed;
@@ -286,7 +287,7 @@ button_ext :: (
 }
 
 toggle :: (c: *Context, text: string, v: *bool) {
-  flags: WidgetFlags = .CLICK | .DRAW_BACKGROUND | .FIXED_SIZE_X | .FIXED_SIZE_Y;
+  flags: WidgetFlags = .CLICK | .DRAW_BACKGROUND | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
   tag := tprint("%_toggle", text);
   toggle_size := c.font_size;
   toggle := build_widget(c, tag, flags, .CENTER, .{ toggle_size , toggle_size  });
@@ -341,12 +342,12 @@ slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
   ratio := (v.* - lo) / (hi - lo);
   ratio = clamp(ratio, 0.0, 1.0);
   tag   := tprint("%_bg", name);
-  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .FIXED_SIZE_Y;
+  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_Y;
   bg    := build_widget(c, tag, flags, 0, .{ y = 20.0 });
   bg.bg_color = Colors[ColorType.BACKGROUND3];
 
   tag   = tprint("%_knob", name);
-  flags = .DRAG_HORIZONTAL | .DRAW_BACKGROUND | .DRAW_BORDER |
+  flags = .DRAG_HORIZONTAL | .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED |
           .FIXED_SIZE_X | .FIXED_SIZE_Y | .FIXED_POSITION_X | .FIXED_POSITION_Y;
   knob_size := 20.0;
   knob_position_offset := knob_size / 2.0;
@@ -400,13 +401,18 @@ finish_widgets :: (c: *Context) {
     } else {
       w.position_delta = .{};
     }
+    rounded := (w.flags & .DRAW_ROUNDED) != 0;
     if w.flags & .DRAW_BACKGROUND {
+      border_color := Colors[ColorType.NONE];
+      border_width := 0.0;
       if w.flags & .DRAW_BORDER {
-        draw_rect(c, current_p, w.size, bg_color, Colors[ColorType.BORDER], w.border);
-      } else {
-        draw_rect(c, current_p, w.size, bg_color, Colors[ColorType.NONE], 0.0);
+        border_color = Colors[ColorType.BORDER];
+        border_width = w.border;
       }
-    } else if w.flags & .DRAW_BORDER draw_border(c, current_p, w.size, .BORDER, w.border);
+      draw_rect(c, current_p, w.size, bg_color, border_color, border_width, rounded);
+    } else if w.flags & .DRAW_BORDER {
+      draw_border(c, current_p, w.size, Colors[ColorType.BORDER], w.border, rounded);
+    }
     if w.flags & .DRAW_TEXT {
       text_offset_x: float;
       text_offset_y := (w.size.y + c.font_size) / 2.0;
@@ -462,24 +468,10 @@ draw_rect :: (
   c:                *Context,
   position:         Vector2,
   size:             Vector2,
-  background_color: ColorType,
-  border_color:     ColorType,
-  border_width:     float,
-  rounded:          bool = true,
-) {
-  bg := Colors[background_color];
-  bc := Colors[border_color];
-  draw_rect(c, position, size, bg, bc, border_width, rounded);
-}
-
-draw_rect :: (
-  c:                *Context,
-  position:         Vector2,
-  size:             Vector2,
   background_color: RGBA,
   border_color:     RGBA,
   border_width:     float,
-  rounded:          bool = true,
+  rounded := true,
 ) {
   rect_position := rect_center(position, size);
   quad := new(Quad,, allocator(*c.draw_buffer));
@@ -494,8 +486,8 @@ draw_rect :: (
   };
 }
 
-draw_border :: (c:*Context, position: Vector2, size: Vector2, color: ColorType, width: float) {
-  draw_rect(c, position, size, .NONE, color, width);
+draw_border :: (c:*Context, position: Vector2, size: Vector2, color: RGBA, width: float, rounded := true) {
+  draw_rect(c, position, size, Colors[ColorType.NONE], color, width);
 }
 
 draw_text :: (c: *Context, position: Vector2, text: string, centered: bool, max_width := 1000.0) {

@@ -1173,7 +1173,9 @@ prof_draw :: (ui: *Context) {
   panel_start(ui, "Prof", size, position);
   defer panel_end(ui);
 
-  box_width := (size.x - padding * 2.0 - cast(float32)FRAMES_TO_CAPTURE * 2.0) / cast(float32)FRAMES_TO_CAPTURE;
+  box_width  := (size.x - padding * 2.0 - cast(float32)FRAMES_TO_CAPTURE * 2.0) /
+                cast(float32)FRAMES_TO_CAPTURE;
+  box_height := 100.0;
   current_frame_bound := context.prof_current_frame;
 
   if just_pressed(mouse_state, .LMB) then prof_selected_bound = -1;
@@ -1190,7 +1192,7 @@ prof_draw :: (ui: *Context) {
     diff := (end - start) & (PROF_TREE_NODES - 1);
     diff_sum += diff;
     p: Vector2 = .{ x = padding + (box_width + 2.0) * current_frame_bound, y = padding };
-    s: Vector2 = .{ box_width, cast(float32)diff * 0.1 };
+    s: Vector2 = .{ box_width, box_height };
     color: ColorType = .BACKGROUND2;
     if diff_sum < PROF_TREE_NODES                        then color = .BLUE;
     if current_frame_bound == prof_selected_bound        then color = .RED;
