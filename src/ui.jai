@@ -257,7 +257,18 @@ panel_end :: (c: *Context) {
 }
 
 label :: (c: *Context, text: string) {
-  widget := build_widget(c, text, .DRAW_TEXT, 0);
+  build_widget(c, text, .DRAW_TEXT, 0);
+}
+
+label_ext :: (
+  c: *Context,
+  text: string,
+  add_flags: WidgetFlags,
+  position: Vector2,
+  size: Vector2,
+) {
+  flags: WidgetFlags = .DRAW_TEXT | add_flags;
+  build_widget(c, text, flags, 0, size, position);
 }
 
 button :: (c: *Context, text: string) -> bool {
@@ -276,14 +287,15 @@ button_ext :: (
   position: Vector2,
   size: Vector2,
   color: RGBA
-) -> bool {
+) -> pressed: bool, hovered: bool {
   flags := .CLICK | add_flags;
   widget  := build_widget(c, text, flags, .CENTER, size, position);
   pressed := c.pressed_id == widget.id;
+  hovered := c.hover_id == widget.id;
   result  := pressed && !widget.was_pressed;
   widget.was_pressed = pressed;
   widget.bg_color = color;
-  return result;
+  return result, hovered;
 }
 
 toggle :: (c: *Context, text: string, v: *bool) {

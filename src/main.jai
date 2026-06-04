@@ -1197,14 +1197,22 @@ prof_draw :: (ui: *Context) {
     if diff_sum < PROF_TREE_NODES                        then color = .BLUE;
     if current_frame_bound == prof_selected_bound        then color = .RED;
     if current_frame_bound == context.prof_current_frame then color = .GREEN;
-    if button_ext(
+    pressed, hovered := button_ext(
       ui,
       tprint("prof_frame_%", current_frame_bound),
       .FIXED_POSITION_X | .FIXED_POSITION_Y | .FIXED_SIZE_X | .FIXED_SIZE_Y | .DRAW_BACKGROUND,
       p,
       s,
       Colors[color],
-    ) then prof_selected_bound = current_frame_bound;
+    );
+    if pressed then prof_selected_bound = current_frame_bound;
+    if hovered then label_ext(
+      ui,
+      tprint("%", current_frame_bound),
+      .FIXED_POSITION_X | .FIXED_POSITION_Y,
+      p + .{ y = box_height },
+      .{},
+    );
   }
 
   frame_start_bound_idx := ifx prof_selected_bound == -1 then context.prof_current_frame
@@ -1238,13 +1246,20 @@ prof_draw :: (ui: *Context) {
     if 2.0 < current_width {
       bg := rgba(255, 180 + cast(u8)position.x, 180 + cast(u8)position.y * 2, 255);
       size: Vector2 = .{ current_width, 10.0 };
-      button_ext(
+      _, hovered := button_ext(
         ui,
         tprint("%_%", context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name, prof_drawn_nodes),
         .FIXED_POSITION_X | .FIXED_POSITION_Y | .FIXED_SIZE_X | .FIXED_SIZE_Y | .DRAW_BACKGROUND,
         position,
         size,
         bg,
+      );
+      if hovered then label_ext(
+        ui,
+        context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name,
+        .FIXED_POSITION_X | .FIXED_POSITION_Y,
+        position,
+        .{},
       );
 
       if current.first_child {
