@@ -256,37 +256,24 @@ panel_end :: (c: *Context) {
   c.current_parent = c.current_parent.parent;
 }
 
-label :: (c: *Context, text: string) {
-  build_widget(c, text, .DRAW_TEXT, 0);
-}
-
-label_ext :: (
+label :: (
   c: *Context,
   text: string,
-  add_flags: WidgetFlags,
-  position: Vector2,
-  size: Vector2,
+  add_flags: WidgetFlags = 0,
+  position: Vector2      = .{},
+  size: Vector2          = .{},
 ) {
   flags: WidgetFlags = .DRAW_TEXT | add_flags;
   build_widget(c, text, flags, 0, size, position);
 }
 
-button :: (c: *Context, text: string) -> bool {
-  widget := build_widget(c, text, .CLICK | .DRAW_TEXT | .DRAW_BACKGROUND | .DRAW_ROUNDED, .CENTER);
-  pressed := c.pressed_id == widget.id;
-  result := pressed && !widget.was_pressed;
-  widget.was_pressed = pressed;
-  widget.bg_color = Colors[ColorType.BUTTON_NORMAL];
-  return result;
-}
-
-button_ext :: (
+button :: (
   c: *Context,
   text: string,
-  add_flags: WidgetFlags,
-  position: Vector2,
-  size: Vector2,
-  color: RGBA
+  add_flags: WidgetFlags = 0,
+  position: Vector2      = .{},
+  size: Vector2          = .{},
+  color: RGBA            = 0,
 ) -> pressed: bool, hovered: bool {
   flags := .CLICK | add_flags;
   widget  := build_widget(c, text, flags, .CENTER, size, position);
@@ -294,7 +281,7 @@ button_ext :: (
   hovered := c.hover_id == widget.id;
   result  := pressed && !widget.was_pressed;
   widget.was_pressed = pressed;
-  widget.bg_color = color;
+  widget.bg_color = ifx color == 0 then Colors[ColorType.BUTTON_NORMAL] else color;
   return result, hovered;
 }
 
