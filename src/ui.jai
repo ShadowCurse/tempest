@@ -483,7 +483,7 @@ draw_rect :: (
 ) {
   rect_position := rect_center(position, size);
   quad := new(Quad,, allocator(*c.draw_buffer));
-  if !quad return;
+  if !quad then return;
   quad.* = .{
     usage            = .COLOR | ifx !rounded QuadUsage.NO_ROUND,
     color            = background_color,
@@ -578,7 +578,9 @@ text_split_in_lines :: (text: string) -> quads: []Quad, lines: [][]Quad {
     }
 
     lines := new_array(line_breaks.count, []Quad, initialized = false,, temp);
+    if !lines then return .[], .[];
     quads := new_array(total_quads,         Quad, initialized = false);
+    if !quads then return .[], .[];
     quads_offset := 0;
     for line_breaks {
       line_length := ifx it_index == 0 it else it - line_breaks[it_index - 1] - 1;

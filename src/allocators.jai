@@ -22,7 +22,7 @@ buffer_allocator_proc :: (
   allocator_data: *void,
   alignment: s64,
 ) -> *void {
-  allocator := cast(*BufferAllocator) allocator_data;
+  allocator := cast(*BufferAllocator)allocator_data;
   assert(allocator != null);
 
   if #complete mode == {
@@ -111,7 +111,6 @@ init :: (arena: *GpuBufferArena, memory: GpuMemory, usage: VkBufferUsageFlags) {
 }
 
 GpuBufferSlice :: struct ($T: Type) {
-  // memory:         VkDeviceMemory;
   buffer:         VkBuffer;
   byte_offset:    u32;
   device_address: VkDeviceAddress;
@@ -119,7 +118,7 @@ GpuBufferSlice :: struct ($T: Type) {
   count:          u32;
 }
 
-push :: (arena: *GpuBufferArena, $T: Type, count: u32 = 1) -> GpuBufferSlice(T) {
+push :: (arena: *GpuBufferArena, $T: Type, count: u32 = 1) -> GpuBufferSlice(T), success: bool {
   alignment := align_of(T);
   bytes     := size_of(T) * count;
 
@@ -131,15 +130,15 @@ push :: (arena: *GpuBufferArena, $T: Type, count: u32 = 1) -> GpuBufferSlice(T) 
     byte_offset := start_address - arena.device_address;
     host_ptr := ifx arena.host_mem cast(*T)(arena.host_mem.data + byte_offset);
     arena.end = cast(u32)new_end;
-    return .{ arena.buffer, cast(u32)byte_offset, start_address, host_ptr, count };
+    return .{ arena.buffer, cast(u32)byte_offset, start_address, host_ptr, count }, true;
   } else {
-    return .{};
+    return .{}, false;
   }
 }
 
 host_memory :: inline (slice: GpuBufferSlice) -> []slice.T {
   result: []slice.T;
-  if slice.host_ptr result = .{ data = slice.host_ptr, count = slice.count };
+  if slice.host_ptr then result = .{ data = slice.host_ptr, count = slice.count };
   return result;
 }
 
@@ -194,7 +193,7 @@ push :: (
   height: u32,
   format: VkFormat,
   usage: VkImageUsageFlags
-) -> GpuImage {
+) -> GpuImage, success: bool {
   extent: VkExtent3D = .{
     width = width,
     height = height,
@@ -239,10 +238,10 @@ push :: (
       },
     };
     view := create_image_view(view_create_info);
-    return .{ image, view, extent, format, usage, total_bytes };
+    return .{ image, view, extent, format, usage, total_bytes }, true;
   } else {
     destroy_image(image);
-    return .{};
+    return .{}, false;
   }
 }
 
@@ -285,28 +284,33 @@ slice :: inline (slice: []$T, start: u32, end: u32) -> []T {
 
 new :: ($T: Type, $initialized := true) -> *T {
   size   := size_of(T);
-  memory := alloc_aligned(size, align_of(T));
-  assert(memory != null, "Cound not allocate type of % bytes", size);
-  #if initialized {
-    ini :: initializer_of(T);
-    #if ini  inline ini(memory);
-    else     memset(memory, 0, size_of(T));
+
+  allocation := alloc_aligned(size, align_of(T));
+  if allocation {
+    #if initialized {
+      ini :: initializer_of(T);
+      #if ini inline ini(allocation);
+      else    memset(allocation, 0, size_of(T));
+    }
   }
-  return cast(*T)memory;
+  return cast(*T)allocation;
 }
 
-new_array :: (count: s64, $T: Type, $initialized := true) -> result: []T {
+new_array :: (count: s64, $T: Type, $initialized := true) -> []T {
   size   := count * size_of(T);
   result: []T;
-  result.data = xx alloc_aligned(size, align_of(T));
-  assert(result.data != null, "Cound not allocate array of % bytes", size);
-  result.count = count;
-  #if initialized {
-    ini :: initializer_of(T);
-    #if ini {
-      for *r: result inline ini(r);
-    } else {
-      memset(result.data, 0, size);
+
+  allocation := alloc_aligned(size, align_of(T));
+  if allocation {
+    result.data  = cast(*T)allocation;
+    result.count = count;
+    #if initialized {
+      ini :: initializer_of(T);
+      #if ini {
+        for *r: result inline ini(r);
+      } else {
+        memset(result.data, 0, size);
+      }
     }
   }
   return result;

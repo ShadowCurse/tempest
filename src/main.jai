@@ -92,13 +92,19 @@ main :: () {
   for *rc: render_commands rc.* = create_render_command();
   cpu_to_gpu_memory := allocate_gpu_memory(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
   init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, .TRANSFER_SRC_BIT | .SHADER_DEVICE_ADDRESS_BIT);
-  staging_buffer        = push(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
-  for * ui_buffers it.* = push(*cpu_to_gpu_buffer_arena, Quad, 1 << 15);
-  scene_buffer          = push(*cpu_to_gpu_buffer_arena, SceneInfo);
+  staging_buffer, ok := push(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
+  assert(ok);
+  for * ui_buffers {
+    it.*, ok = push(*cpu_to_gpu_buffer_arena, Quad, 1 << 15);
+    assert(ok);
+  }
+  scene_buffer, ok = push(*cpu_to_gpu_buffer_arena, SceneInfo);
+  assert(ok);
 
   gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
   init(*gpu_buffer_arena, gpu_memory, .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
-  mesh_buffer = push(*gpu_buffer_arena, u8, 128 << 20);
+  mesh_buffer, ok = push(*gpu_buffer_arena, u8, 128 << 20);
+  assert(ok);
 
   pool_create_info: VkQueryPoolCreateInfo = .{
     queryType  = .TIMESTAMP,
@@ -107,21 +113,23 @@ main :: () {
   timestamp_pool = create_query_pool(pool_create_info);
 
   font, tmp_curves, tmp_bands := load_font("NotoSans-Regular");
-  font_buffer = push(
+  font_buffer, ok = push(
     *gpu_buffer_arena,
     u8,
     cast(u32)(tmp_curves.count * size_of(u16) + tmp_bands.count * size_of(u16)),
   );
+  assert(ok);
 
   gpu_image_memory := allocate_gpu_memory(64 << 20, .DEVICE_LOCAL_BIT);
   init(*gpu_image_arena, gpu_image_memory);
-  depth_image = push(
+  depth_image, ok = push(
     *gpu_image_arena,
     window_width,
     window_height,
     .D32_SFLOAT,
     .DEPTH_STENCIL_ATTACHMENT_BIT,
   );
+  assert(ok);
 
   default_scene: Scene;
   init(*default_scene);
@@ -519,13 +527,15 @@ main :: () {
 
 recreate_depth_image :: () {
   pop(*gpu_image_arena, depth_image);
-  depth_image = push(
+  new_depth_image, ok := push(
     *gpu_image_arena,
     window_width,
     window_height,
     .D32_SFLOAT,
     .DEPTH_STENCIL_ATTACHMENT_BIT,
   );
+  assert(ok);
+  depth_image = new_depth_image;
   imm_command := *render_commands[FRAMES];
   {
     begin_render_command(imm_command);

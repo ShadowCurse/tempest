@@ -36,9 +36,9 @@ compute_queue:         VkQueue;
 transfer_queue_family: u32;
 transfer_queue:        VkQueue;
 
-swapchain_pool: Flat_Pool;
-swapchain: VkSwapchainKHR;
-swapchain_images: []VkImage;
+swapchain_arena:       BufferAllocator;
+swapchain:             VkSwapchainKHR;
+swapchain_images:      []VkImage;
 swapchain_image_views: []VkImageView;
 // NOTE: per swapchain image semaphores are required to safely reuse
 // swapchain images. these are used between vkQueueSubmit and vkQueuePresent calls
@@ -67,6 +67,7 @@ vulkan_init :: (enable_validation: bool) -> success: bool {
   if !physical_device return false;
   init_device();
   if !device return false;
+  init(*swapchain_arena, new_array(1024, u8, initialized = false));
   init_swapchain(window_width, window_height, null);
   if !swapchain return false;
   graphics_command_pool = init_command_pool(graphics_queue_family);
@@ -1201,10 +1202,9 @@ DONE
       return;
     }
 
-    reset(*swapchain_pool);
+    reset(*swapchain_arena);
     new_context := context;
-    new_context.allocator.proc = flat_pool_allocator_proc;
-    new_context.allocator.data = *swapchain_pool;
+    new_context.allocator = allocator(*swapchain_arena);
     push_context new_context {
       swapchain_images      = get_swapchain_images();
       swapchain_image_views = new_array(swapchain_images.count, VkImageView, initialized = false);
