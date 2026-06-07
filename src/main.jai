@@ -1209,8 +1209,8 @@ prof_draw :: (ui: *Context) {
     if hovered then label(
       ui,
       tprint("%", current_frame_bound),
-      .FIXED_POSITION_X | .FIXED_POSITION_Y,
-      p + .{ y = box_height },
+      .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y,
+      p + .{ box_width / 2.0, box_height + 5.0 },
       .{},
     );
   }
@@ -1257,8 +1257,8 @@ prof_draw :: (ui: *Context) {
       if hovered then label(
         ui,
         context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name,
-        .FIXED_POSITION_X | .FIXED_POSITION_Y,
-        position,
+        .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y,
+        position + .{ x = size.x / 2.0 },
         .{},
       );
 

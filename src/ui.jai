@@ -57,38 +57,41 @@ Colors :: #run -> EnumArray(ColorType, RGBA) {
 // note(sc): maybe add ui context to the `context` to avoid using global one
 // but for now use explicitly passed one
 Context :: struct {
-  draw_buffer: BufferAllocator;
+  draw_buffer:             BufferAllocator;
+  frame_arena:             BufferAllocator;
 
-  font_size: float = 20.0;
-  font:      *Font;
+  font_size:               float = 20.0;
+  font:                    *Font;
 
-  hover_id:       u32;
-  pressed_id:     u32;
+  hover_id:                u32;
+  pressed_id:              u32;
 
-  frame:              u32;
-  mouse_position:     Vector2;
-  old_mouse_position: Vector2;
-  mouse_down:         bool;
-  mouse_just_pressed: bool;
+  frame:                   u32;
+  mouse_position:          Vector2;
+  old_mouse_position:      Vector2;
+  mouse_down:              bool;
+  mouse_just_pressed:      bool;
 
   consumed_mouse_event:    bool;
   consumed_keyboard_event: bool;
 
-  global_parent:      Widget;
-  global_parent.border = 2.0;
-  global_parent.margin = 8.0;
+  global_parent:           Widget;
+  global_parent.border =   2.0;
+  global_parent.margin =   8.0;
 
-  current_parent:        *Widget;
-  widgets:           [1024]Widget;
+  current_parent:          *Widget;
+  widgets:                 [1024]Widget;
 }
 
 init :: (c: *Context, font: *Font) {
+  init(*c.frame_arena, new_array(4096, u8, initialized = false));
   c.font   = font;
   c.current_parent = *c.global_parent;
 }
 
 new_frame :: (c: *Context, buffer: []Quad) {
   init(*c.draw_buffer, .{ data = cast(*u8)buffer.data, count = buffer.count * size_of(Quad) });
+  reset(*c.frame_arena);
   c.frame += 1;
   c.consumed_mouse_event    = false;
   c.consumed_keyboard_event = false;
@@ -109,13 +112,11 @@ WidgetFlags :: enum_flags u32 {
   DRAW_TEXT;
   DRAW_BORDER;
   DRAW_ROUNDED;
+  DRAW_CENTERED; // Provided position value is the center of the rectangle instead of top-left corner.
   FIXED_SIZE_X;
   FIXED_SIZE_Y;
   FIXED_POSITION_X;
   FIXED_POSITION_Y;
-}
-WidgetTextFlags :: enum_flags u8 {
-  CENTER;
 }
 Widget :: struct {
   // per-frame update
@@ -131,8 +132,7 @@ Widget :: struct {
 
   // customization
   flags:              WidgetFlags;
-  text_flags:         WidgetTextFlags;
-  text:               string;
+  payload:            []u8;
   bg_color:           RGBA;
   border_color:       RGBA;
   border:             float;
@@ -178,6 +178,14 @@ find_oldest_widget :: (c: *Context) -> *Widget {
   return result;
 }
 
+push_parent :: (c: *Context, w: *Widget) {
+  c.current_parent = w;
+}
+
+pop_parent :: (c: *Context) {
+  c.current_parent = c.current_parent.parent;
+}
+
 link_widget :: (parent: *Widget, w: *Widget) {
   if !parent.first {
     parent.first, parent.last = w;
@@ -193,7 +201,6 @@ build_widget :: (
   c:          *Context,
   name:       string,
   flags:      WidgetFlags,
-  text_flags: WidgetTextFlags,
   size:       Vector2 = .{},
   position:   Vector2 = .{},
 ) -> *Widget {
@@ -201,12 +208,12 @@ build_widget :: (
   widget_id := create_id(xx name, parent.id);
   widget    := find_existing_widget(c, widget_id);
   if !widget {
-    widget    = find_oldest_widget(c);
+    widget   = find_oldest_widget(c);
     widget.* = .{};
   }
 
-  widget.border            = ifx flags & .DRAW_BORDER parent.border;
-  widget.margin            = parent.margin;
+  widget.border = ifx flags & .DRAW_BORDER parent.border;
+  widget.margin = parent.margin;
 
   if flags & .FIXED_SIZE_X { widget.size.x = size.x; }
   else widget.size.x = parent.size.x - parent.margin * 2.0;
@@ -236,9 +243,8 @@ build_widget :: (
   widget.last_frame_update = c.frame;
   link_widget(parent, widget);
 
-  widget.flags             = flags;
-  widget.text_flags        = text_flags;
-  widget.text              = name;
+  widget.flags    = flags;
+  widget.payload  = clone(cast([]u8)name,, allocator(*c.frame_arena));
   return widget;
 }
 
@@ -246,42 +252,53 @@ panel_start :: (c: *Context, name: string, size: Vector2, position: Vector2 = .{
   widget: *Widget;
   flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
   if position != .{} flags |= .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
-  widget = build_widget(c, name, flags, 0, size, position);
+  widget = build_widget(c, name, flags, size, position);
   widget.bg_color = Colors[ColorType.BACKGROUND];
-  c.current_parent = widget;
+  push_parent(c, widget);
 }
 
 panel_end :: (c: *Context) {
   // note(sc): can this ensure that it is called on panel and not on any other widget?
-  c.current_parent = c.current_parent.parent;
+  pop_parent(c);
 }
 
 label :: (
-  c: *Context,
-  text: string,
-  add_flags: WidgetFlags = 0,
-  position: Vector2      = .{},
-  size: Vector2          = .{},
+  c:         *Context,
+  text:      string,
+  flags:     WidgetFlags = 0,
+  position:  Vector2     = .{},
+  size:      Vector2     = .{},
 ) {
-  flags: WidgetFlags = .DRAW_TEXT | add_flags;
-  build_widget(c, text, flags, 0, size, position);
+  f := ifx flags else .DRAW_TEXT;
+  build_widget(c, text, f, size, position);
 }
 
 button :: (
-  c: *Context,
-  text: string,
-  add_flags: WidgetFlags = 0,
-  position: Vector2      = .{},
-  size: Vector2          = .{},
-  color: RGBA            = 0,
+  c:         *Context,
+  text:      string,
+  flags:     WidgetFlags = 0,
+  position:  Vector2     = .{},
+  size:      Vector2     = .{},
+  color:     RGBA        = 0,
 ) -> pressed: bool, hovered: bool {
-  flags := .CLICK | add_flags;
-  widget  := build_widget(c, text, flags, .CENTER, size, position);
-  pressed := c.pressed_id == widget.id;
-  hovered := c.hover_id == widget.id;
-  result  := pressed && !widget.was_pressed;
-  widget.was_pressed = pressed;
-  widget.bg_color = ifx color == 0 then Colors[ColorType.BUTTON_NORMAL] else color;
+  f           := ifx flags else .CLICK | .DRAW_TEXT | .DRAW_BACKGROUND | .DRAW_ROUNDED;
+  button_text := tprint("button_%", text);
+  button      := build_widget(c, button_text, f, size, position);
+  pressed     := c.pressed_id == button.id;
+  hovered     := c.hover_id == button.id;
+  result      := pressed && !button.was_pressed;
+  button.was_pressed = pressed;
+  button.bg_color = ifx color == 0 then Colors[ColorType.BUTTON_NORMAL] else color;
+  if (f & .DRAW_TEXT) != 0 {
+    button.flags &= ~WidgetFlags.DRAW_TEXT;
+
+    push_parent(c, button);
+    defer pop_parent(c);
+
+    text_flags: WidgetFlags = .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y;
+    text_position := position + button.size / 2.0;
+    _             := build_widget(c, text, text_flags, .{}, text_position);
+  }
   return result, hovered;
 }
 
@@ -289,7 +306,7 @@ toggle :: (c: *Context, text: string, v: *bool) {
   flags: WidgetFlags = .CLICK | .DRAW_BACKGROUND | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
   tag := tprint("%_toggle", text);
   toggle_size := c.font_size;
-  toggle := build_widget(c, tag, flags, .CENTER, .{ toggle_size , toggle_size  });
+  toggle := build_widget(c, tag, flags, .{ toggle_size , toggle_size  });
   toggle.bg_color = Colors[ifx v.* then ColorType.GREEN1 else .BACKGROUND1];
 
   pressed := c.pressed_id == toggle.id;
@@ -300,7 +317,7 @@ toggle :: (c: *Context, text: string, v: *bool) {
   flags     = .DRAW_TEXT | .FIXED_SIZE_X | .FIXED_POSITION_X | .FIXED_POSITION_Y;
   size     := Vector2.{ x = toggle.parent.size.x - toggle_size  };
   position := Vector2.{ toggle.position.x + toggle_size, toggle.position.y - toggle_size / 2.0 };
-  _    := build_widget(c, text, flags, 0, size, position);
+  _        := build_widget(c, text, flags, size, position);
 }
 
 select :: (c: *Context, text: string, e: *$T, $names: []string)
@@ -342,7 +359,7 @@ slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
   ratio = clamp(ratio, 0.0, 1.0);
   tag   := tprint("%_bg", name);
   flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_Y;
-  bg    := build_widget(c, tag, flags, 0, .{ y = 20.0 });
+  bg    := build_widget(c, tag, flags, .{ y = 20.0 });
   bg.bg_color = Colors[ColorType.BACKGROUND3];
 
   tag   = tprint("%_knob", name);
@@ -352,7 +369,7 @@ slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
   knob_position_offset := knob_size / 2.0;
   knob_travel_distance := bg.size.x - knob_size;
   knob_position: Vector2 = .{ knob_position_offset + knob_travel_distance * ratio, bg.position.y };
-  knob := build_widget(c, tag, flags, 0, .{ 20.0, 20.0 }, knob_position);
+  knob := build_widget(c, tag, flags, .{ 20.0, 20.0 }, knob_position);
 
   knob.bg_color = Colors[ColorType.BUTTON_PRESSED];
   if c.pressed_id == knob.id {
@@ -385,6 +402,9 @@ finish_widgets :: (c: *Context) {
   w := *c.global_parent;
   while w != null {
     widget_p := w.position;
+    if (w.flags & .DRAW_CENTERED) != 0 {
+      widget_p -= w.size / 2.0;
+    }
     current_p += widget_p;
     bg_color := w.bg_color;
     check_rect_interaction(c, w.id, current_p, w.size);
@@ -413,12 +433,18 @@ finish_widgets :: (c: *Context) {
       draw_border(c, current_p, w.size, Colors[ColorType.BORDER], w.border, rounded);
     }
     if w.flags & .DRAW_TEXT {
-      text_offset_x: float;
+      text_centered := false;
+      text_position := current_p;
+      text_offset_x := w.margin;
+      if (w.flags & .DRAW_CENTERED) != 0 {
+        text_centered = true;
+        text_position.x += w.size.x / 2.0;
+        text_offset_x = 0.0;
+      }
       text_offset_y := (w.size.y + c.font_size) / 2.0;
-      if w.text_flags & .CENTER text_offset_x = w.size.x / 2.0;
-      else                      text_offset_x = w.margin;
-      text_position := current_p + .{ text_offset_x, text_offset_y };
-      draw_text(c, text_position, w.text, cast(bool)(w.text_flags & .CENTER), w.size.x);
+      text_position += .{ text_offset_x, text_offset_y };
+      text := cast(string)w.payload;
+      draw_text(c, text_position, text, text_centered, w.size.x);
     }
     if w.first {
       w = w.first;
