@@ -315,3 +315,10 @@ new_array :: (count: s64, $T: Type, $initialized := true) -> []T {
   }
   return result;
 }
+
+clone :: (data: []$T) -> []T {
+  if data.count == 0 then return .[];
+  result := new_array(data.count, T, initialized = false);
+  if result then memcpy(result.data, data.data, size_of(T) * data.count);
+  return result;
+}
