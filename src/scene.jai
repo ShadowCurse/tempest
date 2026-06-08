@@ -303,8 +303,8 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
 }
 
 
-create_cylinder :: (radius: float, sectors: u32, heigth: float) -> Mesh {
-  half_h := heigth / 2.0;
+create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
+  half_h := height / 2.0;
   sector_step   := 2.0 * PI / cast(float)sectors;
   points := new_array(sectors, Vector3,,temp);
   pp := fixed_slice(points);
@@ -321,7 +321,7 @@ create_cylinder :: (radius: float, sectors: u32, heigth: float) -> Mesh {
   vv := fixed_slice(vertices);
   push(*vv, .{.{0.0, 0.0, half_h}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
   for < i: 0..1 {
-    h := -half_h + heigth * i;
+    h := -half_h + height * i;
     uv_y := cast(float)(1 - i);
 
     for j: 0..sectors - 1 {
@@ -389,6 +389,65 @@ create_cylinder :: (radius: float, sectors: u32, heigth: float) -> Mesh {
   return .{
     0,
     .{ .{-radius, -radius, -half_h}, .{radius, radius, half_h} },
+    indices,
+    vertices,
+  };
+}
+
+create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
+  sector_step := 2.0 * PI / cast(float)sectors;
+  points      := new_array(sectors, Vector3,,temp);
+  pp          := fixed_slice(points);
+  for i: 0..sectors - 1 {
+    angle := sector_step * i;
+    push(*pp, .{cos(angle), sin(angle), 0});
+  }
+
+  total_vertices := sectors + 2;
+  total_indices  := sectors * 3 * 2;
+  vertices := new_array(total_vertices, Vertex, initialized = false);
+  indices  := new_array(total_indices,  u32,    initialized = false);
+
+  vv := fixed_slice(vertices);
+  push(*vv, .{.{0.0, 0.0, height}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
+
+  uv_y := 1.0;
+  for j: 0..sectors - 1 {
+    p := points[j];
+    position := Vector3.{p.x * radius, p.y * radius, 0};
+    normal   := p;
+    uv_x     := cast(float)j / cast(float)sectors;
+    push(*vv, .{ position, uv_x, normal, uv_y, normal, 0 });
+  }
+
+  push(*vv, .{.{0.0, 0.0, 0}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
+  assert(vv.count == total_vertices, "% != %", vv.count, total_vertices);
+
+  // note(sc): this logic is basically same as for sphere
+  ii := fixed_slice(indices);
+  for i: 0..sectors - 1 {
+    push(*ii, 0);
+    push(*ii, i + 1);
+    if i != sectors - 1 {
+      push(*ii, i + 2);
+    } else {
+      push(*ii, 1);
+    }
+  }
+  for i: 0..sectors - 1 {
+    push(*ii, total_vertices - 1);
+    push(*ii, total_vertices - 1 - sectors + i);
+    if i != sectors - 1 {
+      push(*ii, total_vertices - 1 - sectors + i + 1);
+    } else {
+      push(*ii, total_vertices - 1 - sectors);
+    }
+  }
+  assert(ii.count == total_indices, "% != %", ii.count, total_indices);
+
+  return .{
+    0,
+    .{ .{-radius, -radius, 0}, .{radius, radius, height} },
     indices,
     vertices,
   };
