@@ -191,7 +191,7 @@ void main() {
             // ----------\
             //        |   |
             //   ____(*) _|____
-            //    3    |   |  2
+            //    3   |   |  2
             //
             // In 0, points are outside the shape
             // In 1/2, points are also outside the shape

@@ -172,7 +172,7 @@ prof_print :: () {
       log(#string,\% DONE
 t: % | %:% | hit: % | exclusive: % cycles | % ms | %\% | inclusive: % cycles | % ms | %\%,
 DONE,
-        context.thread_id,
+        context.prof_thread_id,
         cast(string)name_buf,
         formatInt(it.line,               minimum_digits = 6, padding = #char " "),
         formatInt(zone.hit_count,        minimum_digits = 3, padding = #char " "),

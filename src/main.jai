@@ -1258,7 +1258,7 @@ prof_draw :: (ui: *Context) {
         ui,
         context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name,
         .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y,
-        position + .{ x = size.x / 2.0 },
+        position + .{ x = size.x / 2.0, y = -15.0 },
         .{},
       );
 
