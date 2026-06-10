@@ -33,6 +33,10 @@ translate :: (m: *Matrix4, position: Vector3) {
   m._43 += position.z;
 }
 
+translation :: (m: Matrix4) -> Vector3 {
+  return .{ m._41, m._42, m._43 };
+}
+
 scale :: (m: *Matrix4, v: Vector3) {
     m._11 *= v.x;
     m._12 *= v.x;

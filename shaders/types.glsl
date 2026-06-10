@@ -2,6 +2,14 @@
 
 #define VkDeviceAddress uint64_t
 
+struct GizmoPushConstant {
+    VkDeviceAddress scene_buffer;
+    VkDeviceAddress mesh_buffer;
+    VkDeviceAddress instance_buffer;
+    uint vertices_offset;
+    uint instance_buffer_offset;
+};
+
 struct GridPushConstant {
     VkDeviceAddress scene_buffer;
 };

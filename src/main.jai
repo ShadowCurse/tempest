@@ -20,6 +20,7 @@ cpu_to_gpu_buffer_arena: GpuBufferArena;
 staging_buffer:          GpuBufferSlice(u8);
 ui_buffers:              [FRAMES]GpuBufferSlice(Quad);
 scene_buffer:            GpuBufferSlice(SceneInfo);
+gizmo_buffers:           [FRAMES]GpuBufferSlice(Matrix4);
 
 gpu_buffer_arena: GpuBufferArena;
 mesh_buffer:      GpuBufferSlice(u8);
@@ -43,18 +44,23 @@ Timestamp :: enum u8 {
   MESH_END;
   UI_START;
   UI_END;
+  GIZMO_START;
+  GIZMO_END;
 };
 timestamp_array: EnumArray(Timestamp, u64);
 timestamp_pool:  VkQueryPool;
 
 compute_pipeline: Pipeline;
-ui_pipeline:    Pipeline;
+ui_pipeline:      Pipeline;
 grid_pipeline:    Pipeline;
 mesh_pipeline:    Pipeline;
+gizmo_pipeline:   Pipeline;
 
-cube_mesh_idx:   MeshIdx;
-sphere_mesh_idx: MeshIdx;
-gpu_mesh_infos:  FixedArray(GpuMeshInfo, 8192, MeshIdx);
+cube_mesh_idx:      MeshIdx;
+sphere_mesh_idx:    MeshIdx;
+gizmo_cylinder_idx: MeshIdx;
+gizmo_cone_idx:     MeshIdx;
+gpu_mesh_infos:     FixedArray(GpuMeshInfo, 8192, MeshIdx);
 
 // rendering settings
 visual_aabb:  bool          = false;
@@ -73,6 +79,7 @@ camera_mouse_ray_direction: Vector3;
 selection_on:            bool;
 selected_scene_node_idx: SceneNodeIdx;
 selected_intersection:   TriangleIntersectionResult;
+selected_world_position: Vector3;
 
 main :: () {
   init_prof();
@@ -100,6 +107,10 @@ main :: () {
   }
   scene_buffer, ok = push(*cpu_to_gpu_buffer_arena, SceneInfo);
   assert(ok);
+  for * gizmo_buffers {
+    it.*, ok = push(*cpu_to_gpu_buffer_arena, Matrix4, 6); // 3 rods, 3 cones
+    assert(ok);
+  }
 
   gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
   init(*gpu_buffer_arena, gpu_memory, .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
@@ -137,6 +148,10 @@ main :: () {
   bistro_idx  := load_gltf(*default_scene, "bistro.glb");
   cube_mesh_idx   = add_mesh(*default_scene, create_box(1.0, 1.0, 1.0,, temp));
   sphere_mesh_idx = add_mesh(*default_scene, create_sphere_uv(1.0, 32, 32,,
+                                                              allocator(*default_scene.mesh_arena)));
+  gizmo_cylinder_idx = add_mesh(*default_scene, create_cylinder(0.2, 32, 4.0,,
+                                                              allocator(*default_scene.mesh_arena)));
+  gizmo_cone_idx     = add_mesh(*default_scene, create_cone(0.4, 32, 1.0,,
                                                               allocator(*default_scene.mesh_arena)));
 
   cylinder_mesh_idx := add_mesh(*default_scene, create_cylinder(0.5, 32, 1.0,,
@@ -235,6 +250,7 @@ main :: () {
   ui_pipeline      = create_ui_pipeline();
   grid_pipeline    = create_grid_pipeline();
   mesh_pipeline    = create_mesh_pipeline();
+  gizmo_pipeline   = create_gizmo_pipeline();
 
   ui: Context;
   init(*ui, *font);
@@ -423,6 +439,7 @@ main :: () {
       prof_scope("graphics_pipeline");
 
       cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_image.view);
+      defer cmd_end_rendering(render_command);
 
       world_rotation_z  := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
       camera_rotation_x := quat_from_axis_angle(.{ x = -1.0 }, PI - camera_rotation.x);
@@ -434,7 +451,7 @@ main :: () {
       camera_view = quat_to_mat4(world_to_camera_rotation);
       translate(*camera_view, rotate(-camera_position, world_to_camera_rotation));
 
-      camera_view_inv := quat_to_mat4(camera_to_world_rotation);
+      camera_view_inv = quat_to_mat4(camera_to_world_rotation);
       translate(*camera_view_inv, camera_position);
 
       camera_projection = perspective(PI / 2.0,
@@ -485,11 +502,13 @@ main :: () {
       }
 
     }
-    cmd_end_rendering(render_command);
 
-    cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
     {
       prof_scope("ui_pipeline");
+
+      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
+      defer cmd_end_rendering(render_command);
+
       {
         cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_START);
         defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.UI_END);
@@ -506,7 +525,82 @@ main :: () {
         cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
       }
     }
-    cmd_end_rendering(render_command);
+
+    {
+      prof_scope("gizmo_pipeline");
+
+      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_image.view);
+      defer cmd_end_rendering(render_command);
+
+      {
+        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GIZMO_START);
+        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.GIZMO_END);
+
+        selected_position := Vector4.{ xyz = selected_world_position, w = 1.0 };
+        // selected_position := Vector4.{ x = 0.0, w = 1.0 };
+        selected_in_camera_space := transpose(camera_view) * selected_position;
+        normalize(*selected_in_camera_space);
+        selected_in_camera_space *= 10.0;
+        selected_in_camera_space.w = 1.0;
+
+        selected_in_world_space := transpose(camera_view_inv) * selected_in_camera_space;
+
+        current_instance_buffer := *gizmo_buffers[current_frame_idx];
+        instance_buffer         := host_memory(current_instance_buffer);
+
+        // rods
+        instance_buffer[0] = Matrix4_Identity;
+        instance_buffer[0] = rotate(instance_buffer[0], quat_from_axis_angle(.{ y = 1.0 }, -PI / 2.0));
+        translate(*instance_buffer[0], selected_in_world_space.xyz + .{ x = 1.0 });
+
+        instance_buffer[1] = Matrix4_Identity;
+        instance_buffer[1] = rotate(instance_buffer[1], quat_from_axis_angle(.{ x = 1.0 }, PI / 2.0));
+        translate(*instance_buffer[1], selected_in_world_space.xyz + .{ y = 1.0 });
+
+        instance_buffer[2] = Matrix4_Identity;
+        translate(*instance_buffer[2], selected_in_world_space.xyz + .{ z = 1.0 });
+
+        // cones
+        instance_buffer[3] = instance_buffer[0];
+        translate(*instance_buffer[3], .{ x = 2.0 });
+        instance_buffer[4] = instance_buffer[1];
+        translate(*instance_buffer[4], .{ y = 2.0 });
+        instance_buffer[5] = instance_buffer[2];
+        translate(*instance_buffer[5], .{ z = 2.0 });
+
+        cmd_bind_pipeline(render_command, gizmo_pipeline, .GRAPHICS);
+        {
+          info := *gpu_mesh_infos[gizmo_cylinder_idx];
+          constant: GizmoPushConstant = .{
+            scene_buffer.device_address,
+            mesh_buffer.device_address,
+            current_instance_buffer .device_address,
+            xx info.vertices_buffer_offset,
+            0,
+          };
+
+          cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
+          cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
+        }
+
+        {
+          info := *gpu_mesh_infos[gizmo_cone_idx];
+          constant: GizmoPushConstant = .{
+            scene_buffer.device_address,
+            mesh_buffer.device_address,
+            current_instance_buffer .device_address,
+            xx info.vertices_buffer_offset,
+            3,
+          };
+
+          cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
+          cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
+        }
+
+      }
+    }
 
     cmd_transition_swapchain_image(
       render_command,
@@ -624,6 +718,7 @@ draw_node :: (
       if s && r.t < selected_intersection.t {
         log("intersects: % at t: % previous t: %", to_string(node.name), r.t, selected_intersection.t);
         selected_scene_node_idx = node_idx;
+        selected_world_position = translation(final_transform);
         selected_intersection = r;
       }
     }
@@ -985,6 +1080,118 @@ create_mesh_pipeline :: () -> Pipeline {
   vertex_input: VkPipelineVertexInputStateCreateInfo;
 
   dynamic_states: []VkDynamicState = .[ .VIEWPORT, .SCISSOR, .POLYGON_MODE_EXT ];
+  dynamic_state_info: VkPipelineDynamicStateCreateInfo = .{
+    pDynamicStates    = dynamic_states.data,
+    dynamicStateCount = xx dynamic_states.count,
+  };
+
+  create_info: VkGraphicsPipelineCreateInfo = .{
+    pNext               = *rendering,
+    stageCount          = xx stages.count,
+    pStages             = stages.data,
+    pVertexInputState   = *vertex_input,
+    pInputAssemblyState = *input_assembly,
+    pViewportState      = *viewport,
+    pRasterizationState = *rasterization,
+    pMultisampleState   = *multisampling,
+    pDepthStencilState  = *depth_stencil_state,
+    pColorBlendState    = *color_blending,
+    pDynamicState       = *dynamic_state_info,
+    layout              = layout,
+  };
+  pipeline := create_graphics_pipeline(create_info);
+
+  return .{
+    pipeline = pipeline,
+    layout = layout,
+  };
+}
+
+GizmoPushConstant :: struct {
+  scene_buffer:           VkDeviceAddress;
+  mesh_buffer:            VkDeviceAddress;
+  instance_buffer:        VkDeviceAddress;
+  vertices_offset:        u32;
+  instance_buffer_offset: u32;
+} @ShaderType
+// This one is essentially same as mesh pipeline with only a change to the
+// push constant and shaders
+create_gizmo_pipeline :: () -> Pipeline {
+  push_constants: VkPushConstantRange = .{
+    stageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
+    offset     = 0,
+    size       = size_of(GizmoPushConstant),
+  };
+  pipeline_layout_create_info: VkPipelineLayoutCreateInfo = .{
+    pPushConstantRanges    = *push_constants,
+    pushConstantRangeCount = 1,
+  };
+  layout := create_pipeline_layout(pipeline_layout_create_info);
+
+  vert_code, ok := platform_read_entire_file("shaders_compiled/gizmo_vert.spv",, temp);
+  assert(ok);
+  vert_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx vert_code.data,
+    codeSize = xx vert_code.count,
+  };
+  frag_code: , ok = platform_read_entire_file("shaders_compiled/gizmo_frag.spv",, temp);
+  assert(ok);
+  frag_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx frag_code.data,
+    codeSize = xx frag_code.count,
+  };
+  stages: []VkPipelineShaderStageCreateInfo = .[
+    .{ pNext = *vert_module_create_info, stage = .VERTEX_BIT,   pName = "main" },
+    .{ pNext = *frag_module_create_info, stage = .FRAGMENT_BIT, pName = "main" },
+  ];
+
+  input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
+  rasterization: VkPipelineRasterizationStateCreateInfo = .{
+    polygonMode = .FILL,
+    // cullMode    = .BACK_BIT,
+    frontFace   = .COUNTER_CLOCKWISE,
+    lineWidth   = 1.0,
+  };
+  multisampling: VkPipelineMultisampleStateCreateInfo = .{ rasterizationSamples = ._1_BIT };
+  color_attachment_format: VkFormat = .B8G8R8A8_UNORM;
+  rendering: VkPipelineRenderingCreateInfo = .{
+    pColorAttachmentFormats = *color_attachment_format,
+    colorAttachmentCount    = 1,
+    depthAttachmentFormat   = .D32_SFLOAT,
+    stencilAttachmentFormat = .UNDEFINED,
+  };
+  color_blend_attachment: VkPipelineColorBlendAttachmentState = .{
+    blendEnable         = xx true,
+    srcColorBlendFactor = .SRC_ALPHA,
+    dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+    colorBlendOp        = .ADD,
+    srcAlphaBlendFactor = .ONE,
+    dstAlphaBlendFactor = .ZERO,
+    alphaBlendOp        = .ADD,
+    colorWriteMask      = .R_BIT | .G_BIT | .B_BIT | .A_BIT,
+  };
+
+  viewport: VkPipelineViewportStateCreateInfo = .{ viewportCount = 1, scissorCount = 1 };
+
+  depth_stencil_state: VkPipelineDepthStencilStateCreateInfo = .{
+    depthTestEnable       = xx true,
+    depthWriteEnable      = xx true,
+    depthCompareOp        = .GREATER,
+    depthBoundsTestEnable = xx false,
+    minDepthBounds        = 0,
+    maxDepthBounds        = 1.0,
+  };
+
+  color_blending: VkPipelineColorBlendStateCreateInfo = .{
+    logicOpEnable   = xx false,
+    logicOp         = .COPY,
+    attachmentCount = 1,
+    pAttachments    = *color_blend_attachment,
+  };
+
+  vertex_input: VkPipelineVertexInputStateCreateInfo;
+
+  dynamic_states: []VkDynamicState = .[ .VIEWPORT, .SCISSOR ];
   dynamic_state_info: VkPipelineDynamicStateCreateInfo = .{
     pDynamicStates    = dynamic_states.data,
     dynamicStateCount = xx dynamic_states.count,
