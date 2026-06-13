@@ -80,6 +80,11 @@ selection_on:            bool;
 selected_scene_node_idx: SceneNodeIdx;
 selected_intersection:   TriangleIntersectionResult;
 selected_world_position: Vector3;
+gizmo_dragging_on:       bool;
+selected_gizmo_axis:     enum { NONE; X; Y; Z; } = .NONE;
+selection_starting_camera_position:            Vector3;
+selection_starting_camera_mouse_ray_direction: Vector3;
+gizmo_current_drag_delta: float32;
 
 main :: () {
   init_prof();
@@ -339,13 +344,22 @@ main :: () {
 
     selection_on = false;
     if !ui.consumed_mouse_event {
-      if pressed(mouse_state, .LMB) {
-        camera_rotation.y -= mouse_movement.x * (1.0 / 120.0);
-        camera_rotation.x -= mouse_movement.y * (1.0 / 120.0);
-        camera_rotation.x = clamp(camera_rotation.x, 0, PI);
+      if just_pressed(mouse_state, .LMB) && selected_gizmo_axis != .NONE {
+        gizmo_dragging_on = true;
+      } else if !gizmo_dragging_on {
+        if pressed(mouse_state, .LMB) {
+          camera_rotation.y -= mouse_movement.x * (1.0 / 120.0);
+          camera_rotation.x -= mouse_movement.y * (1.0 / 120.0);
+          camera_rotation.x = clamp(camera_rotation.x, 0, PI);
+        }
+      }
+      if just_released(mouse_state, .LMB) {
+        gizmo_dragging_on = false;
+        gizmo_current_drag_delta = 0.0;
       }
       if just_pressed(mouse_state, .RMB) {
         selection_on = true;
+        selected_scene_node_idx = 0;
         selected_intersection = .{};
       }
     }
@@ -536,69 +550,148 @@ main :: () {
         cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GIZMO_START);
         defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.GIZMO_END);
 
-        selected_position := Vector4.{ xyz = selected_world_position, w = 1.0 };
-        // selected_position := Vector4.{ x = 0.0, w = 1.0 };
-        selected_in_camera_space := transpose(camera_view) * selected_position;
-        normalize(*selected_in_camera_space);
-        selected_in_camera_space *= 10.0;
-        selected_in_camera_space.w = 1.0;
+        // This if is here because timestamps need to be written all the time for now
+        if selected_scene_node_idx {
+          selected_position := Vector4.{ xyz = selected_world_position, w = 1.0 };
+          selected_in_camera_space := transpose(camera_view) * selected_position;
+          normalize(*selected_in_camera_space);
+          selected_in_camera_space *= 10.0;
+          selected_in_camera_space.w = 1.0;
 
-        selected_in_world_space := transpose(camera_view_inv) * selected_in_camera_space;
+          selected_in_world_space := transpose(camera_view_inv) * selected_in_camera_space;
 
-        current_instance_buffer := *gizmo_buffers[current_frame_idx];
-        instance_buffer         := host_memory(current_instance_buffer);
+          current_instance_buffer := *gizmo_buffers[current_frame_idx];
+          instance_buffer         := host_memory(current_instance_buffer);
 
-        // rods
-        instance_buffer[0] = Matrix4_Identity;
-        instance_buffer[0] = rotate(instance_buffer[0], quat_from_axis_angle(.{ y = 1.0 }, -PI / 2.0));
-        translate(*instance_buffer[0], selected_in_world_space.xyz + .{ x = 1.0 });
+          // rods
+          instance_buffer[0] = Matrix4_Identity;
+          instance_buffer[0] = rotate(instance_buffer[0], quat_from_axis_angle(.{ y = 1.0 }, -PI / 2.0));
+          translate(*instance_buffer[0], selected_in_world_space.xyz + .{ x = 1.0 });
 
-        instance_buffer[1] = Matrix4_Identity;
-        instance_buffer[1] = rotate(instance_buffer[1], quat_from_axis_angle(.{ x = 1.0 }, PI / 2.0));
-        translate(*instance_buffer[1], selected_in_world_space.xyz + .{ y = 1.0 });
+          instance_buffer[1] = Matrix4_Identity;
+          instance_buffer[1] = rotate(instance_buffer[1], quat_from_axis_angle(.{ x = 1.0 }, PI / 2.0));
+          translate(*instance_buffer[1], selected_in_world_space.xyz + .{ y = 1.0 });
 
-        instance_buffer[2] = Matrix4_Identity;
-        translate(*instance_buffer[2], selected_in_world_space.xyz + .{ z = 1.0 });
+          instance_buffer[2] = Matrix4_Identity;
+          translate(*instance_buffer[2], selected_in_world_space.xyz + .{ z = 1.0 });
 
-        // cones
-        instance_buffer[3] = instance_buffer[0];
-        translate(*instance_buffer[3], .{ x = 2.0 });
-        instance_buffer[4] = instance_buffer[1];
-        translate(*instance_buffer[4], .{ y = 2.0 });
-        instance_buffer[5] = instance_buffer[2];
-        translate(*instance_buffer[5], .{ z = 2.0 });
+          // cones
+          instance_buffer[3] = instance_buffer[0];
+          translate(*instance_buffer[3], .{ x = 2.0 });
+          instance_buffer[4] = instance_buffer[1];
+          translate(*instance_buffer[4], .{ y = 2.0 });
+          instance_buffer[5] = instance_buffer[2];
+          translate(*instance_buffer[5], .{ z = 2.0 });
 
-        cmd_bind_pipeline(render_command, gizmo_pipeline, .GRAPHICS);
-        {
-          info := *gpu_mesh_infos[gizmo_cylinder_idx];
-          constant: GizmoPushConstant = .{
-            scene_buffer.device_address,
-            mesh_buffer.device_address,
-            current_instance_buffer .device_address,
-            xx info.vertices_buffer_offset,
-            0,
-          };
+          if just_pressed(mouse_state, .LMB) {
+            selected_gizmo_axis = .NONE;
+            closest_point: float32 = 100000.0;
+            selected_gizmo_part := -1;
+            for instance_buffer {
+              _, t := inverse_lengyel(it);
+              // The row-major matrix strikes again
+              t = transpose(t);
+              ray: Ray = .{
+                          (t * Vector4.{ xyz = camera_position,            w = 1.0 }).xyz,
+                normalize((t * Vector4.{ xyz = camera_mouse_ray_direction, w = 0.0 }).xyz),
+              };
+              mesh := ifx it_index < 3 then default_scene.meshes[gizmo_cylinder_idx] else default_scene.meshes[gizmo_cone_idx];
+              s, r := mesh_ray_intersection(mesh, ray);
+              if s && r.t < closest_point {
+                closest_point = r.t;
+                selected_gizmo_part = it_index;
+              }
+            }
+            if selected_gizmo_part != -1 {
+              selection_starting_camera_position            = camera_position;
+              selection_starting_camera_mouse_ray_direction = camera_mouse_ray_direction;
+              if selected_gizmo_part == {
+                case 0; #through;
+                case 3;
+                  selected_gizmo_axis = .X;
+                case 1; #through;
+                case 4;
+                  selected_gizmo_axis = .Y;
+                case 2; #through;
+                case 5;
+                  selected_gizmo_axis = .Z;
+              }
+            }
+          }
+          if gizmo_dragging_on {
+            t := *default_scene.nodes[selected_scene_node_idx];
+            if selected_gizmo_axis == {
+              case .NONE;
+              case .X;
+                old_t := selection_starting_camera_position.z / selection_starting_camera_mouse_ray_direction.z;
+                new_t := camera_position.z / camera_mouse_ray_direction.z;
 
-          cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
-          cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
+                old := selection_starting_camera_position + selection_starting_camera_mouse_ray_direction * old_t;
+                new := camera_position + camera_mouse_ray_direction * new_t;
+
+                v := new - old;
+
+                t.translation.x += gizmo_current_drag_delta;
+                gizmo_current_drag_delta = dot(v, normalize(selected_world_position + .{ x = 1.0 }));
+                t.translation.x -= gizmo_current_drag_delta;
+              case .Y;
+                old_t := selection_starting_camera_position.z / selection_starting_camera_mouse_ray_direction.z;
+                new_t := camera_position.z / camera_mouse_ray_direction.z;
+
+                old := selection_starting_camera_position + selection_starting_camera_mouse_ray_direction * old_t;
+                new := camera_position + camera_mouse_ray_direction * new_t;
+
+                v := new - old;
+
+                t.translation.y += gizmo_current_drag_delta;
+                gizmo_current_drag_delta = dot(v, normalize(selected_world_position + .{ y = 1.0 }));
+                t.translation.y -= gizmo_current_drag_delta;
+              case .Z;
+                old_t := selection_starting_camera_position.y / selection_starting_camera_mouse_ray_direction.y;
+                new_t := camera_position.y / camera_mouse_ray_direction.y;
+
+                old := selection_starting_camera_position + selection_starting_camera_mouse_ray_direction * old_t;
+                new := camera_position + camera_mouse_ray_direction * new_t;
+
+                v := new - old;
+
+                t.translation.z += gizmo_current_drag_delta;
+                gizmo_current_drag_delta = dot(v, normalize(selected_world_position + .{ z = 1.0 }));
+                t.translation.z -= gizmo_current_drag_delta;
+            }
+          }
+
+          cmd_bind_pipeline(render_command, gizmo_pipeline, .GRAPHICS);
+          {
+            info := *gpu_mesh_infos[gizmo_cylinder_idx];
+            constant: GizmoPushConstant = .{
+              scene_buffer.device_address,
+              mesh_buffer.device_address,
+              current_instance_buffer .device_address,
+              xx info.vertices_buffer_offset,
+              0,
+            };
+
+            cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+            cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
+            cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
+          }
+
+          {
+            info := *gpu_mesh_infos[gizmo_cone_idx];
+            constant: GizmoPushConstant = .{
+              scene_buffer.device_address,
+              mesh_buffer.device_address,
+              current_instance_buffer .device_address,
+              xx info.vertices_buffer_offset,
+              3,
+            };
+
+            cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+            cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
+            cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
+          }
         }
-
-        {
-          info := *gpu_mesh_infos[gizmo_cone_idx];
-          constant: GizmoPushConstant = .{
-            scene_buffer.device_address,
-            mesh_buffer.device_address,
-            current_instance_buffer .device_address,
-            xx info.vertices_buffer_offset,
-            3,
-          };
-
-          cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
-          cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
-        }
-
       }
     }
 
@@ -702,6 +795,10 @@ draw_node :: (
     cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
     cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
 
+    if node_idx == selected_scene_node_idx {
+      selected_world_position = translation(final_transform);
+    }
+
     if visual_aabb || node_idx == selected_scene_node_idx {
       draw_aabb(cmd, scene.meshes[node.mesh_idx].aabb, final_transform);
     }
@@ -718,7 +815,6 @@ draw_node :: (
       if s && r.t < selected_intersection.t {
         log("intersects: % at t: % previous t: %", to_string(node.name), r.t, selected_intersection.t);
         selected_scene_node_idx = node_idx;
-        selected_world_position = translation(final_transform);
         selected_intersection = r;
       }
     }
