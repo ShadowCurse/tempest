@@ -130,7 +130,7 @@ just_pressed :: (ks: KeyboardState, key: KeyboardKey) -> bool {
   return is_set(ks.just_pressed, xx key);
 }
 
-just_released :: (ks: *KeyboardState, key: KeyboardKey) -> bool {
+just_released :: (ks: KeyboardState, key: KeyboardKey) -> bool {
   return is_set(ks.just_released, xx key);
 }
 
@@ -165,7 +165,7 @@ just_pressed :: (ms: MouseState, key: MouseKey) -> bool {
   return is_set(ms.just_pressed, xx key);
 }
 
-just_released :: (ms: *MouseState, key: MouseKey) -> bool {
+just_released :: (ms: MouseState, key: MouseKey) -> bool {
   return is_set(ms.just_released, xx key);
 }
 
