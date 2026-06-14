@@ -632,7 +632,7 @@ main :: () {
                 v := new - old;
 
                 t.translation.x += gizmo_current_drag_delta;
-                gizmo_current_drag_delta = dot(v, normalize(selected_world_position + .{ x = 1.0 }));
+                gizmo_current_drag_delta = dot(v, .{ x = 1.0 });
                 t.translation.x -= gizmo_current_drag_delta;
               case .Y;
                 old_t := selection_starting_camera_position.z / selection_starting_camera_mouse_ray_direction.z;
@@ -644,7 +644,7 @@ main :: () {
                 v := new - old;
 
                 t.translation.y += gizmo_current_drag_delta;
-                gizmo_current_drag_delta = dot(v, normalize(selected_world_position + .{ y = 1.0 }));
+                gizmo_current_drag_delta = dot(v, .{ y = 1.0 });
                 t.translation.y -= gizmo_current_drag_delta;
               case .Z;
                 old_t := selection_starting_camera_position.y / selection_starting_camera_mouse_ray_direction.y;
@@ -656,7 +656,7 @@ main :: () {
                 v := new - old;
 
                 t.translation.z += gizmo_current_drag_delta;
-                gizmo_current_drag_delta = dot(v, normalize(selected_world_position + .{ z = 1.0 }));
+                gizmo_current_drag_delta = dot(v, .{ z = 1.0 });
                 t.translation.z -= gizmo_current_drag_delta;
             }
           }
