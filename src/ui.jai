@@ -248,10 +248,18 @@ build_widget :: (
   return widget;
 }
 
-panel_start :: (c: *Context, name: string, size: Vector2, position: Vector2 = .{}) {
+panel_start :: (c: *Context, name: string, size: Vector2) {
   widget: *Widget;
   flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
-  if position != .{} flags |= .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
+  widget = build_widget(c, name, flags, size);
+  widget.bg_color = Colors[ColorType.BACKGROUND];
+  push_parent(c, widget);
+}
+
+panel_start :: (c: *Context, name: string, size: Vector2, position: Vector2) {
+  widget: *Widget;
+  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y |
+                       .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
   widget = build_widget(c, name, flags, size, position);
   widget.bg_color = Colors[ColorType.BACKGROUND];
   push_parent(c, widget);

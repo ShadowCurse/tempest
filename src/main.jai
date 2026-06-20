@@ -471,7 +471,7 @@ main :: () {
       camera_projection = perspective(PI / 2.0,
                                       cast(float)window_width / cast(float)window_height,
                                       0.1, 10000.0);
-      _, camera_projection_inv = inverse_lengyel(camera_projection);
+      camera_projection_inv = inverse(camera_projection);
 
       camera_mouse_clip := Vector4.{
         (mouse_position.x / cast(float)window_width  * 2.0) - 1.0,
@@ -479,9 +479,11 @@ main :: () {
         1.0,
         1.0
       };
-      camera_mouse_near_plane := transpose(camera_view_inv) * transpose(camera_projection_inv) * camera_mouse_clip;
+      camera_mouse_near_plane := camera_view_inv * camera_projection_inv * camera_mouse_clip;
       camera_mouse_near_plane_world := camera_mouse_near_plane.xyz / camera_mouse_near_plane.w;
+      // log("camera_mouse_near_plane_world %", camera_mouse_near_plane_world);
       camera_mouse_ray_direction = normalize(camera_mouse_near_plane_world - camera_position);
+      // log("camera_mouse_ray_direction %", camera_mouse_ray_direction);
 
       scene := scene_buffer.host_ptr;
       scene.* = .{
@@ -553,23 +555,23 @@ main :: () {
         // This if is here because timestamps need to be written all the time for now
         if selected_scene_node_idx {
           selected_position := Vector4.{ xyz = selected_world_position, w = 1.0 };
-          selected_in_camera_space := transpose(camera_view) * selected_position;
+          selected_in_camera_space := camera_view * selected_position;
           normalize(*selected_in_camera_space);
           selected_in_camera_space *= 10.0;
           selected_in_camera_space.w = 1.0;
 
-          selected_in_world_space := transpose(camera_view_inv) * selected_in_camera_space;
+          selected_in_world_space := camera_view_inv * selected_in_camera_space;
 
           current_instance_buffer := *gizmo_buffers[current_frame_idx];
           instance_buffer         := host_memory(current_instance_buffer);
 
           // rods
           instance_buffer[0] = Matrix4_Identity;
-          instance_buffer[0] = rotate(instance_buffer[0], quat_from_axis_angle(.{ y = 1.0 }, -PI / 2.0));
+          instance_buffer[0] = rotate(instance_buffer[0], quat_from_axis_angle(.{ y = 1.0 }, PI / 2.0));
           translate(*instance_buffer[0], selected_in_world_space.xyz + .{ x = 1.0 });
 
           instance_buffer[1] = Matrix4_Identity;
-          instance_buffer[1] = rotate(instance_buffer[1], quat_from_axis_angle(.{ x = 1.0 }, PI / 2.0));
+          instance_buffer[1] = rotate(instance_buffer[1], quat_from_axis_angle(.{ x = 1.0 }, -PI / 2.0));
           translate(*instance_buffer[1], selected_in_world_space.xyz + .{ y = 1.0 });
 
           instance_buffer[2] = Matrix4_Identity;
@@ -588,9 +590,7 @@ main :: () {
             closest_point: float32 = 100000.0;
             selected_gizmo_part := -1;
             for instance_buffer {
-              _, t := inverse_lengyel(it);
-              // The row-major matrix strikes again
-              t = transpose(t);
+              t := inverse(it);
               ray: Ray = .{
                           (t * Vector4.{ xyz = camera_position,            w = 1.0 }).xyz,
                 normalize((t * Vector4.{ xyz = camera_mouse_ray_direction, w = 0.0 }).xyz),
@@ -754,7 +754,7 @@ draw_aabb :: (cmd: RenderCommand, aabb: AABB, transform: Matrix4) {
   scale(*m, s);
   // the multiplication expect matrices to be row-major, but we only believe in
   // a column-major matrices in this town, so transpose for a temporary fix
-  tt := transpose(transform) * Vector4.{t.x, t.y, t.z, 0.0};
+  tt := transform * Vector4.{t.x, t.y, t.z, 0.0};
   translate(*m, tt.xyz);
   constant: MeshPushConstant = .{
     m,
@@ -781,7 +781,7 @@ draw_node :: (
 ) {
   node := *scene.nodes[node_idx];
   transform := mat4_from_trs(node.translation, node.rotation, node.scale);
-  final_transform := transform * parent_transform;
+  final_transform := parent_transform * transform;
   if node.mesh_idx {
     info := *gpu_mesh_infos[node.mesh_idx];
     constant: MeshPushConstant = .{
@@ -804,9 +804,7 @@ draw_node :: (
     }
 
     if selection_on {
-      _, t := inverse_lengyel(final_transform);
-      // The row-major matrix strikes again
-      t = transpose(t);
+      t := inverse(final_transform);
       ray: Ray = .{
                   (t * Vector4.{ xyz = camera_position,            w = 1.0 }).xyz,
         normalize((t * Vector4.{ xyz = camera_mouse_ray_direction, w = 0.0 }).xyz),
