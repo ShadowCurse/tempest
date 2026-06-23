@@ -628,36 +628,38 @@ api_version_variant :: (version: ApiVersion) -> u32 {
 } @NoProfile
 
 get_api_version :: () -> ApiVersion, bool {
-    version: ApiVersion = ---;
-    result := vkEnumerateInstanceVersion(*version) == .VK_SUCCESS;
-    return version, result;
+  version: ApiVersion = ---;
+  result := vkEnumerateInstanceVersion(*version) == .VK_SUCCESS;
+  return version, result;
 } @NoProfile
 
-get_instance_extensions :: () -> []VkExtensionProperties, VkResult {
-    count: u32 = ---;
-    data: []VkExtensionProperties = ---;
-    result: VkResult = ---;
-    result = vkEnumerateInstanceExtensionProperties(null, *count, null);
-    if result return .[], result;
-    if count == 0 return .[], .SUCCESS;
-    data = new_array(count, VkExtensionProperties, initialized = false);
-    result = vkEnumerateInstanceExtensionProperties(null, *count, data.data);
-    return data, result;
-}
+get_instance_extensions :: () -> (result: VkResult, data: []VkExtensionProperties) {
+  count:  u32                     = ---;
+  data:   []VkExtensionProperties = ---;
+  result: VkResult                = ---;
+  result = vkEnumerateInstanceExtensionProperties(null, *count, null);
+  if result || count == 0 return result, .[];
+  data   = new_array(count, VkExtensionProperties, initialized = false);
+  result = vkEnumerateInstanceExtensionProperties(null, *count, data.data);
+  return result, data;
+} @NoProfile
 
-get_instance_layers :: () ->[]VkLayerProperties, VkResult {
-  count: u32 = ---;
-  data: []VkLayerProperties = ---;
-  result: VkResult = ---;
+get_instance_layers :: () -> (result: VkResult, data: []VkLayerProperties) {
+  count:  u32                 = ---;
+  data:   []VkLayerProperties = ---;
+  result: VkResult            = ---;
   result = vkEnumerateInstanceLayerProperties(*count, null);
-  if result return .[], result;
-  if count == 0 return .[], .SUCCESS;
-  data = new_array(count, VkLayerProperties, initialized = false);
+  if result || count == 0 return result, .[];
+  data   = new_array(count, VkLayerProperties, initialized = false);
   result = vkEnumerateInstanceLayerProperties(*count, data.data);
-  return data, result;
-}
+  return result, data;
+} @NoProfile
 
-contains_all_extensions :: (prefix: string, extensions: []VkExtensionProperties, to_find_slices: [][]*u8) -> bool {
+contains_all_extensions :: (
+  prefix: string,
+  extensions: []VkExtensionProperties,
+  to_find_slices: [][]*u8
+) -> bool {
   found_extensions        := 0;
   searched_for_extensions := 0;
   bitfind                 := 0;
@@ -734,7 +736,7 @@ init_instance :: (enable_validation: bool) {
       return;
   }
 
-  extensions, err := get_instance_extensions(,, temp);
+  err, extensions := get_instance_extensions(,, temp);
   if err return;
   platform_extensions := platform_vulkan_extensions();
 
@@ -753,7 +755,7 @@ init_instance :: (enable_validation: bool) {
 
   enabled_layers: []*u8;
   if enable_validation {
-      layers, err := get_instance_layers(,, temp);
+      err, layers := get_instance_layers(,, temp);
       if err return;
       if !contains_all_layers("Instance", layers, VALIDATION_LAYERS_NAMES) return;
       enabled_layers = VALIDATION_LAYERS_NAMES;
@@ -823,41 +825,42 @@ debug_messanger_callback :: (
   return xx true;
 }
 
-get_physical_devices :: () -> []VkPhysicalDevice, VkResult {
-  count: u32 = ---;
-  data: []VkPhysicalDevice = ---;
-  result: VkResult = ---;
+get_physical_devices :: () -> (result: VkResult, data: []VkPhysicalDevice) {
+  count:  u32                = ---;
+  data:   []VkPhysicalDevice = ---;
+  result: VkResult           = ---;
   result = vkEnumeratePhysicalDevices(instance, *count, null);
-  if result return .[], result;
-  if count == 0 return .[], .SUCCESS;
-  data = new_array(count, VkPhysicalDevice, initialized = false);
+  if result || count == 0 return result, .[];
+  data   = new_array(count, VkPhysicalDevice, initialized = false);
   result = vkEnumeratePhysicalDevices(instance, *count, data.data);
-  return data, result;
-}
+  return result, data;
+} @NoProfile
 
-get_physical_device_exensions :: (physical_device: VkPhysicalDevice) -> []VkExtensionProperties, VkResult {
-  count: u32 = ---;
-  data: []VkExtensionProperties = ---;
-  result: VkResult = ---;
+get_physical_device_exensions :: (
+  physical_device: VkPhysicalDevice,
+) -> (result: VkResult, data: []VkExtensionProperties) {
+  count:  u32                     = ---;
+  data:   []VkExtensionProperties = ---;
+  result: VkResult                = ---;
   result = vkEnumerateDeviceExtensionProperties(physical_device, null, *count, null);
-  if result return .[], result;
-  if count == 0 return .[], .SUCCESS;
-  data = new_array(count, VkExtensionProperties, initialized = false);
+  if result || count == 0 return result, .[];
+  data   = new_array(count, VkExtensionProperties, initialized = false);
   result = vkEnumerateDeviceExtensionProperties(physical_device, null, *count, data.data);
-  return data, result;
-}
+  return result, data;
+} @NoProfile
 
-get_physical_device_layers :: (physical_device: VkPhysicalDevice) -> []VkLayerProperties, VkResult {
-  count: u32 = ---;
-  data: []VkLayerProperties = ---;
-  result: VkResult = ---;
+get_physical_device_layers :: (
+  physical_device: VkPhysicalDevice,
+) -> (result: VkResult, data: []VkLayerProperties) {
+  count:  u32                 = ---;
+  data:   []VkLayerProperties = ---;
+  result: VkResult            = ---;
   result = vkEnumerateDeviceLayerProperties(physical_device, *count, null);
-  if result return .[], result;
-  if count == 0 return .[], .SUCCESS;
-  data = new_array(count, VkLayerProperties, initialized = false);
+  if result || count == 0 return result, .[];
+  data   = new_array(count, VkLayerProperties, initialized = false);
   result = vkEnumerateDeviceLayerProperties(physical_device, *count, data.data);
-  return data, result;
-}
+  return result, data;
+} @NoProfile
 
 get_physical_device_queue_families :: (physical_device: VkPhysicalDevice) -> []VkQueueFamilyProperties {
   count: u32 = ---;
@@ -869,122 +872,124 @@ get_physical_device_queue_families :: (physical_device: VkPhysicalDevice) -> []V
   return data;
 }
 
-get_physical_device_memory_properties :: (physical_device: VkPhysicalDevice) -> VkPhysicalDeviceMemoryProperties {
-    result: VkPhysicalDeviceMemoryProperties;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, *result);
-    return result;
+get_physical_device_memory_properties :: (
+  physical_device: VkPhysicalDevice
+) -> VkPhysicalDeviceMemoryProperties {
+  result: VkPhysicalDeviceMemoryProperties;
+  vkGetPhysicalDeviceMemoryProperties(physical_device, *result);
+  return result;
 }
 
 select_physical_device :: (enable_validation: bool) {
-    physical_devices, err := get_physical_devices(,, temp);
-    if err return;
+  err, physical_devices := get_physical_devices(,, temp);
+  if err return;
 
-    for pd: physical_devices {
-        properties: VkPhysicalDeviceProperties = ---;
-        features:   VkPhysicalDeviceFeatures   = ---;
-        vkGetPhysicalDeviceProperties(pd, *properties);
-        vkGetPhysicalDeviceFeatures(pd, *features);
+  for pd: physical_devices {
+    properties: VkPhysicalDeviceProperties = ---;
+    features:   VkPhysicalDeviceFeatures   = ---;
+    vkGetPhysicalDeviceProperties(pd, *properties);
+    vkGetPhysicalDeviceFeatures(pd, *features);
 
-        device_name := to_string(properties.deviceName);
-        log(#string DONE
+    device_name := to_string(properties.deviceName);
+    log(#string DONE
 Physical device:
-   Name: %
-   API version: %.%.%
-   Driver version: %.%.%
-   Vendor ID: %
-   Device Id: %
-   Device type: %
+Name: %
+API version: %.%.%
+Driver version: %.%.%
+Vendor ID: %
+Device Id: %
+Device type: %
 DONE
-        ,
-            device_name,
-            api_version_major(xx properties.apiVersion),
-            api_version_minor(xx properties.apiVersion),
-            api_version_patch(xx properties.apiVersion),
-            api_version_major(xx properties.driverVersion),
-            api_version_minor(xx properties.driverVersion),
-            api_version_patch(xx properties.driverVersion),
-            properties.vendorID,
-            properties.deviceID,
-            properties.deviceType,
-        );
-        mp := get_physical_device_memory_properties(pd);
-        log("Memory properties:\n    Types:\n");
-        for 0..mp.memoryTypeCount
-          log(
-            "         heapIndex: % propertyFlags: %\n",
-            mp.memoryTypes[it].heapIndex,
-            mp.memoryTypes[it].propertyFlags
-          );
-        log("    Heaps:\n");
-        for 0..mp.memoryHeapCount
-          log(
-            "        size: % flags: %\n",
-            mp.memoryHeaps[it].size,
-            mp.memoryHeaps[it].flags
-          );
+    ,
+      device_name,
+      api_version_major(xx properties.apiVersion),
+      api_version_minor(xx properties.apiVersion),
+      api_version_patch(xx properties.apiVersion),
+      api_version_major(xx properties.driverVersion),
+      api_version_minor(xx properties.driverVersion),
+      api_version_patch(xx properties.driverVersion),
+      properties.vendorID,
+      properties.deviceID,
+      properties.deviceType,
+    );
+    mp := get_physical_device_memory_properties(pd);
+    log("Memory properties:\n    Types:\n");
+    for 0..mp.memoryTypeCount
+      log(
+        "         heapIndex: % propertyFlags: %\n",
+        mp.memoryTypes[it].heapIndex,
+        mp.memoryTypes[it].propertyFlags
+      );
+    log("    Heaps:\n");
+    for 0..mp.memoryHeapCount
+      log(
+        "        size: % flags: %\n",
+        mp.memoryHeaps[it].size,
+        mp.memoryHeaps[it].flags
+      );
 
-        if enable_validation {
-            layers, err := get_physical_device_layers(pd,, temp);
-            if err continue;
-            if !contains_all_layers(device_name, layers, VALIDATION_LAYERS_NAMES)
-              continue;
-        }
-        extensions, err := get_physical_device_exensions(pd,, temp);
-        if err continue;
-        if !contains_all_extensions(device_name, extensions, .[DEVICE_EXTENSIONS])
-          continue;
-
-        queue_families := get_physical_device_queue_families(pd,, temp);
-        graphics_queue_family := -1;
-        present_queue_family  := -1;
-        compute_queue_family  := -1;
-        transfer_queue_family := -1;
-
-        for qf, i: queue_families {
-            if graphics_queue_family == -1 && qf.queueFlags & .GRAPHICS_BIT graphics_queue_family = i;
-            if compute_queue_family == -1 && qf.queueFlags & .COMPUTE_BIT compute_queue_family = i;
-            if transfer_queue_family == -1 && qf.queueFlags & .TRANSFER_BIT transfer_queue_family = i;
-            if present_queue_family == -1 {
-                supported: VkBool32 = 0;
-                _ = vkGetPhysicalDeviceSurfaceSupportKHR(
-                    pd,
-                    xx i,
-                    surface,
-                    *supported,
-                );
-                if supported present_queue_family = i;
-            }
-        }
-
-        if (properties.deviceType == .DISCRETE_GPU || properties.deviceType == .INTEGRATED_GPU) &&
-            graphics_queue_family != -1 &&
-            present_queue_family != -1 &&
-            compute_queue_family != -1 &&
-            transfer_queue_family != -1
-        {
-            log(#string DONE
-Selected device % with queues:
-  Graphics queue family: %
-  Present queue family: %
-  Compute queue family: %
-  Transfer queue family: %
-DONE
-            ,
-                device_name,
-                graphics_queue_family,
-                present_queue_family,
-                compute_queue_family,
-                transfer_queue_family,
-            );
-
-            physical_device = pd;
-            graphics_queue_family = xx graphics_queue_family;
-            present_queue_family  = xx present_queue_family;
-            compute_queue_family  = xx compute_queue_family;
-            transfer_queue_family = xx transfer_queue_family;
-            return;
-        }
+    if enable_validation {
+      err, layers := get_physical_device_layers(pd,, temp);
+      if err continue;
+      if !contains_all_layers(device_name, layers, VALIDATION_LAYERS_NAMES)
+        continue;
     }
+    err, extensions := get_physical_device_exensions(pd,, temp);
+    if err continue;
+    if !contains_all_extensions(device_name, extensions, .[DEVICE_EXTENSIONS])
+      continue;
+
+    queue_families := get_physical_device_queue_families(pd,, temp);
+    graphics_queue_family := -1;
+    present_queue_family  := -1;
+    compute_queue_family  := -1;
+    transfer_queue_family := -1;
+
+    for qf, i: queue_families {
+      if graphics_queue_family == -1 && qf.queueFlags & .GRAPHICS_BIT graphics_queue_family = i;
+      if compute_queue_family == -1 && qf.queueFlags & .COMPUTE_BIT compute_queue_family = i;
+      if transfer_queue_family == -1 && qf.queueFlags & .TRANSFER_BIT transfer_queue_family = i;
+      if present_queue_family == -1 {
+        supported: VkBool32 = 0;
+        _ = vkGetPhysicalDeviceSurfaceSupportKHR(
+          pd,
+          xx i,
+          surface,
+          *supported,
+        );
+        if supported present_queue_family = i;
+      }
+    }
+
+    if (properties.deviceType == .DISCRETE_GPU || properties.deviceType == .INTEGRATED_GPU) &&
+      graphics_queue_family != -1 &&
+      present_queue_family != -1 &&
+      compute_queue_family != -1 &&
+      transfer_queue_family != -1
+    {
+      log(#string DONE
+Selected device % with queues:
+Graphics queue family: %
+Present queue family: %
+Compute queue family: %
+Transfer queue family: %
+DONE
+      ,
+        device_name,
+        graphics_queue_family,
+        present_queue_family,
+        compute_queue_family,
+        transfer_queue_family,
+      );
+
+      physical_device = pd;
+      graphics_queue_family = xx graphics_queue_family;
+      present_queue_family  = xx present_queue_family;
+      compute_queue_family  = xx compute_queue_family;
+      transfer_queue_family = xx transfer_queue_family;
+      return;
+    }
+  }
 }
 
 init_device :: () {
@@ -1082,48 +1087,47 @@ init_device :: () {
 }
 
 get_swapchain_formats :: () -> []VkSurfaceFormatKHR {
-  count: u32 = ---;
-  data: []VkSurfaceFormatKHR  = ---;
-  err: VkResult = ---;
-  err = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, null);
-  assert(!err);
+  count:  u32                   = ---;
+  data:   []VkSurfaceFormatKHR  = ---;
+  result: VkResult              = ---;
+  result = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, null);
+  assert(!result);
   if count == 0 return .[];
   data = new_array(count, VkSurfaceFormatKHR, initialized = false);
-  err = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, data.data);
-  assert(!err);
+  result = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, data.data);
+  assert(!result);
   return data;
-}
+} @NoProfile
 
 get_swapchain_images :: () -> []VkImage {
-  count: u32 = ---;
-  data: []VkImage   = ---;
-  err: VkResult = ---;
-  err = vkGetSwapchainImagesKHR(device, swapchain, *count, null);
-  assert(!err);
+  count:  u32       = ---;
+  data:   []VkImage = ---;
+  result: VkResult  = ---;
+  result = vkGetSwapchainImagesKHR(device, swapchain, *count, null);
+  assert(!result);
   if count == 0 return .[];
   data = new_array(count, VkImage, initialized = false);
-  err = vkGetSwapchainImagesKHR(device, swapchain, *count, data.data);
-  assert(!err);
+  result = vkGetSwapchainImagesKHR(device, swapchain, *count, data.data);
+  assert(!result);
   return data;
-}
+} @NoProfile
 
-get_swapchain_time_domain_properties :: () -> []VkTimeDomainKHR, []u64, u64, VkResult {
-  count: u32 = ---;
+get_swapchain_time_domain_properties :: () -> (result: VkResult, []VkTimeDomainKHR, []u64, u64) {
+  count:    u32              = ---;
   domains: []VkTimeDomainKHR = ---;
-  ids:     []u64 = ---;
-  counter: u64 = ---;
+  ids:     []u64             = ---;
+  counter: u64               = ---;
+  result:  VkResult          = ---;
   data: VkSwapchainTimeDomainPropertiesEXT = .{};
-  result: VkResult = ---;
   result = vkGetSwapchainTimeDomainPropertiesEXT(device, swapchain, *data, *counter);
-  if result return .[], .[], 0, result;
-  if count == 0 return .[], .[], 0, .SUCCESS;
+  if result || count == 0 then return result, .[], .[], 0;
   domains = new_array(data.timeDomainCount, VkTimeDomainKHR, initialized = false);
   ids     = new_array(data.timeDomainCount, u64,             initialized = false);
   data.pTimeDomains   = domains.data;
   data.pTimeDomainIds = ids.data;
   result = vkGetSwapchainTimeDomainPropertiesEXT(device, swapchain, *data, *counter);
-  return domains, ids, counter, result;
-}
+  return result, domains, ids, counter;
+} @NoProfile
 
 init_swapchain :: (width: u32, height: u32, old_swapchain: VkSwapchainKHR) {
   surface_capabilities2: VkSurfaceCapabilities2KHR = .{ pNext   = *swapchain_present_timing_surface };
@@ -1239,7 +1243,7 @@ DONE
           swapchain_images.count, swapchain_extent.width, swapchain_extent.height);
 
       if swapchain_present_timing_surface.presentTimingSupported {
-        domains, ids, counter, err2 :=  get_swapchain_time_domain_properties(,,temp);
+        err2, domains, ids, counter :=  get_swapchain_time_domain_properties(,, temp);
         assert(!err2);
         log("Swapchain domains: %", domains);
         log("Swapchain ids: %", ids);

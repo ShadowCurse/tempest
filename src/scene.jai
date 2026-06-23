@@ -306,7 +306,7 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
 create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
   half_h := height / 2.0;
   sector_step   := 2.0 * PI / cast(float)sectors;
-  points := new_array(sectors, Vector3,,temp);
+  points := new_array(sectors, Vector3,, temp);
   pp := fixed_slice(points);
   for i: 0..sectors - 1 {
     angle := sector_step * i;
@@ -396,7 +396,7 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
 
 create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
   sector_step := 2.0 * PI / cast(float)sectors;
-  points      := new_array(sectors, Vector3,,temp);
+  points      := new_array(sectors, Vector3,, temp);
   pp          := fixed_slice(points);
   for i: 0..sectors - 1 {
     angle := sector_step * i;

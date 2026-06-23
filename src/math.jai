@@ -472,7 +472,7 @@ rotate :: (m: Matrix4, q: Quaternion) -> Matrix4 {
   return r * m;
 } @NoProfile
 
-inverse :: (m: Matrix4, epsilon := 0.0001) -> result: Matrix4, success: bool {
+inverse :: (m: Matrix4, epsilon := 0.0001) -> (success: bool, result: Matrix4) {
   a := m.i.xyz;
   b := m.j.xyz;
   c := m.k.xyz;
@@ -491,7 +491,7 @@ inverse :: (m: Matrix4, epsilon := 0.0001) -> result: Matrix4, success: bool {
   det := dot(s, v) + dot(t, u);
 
   if abs(det) < epsilon {
-      return Matrix4_Identity, false;
+      return false, Matrix4_Identity;
   }
 
   inv_det := 1.0 / det;
@@ -511,7 +511,7 @@ inverse :: (m: Matrix4, epsilon := 0.0001) -> result: Matrix4, success: bool {
     .{ r0.z,      r1.z,       r2.z,      r3.z     },
     .{-dot(b, t), dot(a, t), -dot(d, s), dot(c, s)},
   };
-  return result, true;
+  return true, result;
 }
 
 adjugate :: (m: Matrix4) -> Matrix4 {
@@ -830,4 +830,4 @@ triangle_ray_intersection :: (
   }
 }
 
-using,only(sin, cos, tan, ctan, log, sqrt, inverse_lengyel) math :: #import "Math";
+using,only(sin, cos, tan, ctan, log, sqrt) math :: #import "Math";

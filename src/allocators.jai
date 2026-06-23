@@ -118,7 +118,7 @@ GpuBufferSlice :: struct ($T: Type) {
   count:          u32;
 }
 
-push :: (arena: *GpuBufferArena, $T: Type, count: u32 = 1) -> GpuBufferSlice(T), success: bool {
+push :: (arena: *GpuBufferArena, $T: Type, count: u32 = 1) -> (success: bool, result: GpuBufferSlice(T)) {
   alignment := align_of(T);
   bytes     := size_of(T) * count;
 
@@ -130,9 +130,9 @@ push :: (arena: *GpuBufferArena, $T: Type, count: u32 = 1) -> GpuBufferSlice(T),
     byte_offset := start_address - arena.device_address;
     host_ptr := ifx arena.host_mem cast(*T)(arena.host_mem.data + byte_offset);
     arena.end = cast(u32)new_end;
-    return .{ arena.buffer, cast(u32)byte_offset, start_address, host_ptr, count }, true;
+    return true, .{ arena.buffer, cast(u32)byte_offset, start_address, host_ptr, count };
   } else {
-    return .{}, false;
+    return false, .{};
   }
 }
 
@@ -193,7 +193,7 @@ push :: (
   height: u32,
   format: VkFormat,
   usage: VkImageUsageFlags
-) -> GpuImage, success: bool {
+) -> (success: bool, result: GpuImage) {
   extent: VkExtent3D = .{
     width = width,
     height = height,
@@ -238,10 +238,10 @@ push :: (
       },
     };
     view := create_image_view(view_create_info);
-    return .{ image, view, extent, format, usage, total_bytes }, true;
+    return true, .{ image, view, extent, format, usage, total_bytes };
   } else {
     destroy_image(image);
-    return .{}, false;
+    return false, .{};
   }
 }
 
