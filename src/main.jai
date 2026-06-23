@@ -66,14 +66,7 @@ gpu_mesh_infos:     FixedArray(GpuMeshInfo, 8192, MeshIdx);
 visual_aabb:  bool          = false;
 polygon_mode: VkPolygonMode = .FILL;
 
-//camera
-camera_position:            Vector3 = .{ 0.0, -5.0, 5.0 };
-camera_rotation:            Vector2 = .{ 0.78, 0.0 };
-camera_view:                Matrix4;
-camera_view_inv:            Matrix4;
-camera_projection:          Matrix4;
-camera_projection_inv:      Matrix4;
-camera_mouse_ray_direction: Vector3;
+camera: Camera;
 
 // selection
 selection_on:            bool;
@@ -317,8 +310,8 @@ main :: () {
         label(*ui, tprint("GPU GRID ms: %", grid_ms));
         label(*ui, tprint("GPU MESH ms: %", mesh_ms));
         label(*ui, tprint("GPU UI ms: %", ui_ms));
-        label(*ui, tprint("pos: %", camera_position));
-        label(*ui, tprint("rot: %", camera_rotation));
+        label(*ui, tprint("pos: %", camera.position));
+        label(*ui, tprint("rot: %", camera.rotation));
         label(*ui, tprint("pressed_id: %", ui.pressed_id));
         label(*ui, tprint("hover_id: %", ui.hover_id));
         toggle(*ui, "Visualize AABB", *visual_aabb);
@@ -342,15 +335,14 @@ main :: () {
       if just_pressed(keyboard_state, .F1) context.prof_enabled = !context.prof_enabled;
     }
 
+    camera_mouse_movement: Vector2;
     selection_on = false;
     if !ui.consumed_mouse_event {
       if just_pressed(mouse_state, .LMB) && selected_gizmo_axis != .NONE {
         gizmo_dragging_on = true;
       } else if !gizmo_dragging_on {
         if pressed(mouse_state, .LMB) {
-          camera_rotation.y -= mouse_movement.x * (1.0 / 120.0);
-          camera_rotation.x -= mouse_movement.y * (1.0 / 120.0);
-          camera_rotation.x = clamp(camera_rotation.x, 0, PI);
+          camera_mouse_movement = mouse_movement;
         }
       }
       if just_released(mouse_state, .LMB) {
@@ -363,6 +355,8 @@ main :: () {
         selected_intersection = .{};
       }
     }
+
+    camera_update(*camera, camera_velocity, camera_mouse_movement, dt_s);
 
     if need_swapchain_recreation {
       if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
@@ -455,41 +449,11 @@ main :: () {
       cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_image.view);
       defer cmd_end_rendering(render_command);
 
-      world_rotation_z  := quat_from_axis_angle(.{ z = 1.0 }, camera_rotation.y);
-      camera_rotation_x := quat_from_axis_angle(.{ x = -1.0 }, PI - camera_rotation.x);
-      camera_to_world_rotation := world_rotation_z * camera_rotation_x;
-      world_to_camera_rotation := conjugate(camera_to_world_rotation);
-
-      camera_position += rotate(camera_velocity * 5.0 * (1.0 / 120.0), camera_to_world_rotation);
-
-      camera_view = quat_to_mat4(world_to_camera_rotation);
-      translate(*camera_view, rotate(-camera_position, world_to_camera_rotation));
-
-      camera_view_inv = quat_to_mat4(camera_to_world_rotation);
-      translate(*camera_view_inv, camera_position);
-
-      camera_projection = perspective(PI / 2.0,
-                                      cast(float)window_width / cast(float)window_height,
-                                      0.1, 10000.0);
-      camera_projection_inv = inverse(camera_projection);
-
-      camera_mouse_clip := Vector4.{
-        (mouse_position.x / cast(float)window_width  * 2.0) - 1.0,
-        ((mouse_position.y / cast(float)window_height * 2.0) - 1.0),
-        1.0,
-        1.0
-      };
-      camera_mouse_near_plane := camera_view_inv * camera_projection_inv * camera_mouse_clip;
-      camera_mouse_near_plane_world := camera_mouse_near_plane.xyz / camera_mouse_near_plane.w;
-      // log("camera_mouse_near_plane_world %", camera_mouse_near_plane_world);
-      camera_mouse_ray_direction = normalize(camera_mouse_near_plane_world - camera_position);
-      // log("camera_mouse_ray_direction %", camera_mouse_ray_direction);
-
       scene := scene_buffer.host_ptr;
       scene.* = .{
-        camera_view       = camera_view,
-        camera_view_inv   = camera_view_inv,
-        camera_projection = camera_projection,
+        camera_view       = camera.view,
+        camera_view_inv   = camera.view_inv,
+        camera_projection = camera.projection,
       };
 
       // mesh
@@ -555,12 +519,12 @@ main :: () {
         // This if is here because timestamps need to be written all the time for now
         if selected_scene_node_idx {
           selected_position := Vector4.{ xyz = selected_world_position, w = 1.0 };
-          selected_in_camera_space := camera_view * selected_position;
+          selected_in_camera_space := camera.view * selected_position;
           normalize(*selected_in_camera_space);
           selected_in_camera_space *= 10.0;
           selected_in_camera_space.w = 1.0;
 
-          selected_in_world_space := camera_view_inv * selected_in_camera_space;
+          selected_in_world_space := camera.view_inv * selected_in_camera_space;
 
           current_instance_buffer := *gizmo_buffers[current_frame_idx];
           instance_buffer         := host_memory(current_instance_buffer);
@@ -592,8 +556,8 @@ main :: () {
             for instance_buffer {
               t := inverse(it);
               ray: Ray = .{
-                          (t * Vector4.{ xyz = camera_position,            w = 1.0 }).xyz,
-                normalize((t * Vector4.{ xyz = camera_mouse_ray_direction, w = 0.0 }).xyz),
+                          (t * Vector4.{ xyz = camera.position,            w = 1.0 }).xyz,
+                normalize((t * Vector4.{ xyz = camera.mouse_ray_direction, w = 0.0 }).xyz),
               };
               mesh := ifx it_index < 3 then default_scene.meshes[gizmo_cylinder_idx] else default_scene.meshes[gizmo_cone_idx];
               s, r := mesh_ray_intersection(mesh, ray);
@@ -603,8 +567,8 @@ main :: () {
               }
             }
             if selected_gizmo_part != -1 {
-              selection_starting_camera_position            = camera_position;
-              selection_starting_camera_mouse_ray_direction = camera_mouse_ray_direction;
+              selection_starting_camera_position            = camera.position;
+              selection_starting_camera_mouse_ray_direction = camera.mouse_ray_direction;
               if selected_gizmo_part == {
                 case 0; #through;
                 case 3;
@@ -624,10 +588,10 @@ main :: () {
               case .NONE;
               case .X;
                 old_t := selection_starting_camera_position.z / selection_starting_camera_mouse_ray_direction.z;
-                new_t := camera_position.z / camera_mouse_ray_direction.z;
+                new_t := camera.position.z / camera.mouse_ray_direction.z;
 
                 old := selection_starting_camera_position + selection_starting_camera_mouse_ray_direction * old_t;
-                new := camera_position + camera_mouse_ray_direction * new_t;
+                new := camera.position + camera.mouse_ray_direction * new_t;
 
                 v := new - old;
 
@@ -636,10 +600,10 @@ main :: () {
                 t.translation.x -= gizmo_current_drag_delta;
               case .Y;
                 old_t := selection_starting_camera_position.z / selection_starting_camera_mouse_ray_direction.z;
-                new_t := camera_position.z / camera_mouse_ray_direction.z;
+                new_t := camera.position.z / camera.mouse_ray_direction.z;
 
                 old := selection_starting_camera_position + selection_starting_camera_mouse_ray_direction * old_t;
-                new := camera_position + camera_mouse_ray_direction * new_t;
+                new := camera.position + camera.mouse_ray_direction * new_t;
 
                 v := new - old;
 
@@ -648,10 +612,10 @@ main :: () {
                 t.translation.y -= gizmo_current_drag_delta;
               case .Z;
                 old_t := selection_starting_camera_position.y / selection_starting_camera_mouse_ray_direction.y;
-                new_t := camera_position.y / camera_mouse_ray_direction.y;
+                new_t := camera.position.y / camera.mouse_ray_direction.y;
 
                 old := selection_starting_camera_position + selection_starting_camera_mouse_ray_direction * old_t;
-                new := camera_position + camera_mouse_ray_direction * new_t;
+                new := camera.position + camera.mouse_ray_direction * new_t;
 
                 v := new - old;
 
@@ -806,8 +770,8 @@ draw_node :: (
     if selection_on {
       t := inverse(final_transform);
       ray: Ray = .{
-                  (t * Vector4.{ xyz = camera_position,            w = 1.0 }).xyz,
-        normalize((t * Vector4.{ xyz = camera_mouse_ray_direction, w = 0.0 }).xyz),
+                  (t * Vector4.{ xyz = camera.position,            w = 1.0 }).xyz,
+        normalize((t * Vector4.{ xyz = camera.mouse_ray_direction, w = 0.0 }).xyz),
       };
       s, r := mesh_ray_intersection(scene.meshes[node.mesh_idx], ray);
       if s && r.t < selected_intersection.t {
@@ -1575,6 +1539,50 @@ prof_draw :: (ui: *Context) {
   }
   prof_drawn_nodes = 0;
   draw_node(ui, first_child, ns_to_px, .{ padding, padding + 300.0 }, 0);
+}
+
+Camera :: struct {
+  position:            Vector3 = .{ 0.0, -5.0, 5.0 };
+  rotation:            Vector2 = .{ 0.78, 0.0 };
+  view:                Matrix4;
+  view_inv:            Matrix4;
+  projection:          Matrix4;
+  projection_inv:      Matrix4;
+  mouse_ray_direction: Vector3;
+}
+
+camera_update :: (camera: *Camera, velocity: Vector3, mouse_movement: Vector2, dt: float32) {
+  camera.rotation.y -= mouse_movement.x * dt;
+  camera.rotation.x -= mouse_movement.y * dt;
+  camera.rotation.x = clamp(camera.rotation.x, 0, PI);
+
+  world_rotation_z  := quat_from_axis_angle(.{ z =  1.0 },      camera.rotation.y);
+  camera_rotation_x := quat_from_axis_angle(.{ x = -1.0 }, PI - camera.rotation.x);
+  camera_to_world_rotation := world_rotation_z * camera_rotation_x;
+  world_to_camera_rotation := conjugate(camera_to_world_rotation);
+
+  camera.position += rotate(velocity * 5.0 * dt, camera_to_world_rotation);
+
+  camera.view = quat_to_mat4(world_to_camera_rotation);
+  translate(*camera.view, rotate(-camera.position, world_to_camera_rotation));
+
+  camera.view_inv = quat_to_mat4(camera_to_world_rotation);
+  translate(*camera.view_inv, camera.position);
+
+  camera.projection = perspective(PI / 2.0,
+                                  cast(float)window_width / cast(float)window_height,
+                                  0.1, 10000.0);
+  camera.projection_inv = inverse(camera.projection);
+
+  camera_mouse_clip := Vector4.{
+     (mouse_position.x / cast(float)window_width  * 2.0) - 1.0,
+    ((mouse_position.y / cast(float)window_height * 2.0) - 1.0),
+    1.0,
+    1.0
+  };
+  camera_mouse_near_plane       := camera.view_inv * camera.projection_inv * camera_mouse_clip;
+  camera_mouse_near_plane_world := camera_mouse_near_plane.xyz / camera_mouse_near_plane.w;
+  camera.mouse_ray_direction     = normalize(camera_mouse_near_plane_world - camera.position);
 }
 
 #load "ui.jai";
