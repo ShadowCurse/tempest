@@ -140,7 +140,7 @@ create_query_pool :: (create_info: VkQueryPoolCreateInfo) -> VkQueryPool {
   return result;
 }
 
-get_query_pool_results :: (pool: VkQueryPool, data: []u64, wait := true) {
+get_query_pool_results :: (pool: VkQueryPool, data: []u64, wait := false) {
   r := vkGetQueryPoolResults(
       device,
       pool,
