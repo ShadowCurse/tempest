@@ -278,7 +278,7 @@ slice :: inline (slice: []$T, start: u32, end: u32) -> []T {
   assert(start <= slice.count);
   assert(end   <= slice.count);
   assert(start <= end);
-  count = end - start;
+  count := end - start;
   return .{ data = slice.data + start, count = count };
 }
 
