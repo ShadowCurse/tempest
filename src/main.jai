@@ -555,13 +555,9 @@ main :: () {
           closest_point: float32 = 100000.0;
           selected_gizmo_part := -1;
           for instance_buffer {
-            t := inverse(it);
-            ray: Ray = .{
-                        (t * Vector4.{ xyz = camera.position,            w = 1.0 }).xyz,
-              normalize((t * Vector4.{ xyz = camera.mouse_ray_direction, w = 0.0 }).xyz),
-            };
-            mesh := ifx it_index < 3 then default_scene.meshes[gizmo_cylinder_idx] else default_scene.meshes[gizmo_cone_idx];
-            s, r := mesh_ray_intersection(mesh, ray);
+            mesh := ifx it_index < 3 then default_scene.meshes[gizmo_cylinder_idx]
+                                     else default_scene.meshes[gizmo_cone_idx];
+            s, r := camera_ray_mesh_intersection(camera, it, mesh);
             if s && r.t < closest_point {
               closest_point = r.t;
               selected_gizmo_part = it_index;
@@ -768,12 +764,7 @@ draw_node :: (
     }
 
     if selection_on {
-      t := inverse(final_transform);
-      ray: Ray = .{
-                  (t * Vector4.{ xyz = camera.position,            w = 1.0 }).xyz,
-        normalize((t * Vector4.{ xyz = camera.mouse_ray_direction, w = 0.0 }).xyz),
-      };
-      s, r := mesh_ray_intersection(scene.meshes[node.mesh_idx], ray);
+      s, r := camera_ray_mesh_intersection(camera, final_transform, scene.meshes[node.mesh_idx]);
       if s && r.t < selected_intersection.t {
         log("intersects: % at t: % previous t: %", to_string(node.name), r.t, selected_intersection.t);
         selected_scene_node_idx = node_idx;
@@ -1583,6 +1574,20 @@ camera_update :: (camera: *Camera, velocity: Vector3, mouse_movement: Vector2, d
   camera_mouse_near_plane       := camera.view_inv * camera.projection_inv * camera_mouse_clip;
   camera_mouse_near_plane_world := camera_mouse_near_plane.xyz / camera_mouse_near_plane.w;
   camera.mouse_ray_direction     = normalize(camera_mouse_near_plane_world - camera.position);
+}
+
+camera_ray_mesh_intersection :: (
+  camera: Camera,
+  mesh_transform: Matrix4,
+  mesh: Mesh
+) -> (success: bool, result: TriangleIntersectionResult) {
+  t := inverse(mesh_transform);
+  ray: Ray = .{
+              (t * Vector4.{ xyz = camera.position,            w = 1.0 }).xyz,
+    normalize((t * Vector4.{ xyz = camera.mouse_ray_direction, w = 0.0 }).xyz),
+  };
+  s, r := mesh_ray_intersection(mesh, ray);
+  return s, r;
 }
 
 #load "ui.jai";
