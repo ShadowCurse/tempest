@@ -555,7 +555,7 @@ present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
     pImageIndices      = *image_idx,
   };
 
-  timing_info: VkPresentTimingInfoEXT = ---;
+  timing_info:          VkPresentTimingInfoEXT  = ---;
   present_timings_info: VkPresentTimingsInfoEXT = ---;
   if swapchain_present_timing_surface.presentTimingSupported {
     timing_info = .{
@@ -1113,14 +1113,13 @@ get_swapchain_images :: () -> []VkImage {
 } @NoProfile
 
 get_swapchain_time_domain_properties :: () -> (result: VkResult, []VkTimeDomainKHR, []u64, u64) {
-  count:    u32              = ---;
   domains: []VkTimeDomainKHR = ---;
   ids:     []u64             = ---;
   counter: u64               = ---;
   result:  VkResult          = ---;
   data: VkSwapchainTimeDomainPropertiesEXT = .{};
   result = vkGetSwapchainTimeDomainPropertiesEXT(device, swapchain, *data, *counter);
-  if result || count == 0 then return result, .[], .[], 0;
+  if result || data.timeDomainCount == 0 then return result, .[], .[], 0;
   domains = new_array(data.timeDomainCount, VkTimeDomainKHR, initialized = false);
   ids     = new_array(data.timeDomainCount, u64,             initialized = false);
   data.pTimeDomains   = domains.data;
