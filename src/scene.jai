@@ -30,9 +30,9 @@ SceneNode :: struct {
   last_child_idx:  SceneNodeIdx;
   next_sibling:    SceneNodeIdx;
 
-  translation:     Vector3;
-  rotation:        Quaternion;
-  scale:           Vector3 = .{1, 1, 1};
+  // note(sc): can be Matrix4x3 since last row is useless
+  local_transform: Matrix4 = Matrix4_Identity;
+  world_transform: Matrix4 = Matrix4_Identity;
 
   mesh_idx:        MeshIdx;
 }
@@ -102,9 +102,10 @@ load_gltf :: (scene: *Scene, name: string) -> SceneNodeIdx {
   l.prev_materials_count = scene.materials.count;
 
   setup_node :: (scene_node: *SceneNode, node: *cgltf_node, l: GltfLoading) {
-    scene_node.translation = (cast(*Vector3)    *node.translation).*;
-    scene_node.rotation    = (cast(*Quaternion) *node.rotation).*;
-    scene_node.scale       = (cast(*Vector3)    *node.scale).*;
+    translation := (cast(*Vector3)    *node.translation).*;
+    rotation    := (cast(*Quaternion) *node.rotation).*;
+    scale       := (cast(*Vector3)    *node.scale).*;
+    scene_node.local_transform = mat4_from_trs(translation, rotation, scale);
     scene_node.mesh_idx    = ifx node.mesh then cast(MeshIdx)(l.prev_meshes_count + node.mesh - l.data.meshes);
   }
 

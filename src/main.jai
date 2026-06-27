@@ -77,7 +77,8 @@ gizmo_dragging_on:       bool;
 selected_gizmo_axis:     enum { NONE; X; Y; Z; } = .NONE;
 selection_starting_camera_position:            Vector3;
 selection_starting_camera_mouse_ray_direction: Vector3;
-gizmo_current_drag_delta: float32;
+gizmo_current_drag_delta: Vector3;
+gizmo_to_object_space:    Matrix4;
 
 main :: () {
   init_prof();
@@ -157,17 +158,17 @@ main :: () {
 
   node2_idx,   node2   := add_node(*default_scene, "root");
 
-  node1_c_idx,   node1_c   := add_node(*default_scene, node2_idx, "center");
+  node1_c_idx, node1_c := add_node(*default_scene, node2_idx, "center");
   node1_c.mesh_idx = cylinder_mesh_idx;
-  node1_c.rotation = quat_from_axis_angle(.{y = 1.0}, PI / 2.0);
+  node1_c.local_transform = quat_to_mat4(quat_from_axis_angle(.{y = 1.0}, PI / 2.0));
 
   node2_c_idx, node2_c := add_node(*default_scene, node2_idx, "ball1");
   node2_c.mesh_idx = sphere_mesh_idx;
-  node2_c.translation = .{x = 1.5};
+  node2_c.local_transform = mat4_from_trs(translation = .{x = 1.5});
 
   node3_c_idx, node3_c := add_node(*default_scene, node2_idx, "ball2");
   node3_c.mesh_idx = sphere_mesh_idx;
-  node3_c.translation = .{x = -1.5};
+  node3_c.local_transform = mat4_from_trs(translation = .{x = -1.5});
 
   {
     imm_command := *render_commands[FRAMES];
@@ -350,7 +351,7 @@ main :: () {
       }
       if just_released(mouse_state, .LMB) {
         gizmo_dragging_on = false;
-        gizmo_current_drag_delta = 0.0;
+        gizmo_current_drag_delta = .{};
       }
       if just_pressed(mouse_state, .RMB) {
         selection_on = true;
@@ -550,6 +551,7 @@ main :: () {
         instance_buffer[5] = instance_buffer[2];
         translate(*instance_buffer[5], .{ z = 2.0 });
 
+        t := *default_scene.nodes[selected_scene_node_idx];
         if just_pressed(mouse_state, .LMB) {
           selected_gizmo_axis = .NONE;
           closest_point: float32 = 100000.0;
@@ -566,6 +568,7 @@ main :: () {
           if selected_gizmo_part != -1 {
             selection_starting_camera_position            = camera.position;
             selection_starting_camera_mouse_ray_direction = camera.mouse_ray_direction;
+            _, gizmo_to_object_space                      = inverse(t.world_transform);
             if selected_gizmo_part == {
               case 0; #through;
               case 3;
@@ -580,7 +583,7 @@ main :: () {
           }
         }
         if gizmo_dragging_on {
-          t := *default_scene.nodes[selected_scene_node_idx];
+          // parent := * default_scene.nodes[t.parent_idx];
           if selected_gizmo_axis == {
             case .NONE;
             case .X;
@@ -592,9 +595,11 @@ main :: () {
 
               v := new - old;
 
-              t.translation.x += gizmo_current_drag_delta;
-              gizmo_current_drag_delta = dot(v, .{ x = 1.0 });
-              t.translation.x -= gizmo_current_drag_delta;
+              translate(*t.local_transform, gizmo_current_drag_delta);
+              axis_drag: Vector4 = .{x = dot(v, .{x = 1.0}), w = 0.0};
+              drag_delta := gizmo_to_object_space * axis_drag;
+              gizmo_current_drag_delta = drag_delta.xyz;
+              translate(*t.local_transform, -gizmo_current_drag_delta);
             case .Y;
               old_t := selection_starting_camera_position.z / selection_starting_camera_mouse_ray_direction.z;
               new_t := camera.position.z / camera.mouse_ray_direction.z;
@@ -604,9 +609,11 @@ main :: () {
 
               v := new - old;
 
-              t.translation.y += gizmo_current_drag_delta;
-              gizmo_current_drag_delta = dot(v, .{ y = 1.0 });
-              t.translation.y -= gizmo_current_drag_delta;
+              translate(*t.local_transform, gizmo_current_drag_delta);
+              axis_drag: Vector4 = .{y = dot(v, .{y = 1.0}), w = 0.0};
+              drag_delta := gizmo_to_object_space * axis_drag;
+              gizmo_current_drag_delta = drag_delta.xyz;
+              translate(*t.local_transform, -gizmo_current_drag_delta);
             case .Z;
               old_t := selection_starting_camera_position.y / selection_starting_camera_mouse_ray_direction.y;
               new_t := camera.position.y / camera.mouse_ray_direction.y;
@@ -616,9 +623,11 @@ main :: () {
 
               v := new - old;
 
-              t.translation.z += gizmo_current_drag_delta;
-              gizmo_current_drag_delta = dot(v, .{ z = 1.0 });
-              t.translation.z -= gizmo_current_drag_delta;
+              translate(*t.local_transform, gizmo_current_drag_delta);
+              axis_drag: Vector4 = .{z = dot(v, .{z = 1.0}), w = 0.0};
+              drag_delta := gizmo_to_object_space * axis_drag;
+              gizmo_current_drag_delta = drag_delta.xyz;
+              translate(*t.local_transform, -gizmo_current_drag_delta);
           }
         }
 
@@ -716,9 +725,10 @@ draw_aabb :: (cmd: RenderCommand, aabb: AABB, transform: Matrix4) {
   // a column-major matrices in this town, so transpose for a temporary fix
   tt := transform * Vector4.{t.x, t.y, t.z, 0.0};
   translate(*m, tt.xyz);
+  _, m_inverse := inverse(m);
   constant: MeshPushConstant = .{
     m,
-    adjugate(m),
+    m_inverse,
     mesh_buffer.device_address,
     scene_buffer.device_address,
     xx cube_mesh_info.vertices_buffer_offset,
@@ -739,14 +749,16 @@ draw_node :: (
   node_idx:         SceneNodeIdx,
   parent_transform: Matrix4,
 ) {
-  node := *scene.nodes[node_idx];
-  transform := mat4_from_trs(node.translation, node.rotation, node.scale);
-  final_transform := parent_transform * transform;
+  node                := *scene.nodes[node_idx];
+  final_transform     := parent_transform * node.local_transform;
+  node.world_transform = final_transform;
+
   if node.mesh_idx {
     info := *gpu_mesh_infos[node.mesh_idx];
+    _, final_transform_inverse := inverse(final_transform);
     constant: MeshPushConstant = .{
       final_transform,
-      adjugate(final_transform),
+      final_transform_inverse ,
       mesh_buffer.device_address,
       scene_buffer.device_address,
       xx info.vertices_buffer_offset,
