@@ -71,6 +71,10 @@ operator * :: (a: Vector2, k: float32) -> Vector2 #symmetric {
   return .{a.x * k, a.y * k};
 } @NoProfile
 
+operator * :: (a: Vector2, b: Vector2) -> Vector2 #symmetric {
+  return .{a.x * a.x, a.y * a.y};
+} @NoProfile
+
 operator / :: (a: Vector2, b: Vector2) -> Vector2 {
   return .{a.x / b.x, a.y / b.y};
 } @NoProfile
@@ -101,6 +105,10 @@ operator - :: (a: Vector3) -> Vector3 {
 
 operator * :: (a: Vector3, k: float32) -> Vector3 #symmetric {
   return .{a.x * k, a.y * k, a.z * k};
+} @NoProfile
+
+operator * :: (a: Vector3, b: Vector3) -> Vector3 #symmetric {
+  return .{a.x * b.x, a.y * b.y, a.z * b.z};
 } @NoProfile
 
 operator / :: (a: Vector3, b: Vector3) -> Vector3 {
@@ -136,6 +144,10 @@ operator - :: (a: Vector4) -> Vector4 {
 
 operator * :: (a: Vector4, k: float32) -> Vector4 #symmetric {
   return .{a.x * k, a.y * k, a.z * k, a.w * k};
+} @NoProfile
+
+operator * :: (a: Vector4, b: Vector4) -> Vector4 #symmetric {
+  return .{a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w};
 } @NoProfile
 
 operator / :: (a: Vector4, b: Vector4) -> Vector4 {
@@ -574,9 +586,7 @@ look_at :: (position: Vector3, target: Vector3, up: Vector3) -> Matrix4 {
 }
 
 translate :: (m: *Matrix4, position: Vector3) {
-  m.t.x += position.x;
-  m.t.y += position.y;
-  m.t.z += position.z;
+  m.t.xyz += position;
 }
 
 translation :: (m: Matrix4) -> Vector3 {
@@ -612,7 +622,11 @@ mat3_from_mat4 :: (m: Matrix4) -> Matrix3 {
   return .{m.i.xyz, m.j.xyz, m.k.xyz};
 }
 
-mat4_from_trs :: (translation: Vector3, rotation: Quaternion, scale: Vector3) -> Matrix4 {
+mat4_from_trs :: (
+  translation: Vector3 = .{},
+  rotation: Quaternion = .{},
+  scale: Vector3 = .{1.0, 1.0, 1.0}
+) -> Matrix4 {
   qx := rotation.x;
   qy := rotation.y;
   qz := rotation.z;
