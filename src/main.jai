@@ -22,7 +22,7 @@ ui_buffers:              [FRAMES]GpuBufferSlice(Quad);
 scene_buffer:            GpuBufferSlice(SceneInfo);
 gizmo_buffers:           [FRAMES]GpuBufferSlice(Matrix4);
 
-debug_meshes:               FixedArray(DebugMesh, 32);
+debug_meshes:               FixedArray(DebugMesh, 8096);
 debug_meshes_vertex_buffer: GpuBufferSlice(Vector3);
 
 gpu_buffer_arena: GpuBufferArena;
@@ -115,7 +115,7 @@ main :: () {
     assert(ok);
   }
 
-  ok, debug_meshes_vertex_buffer = push(*cpu_to_gpu_buffer_arena, Vector3, 32 * 32);
+  ok, debug_meshes_vertex_buffer = push(*cpu_to_gpu_buffer_arena, Vector3, 8096 * 32);
   assert(ok);
 
   gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
@@ -754,37 +754,6 @@ recreate_depth_image :: () {
   submit_wait_reset(imm_command);
 }
 
-draw_aabb :: (cmd: RenderCommand, aabb: AABB, transform: Matrix4) {
-  cmd_set_polygon_mode(cmd, .LINE);
-  defer cmd_set_polygon_mode(cmd, polygon_mode);
-
-  cube_mesh_info := gpu_mesh_infos[cube_mesh_idx];
-
-  m := transform;
-  s, t := aabb_to_scale_and_translation(aabb);
-  scale(*m, s);
-  // the multiplication expect matrices to be row-major, but we only believe in
-  // a column-major matrices in this town, so transpose for a temporary fix
-  tt := transform * Vector4.{t.x, t.y, t.z, 0.0};
-  translate(*m, tt.xyz);
-  _, m_inverse := inverse(m);
-  constant: MeshPushConstant = .{
-    m,
-    m_inverse,
-    mesh_buffer.device_address,
-    scene_buffer.device_address,
-    xx cube_mesh_info.vertex_buffer_offset,
-  };
-  cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-  cmd_bind_index_buffer(
-    cmd,
-    mesh_buffer.buffer,
-    cube_mesh_info.index_buffer_offset,
-    .UINT32
-  );
-  cmd_draw_indexed(cmd, cube_mesh_info.index_count, 1, 0, 0, 0);
-}
-
 draw_node :: (
   cmd:              RenderCommand,
   scene:            Scene,
@@ -814,7 +783,7 @@ draw_node :: (
     }
 
     if visual_aabb || node_idx == selected_scene_node_idx {
-      draw_aabb(cmd, scene.meshes[node.mesh_idx].aabb, final_transform);
+      debug_draw_aabb(scene.meshes[node.mesh_idx].aabb, final_transform);
     }
 
     if selection_on {
@@ -1787,6 +1756,67 @@ debug_draw_arrow :: (start: Vector3, end: Vector3, color := MAGENTA) {
   push(*vv, end + up - d);
   push(*vv, end);
   push(*vv, end - up - d);
+
+  new_mesh: DebugMesh = .{
+    starting_offset,
+    vv.count - starting_offset,
+    color,
+  };
+  array_add(*debug_meshes, new_mesh);
+}
+
+debug_draw_aabb :: (aabb: AABB, transform: Matrix4, color := MAGENTA) {
+  ok, last_mesh   := last(*debug_meshes);
+  starting_offset := ifx ok then last_mesh.vertex_offset + last_mesh.vertex_count;
+
+  vertices := host_memory(debug_meshes_vertex_buffer);
+  vv       := fixed_slice(vertices);
+  vv.count  = starting_offset;
+
+  position := translation(transform);
+  i := transform.i.xyz;
+  j := transform.j.xyz;
+  k := transform.k.xyz;
+
+  low0: Vector3 = i * aabb.min.x + j * aabb.min.y + k * aabb.min.z + position;
+  low1: Vector3 = i * aabb.max.x + j * aabb.min.y + k * aabb.min.z + position;
+  low2: Vector3 = i * aabb.max.x + j * aabb.max.y + k * aabb.min.z + position;
+  low3: Vector3 = i * aabb.min.x + j * aabb.max.y + k * aabb.min.z + position;
+
+  top0: Vector3 = i * aabb.min.x + j * aabb.min.y + k * aabb.max.z + position;
+  top1: Vector3 = i * aabb.max.x + j * aabb.min.y + k * aabb.max.z + position;
+  top2: Vector3 = i * aabb.max.x + j * aabb.max.y + k * aabb.max.z + position;
+  top3: Vector3 = i * aabb.min.x + j * aabb.max.y + k * aabb.max.z + position;
+
+  // bottom rect
+  push(*vv, low0);
+  push(*vv, low1);
+  push(*vv, low1);
+  push(*vv, low2);
+  push(*vv, low2);
+  push(*vv, low3);
+  push(*vv, low3);
+  push(*vv, low0);
+
+  // top rect
+  push(*vv, top0);
+  push(*vv, top1);
+  push(*vv, top1);
+  push(*vv, top2);
+  push(*vv, top2);
+  push(*vv, top3);
+  push(*vv, top3);
+  push(*vv, top0);
+
+  // sides
+  push(*vv, low0);
+  push(*vv, top0);
+  push(*vv, low1);
+  push(*vv, top1);
+  push(*vv, low2);
+  push(*vv, top2);
+  push(*vv, low3);
+  push(*vv, top3);
 
   new_mesh: DebugMesh = .{
     starting_offset,
