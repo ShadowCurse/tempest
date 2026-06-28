@@ -2,6 +2,14 @@
 
 #define VkDeviceAddress uint64_t
 
+#define RGBA uint
+struct DebugMeshPushConstant {
+    VkDeviceAddress scene_buffer;
+    VkDeviceAddress vertex_buffer;
+    uint vertex_offset;
+    RGBA color;
+};
+
 struct GizmoPushConstant {
     VkDeviceAddress scene_buffer;
     VkDeviceAddress mesh_buffer;

@@ -22,6 +22,9 @@ ui_buffers:              [FRAMES]GpuBufferSlice(Quad);
 scene_buffer:            GpuBufferSlice(SceneInfo);
 gizmo_buffers:           [FRAMES]GpuBufferSlice(Matrix4);
 
+debug_meshes:               FixedArray(DebugMesh, 32);
+debug_meshes_vertex_buffer: GpuBufferSlice(Vector3);
+
 gpu_buffer_arena: GpuBufferArena;
 mesh_buffer:      GpuBufferSlice(u8);
 
@@ -50,11 +53,12 @@ Timestamp :: enum u8 {
 timestamp_array: EnumArray(Timestamp, u64);
 timestamp_pool:  VkQueryPool;
 
-compute_pipeline: Pipeline;
-ui_pipeline:      Pipeline;
-grid_pipeline:    Pipeline;
-mesh_pipeline:    Pipeline;
-gizmo_pipeline:   Pipeline;
+compute_pipeline:    Pipeline;
+ui_pipeline:         Pipeline;
+grid_pipeline:       Pipeline;
+mesh_pipeline:       Pipeline;
+gizmo_pipeline:      Pipeline;
+debug_mesh_pipeline: Pipeline;
 
 cube_mesh_idx:      MeshIdx;
 sphere_mesh_idx:    MeshIdx;
@@ -110,6 +114,9 @@ main :: () {
     ok, it.* = push(*cpu_to_gpu_buffer_arena, Matrix4, 6); // 3 rods, 3 cones
     assert(ok);
   }
+
+  ok, debug_meshes_vertex_buffer = push(*cpu_to_gpu_buffer_arena, Vector3, 32 * 32);
+  assert(ok);
 
   gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
   init(*gpu_buffer_arena, gpu_memory, .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
@@ -245,11 +252,12 @@ main :: () {
     }
   }
 
-  compute_pipeline = create_full_screen_effect_comptue_pipeline();
-  ui_pipeline      = create_ui_pipeline();
-  grid_pipeline    = create_grid_pipeline();
-  mesh_pipeline    = create_mesh_pipeline();
-  gizmo_pipeline   = create_gizmo_pipeline();
+  compute_pipeline    = create_full_screen_effect_comptue_pipeline();
+  ui_pipeline         = create_ui_pipeline();
+  grid_pipeline       = create_grid_pipeline();
+  mesh_pipeline       = create_mesh_pipeline();
+  gizmo_pipeline      = create_gizmo_pipeline();
+  debug_mesh_pipeline = create_debug_mesh_pipeline();
 
   ui: Context;
   init(*ui, *font);
@@ -265,6 +273,7 @@ main :: () {
 
   while !quit {
     reset_temporary_storage();
+    reset(*debug_meshes);
     platform_new_frame();
     new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
     ui.mouse_position     = mouse_position;
@@ -299,6 +308,10 @@ main :: () {
         last_present_time_ns = present_time;
       }
     }
+
+    debug_draw_arrow(.{}, .{1.0, 1.0, 1.0});
+    debug_draw_arrow(.{}, .{-1.0, -1.0, -1.0}, GREEN);
+    debug_draw_arrow(.{}, .{1.0, -1.0, 1.0}, BLUE);
 
     {
       prof_scope("build_ui");
@@ -507,6 +520,35 @@ main :: () {
         };
         cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
         cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
+      }
+    }
+
+    {
+      prof_scope("debug_mesh_pipeline");
+
+      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
+      defer cmd_end_rendering(render_command);
+
+      {
+        // cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_START);
+        // defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.UI_END);
+
+        cmd_bind_pipeline(render_command, debug_mesh_pipeline, .GRAPHICS);
+
+        for * debug_meshes {
+          constant: DebugMeshPushConstant = .{
+            scene_buffer.device_address,
+            debug_meshes_vertex_buffer.device_address,
+            it.vertex_offset,
+            it.color,
+          };
+          cmd_push_constants(render_command,
+                             debug_mesh_pipeline,
+                             .VERTEX_BIT | .FRAGMENT_BIT,
+                             *constant);
+          cmd_draw(render_command, it.vertex_count, 1, 0, 0);
+          // log("drawing debug mesh with offset: %", it.vertex_offset);
+        }
       }
     }
 
@@ -1280,6 +1322,115 @@ create_gizmo_pipeline :: () -> Pipeline {
   };
 }
 
+DebugMeshPushConstant :: struct {
+  scene_buffer:  VkDeviceAddress;
+  vertex_buffer: VkDeviceAddress;
+  vertex_offset: u32;
+  color:         RGBA; @u32
+} @ShaderType
+create_debug_mesh_pipeline :: () -> Pipeline {
+  push_constants: VkPushConstantRange = .{
+    stageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
+    offset     = 0,
+    size       = size_of(DebugMeshPushConstant),
+  };
+  pipeline_layout_create_info: VkPipelineLayoutCreateInfo = .{
+    pPushConstantRanges    = *push_constants,
+    pushConstantRangeCount = 1,
+  };
+  layout := create_pipeline_layout(pipeline_layout_create_info);
+
+  vert_code, ok := platform_read_entire_file("shaders_compiled/debug_mesh_vert.spv",, temp);
+  assert(ok);
+  vert_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx vert_code.data,
+    codeSize = xx vert_code.count,
+  };
+  frag_code: , ok = platform_read_entire_file("shaders_compiled/debug_mesh_frag.spv",, temp);
+  assert(ok);
+  frag_module_create_info: VkShaderModuleCreateInfo = .{
+    pCode    = xx frag_code.data,
+    codeSize = xx frag_code.count,
+  };
+  stages: []VkPipelineShaderStageCreateInfo = .[
+    .{ pNext = *vert_module_create_info, stage = .VERTEX_BIT,   pName = "main" },
+    .{ pNext = *frag_module_create_info, stage = .FRAGMENT_BIT, pName = "main" },
+  ];
+
+  input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .LINE_LIST };
+  rasterization: VkPipelineRasterizationStateCreateInfo = .{
+    polygonMode = .FILL,
+    cullMode    = .BACK_BIT,
+    frontFace   = .COUNTER_CLOCKWISE,
+    lineWidth   = 1.0,
+  };
+  multisampling: VkPipelineMultisampleStateCreateInfo = .{ rasterizationSamples = ._1_BIT };
+  color_attachment_format: VkFormat = .B8G8R8A8_UNORM;
+  rendering: VkPipelineRenderingCreateInfo = .{
+    pColorAttachmentFormats = *color_attachment_format,
+    colorAttachmentCount    = 1,
+    depthAttachmentFormat   = .UNDEFINED,// .D32_SFLOAT,
+    stencilAttachmentFormat = .UNDEFINED,
+  };
+  color_blend_attachment: VkPipelineColorBlendAttachmentState = .{
+    blendEnable         = xx true,
+    srcColorBlendFactor = .SRC_ALPHA,
+    dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+    colorBlendOp        = .ADD,
+    srcAlphaBlendFactor = .ONE,
+    dstAlphaBlendFactor = .ZERO,
+    alphaBlendOp        = .ADD,
+    colorWriteMask      = .R_BIT | .G_BIT | .B_BIT | .A_BIT,
+  };
+
+  viewport: VkPipelineViewportStateCreateInfo = .{ viewportCount = 1, scissorCount = 1 };
+
+  // depth_stencil_state: VkPipelineDepthStencilStateCreateInfo = .{
+  //   depthTestEnable       = xx false,
+  //   depthWriteEnable      = xx false,
+  //   depthCompareOp        = .GREATER,
+  //   depthBoundsTestEnable = xx false,
+  //   minDepthBounds        = 0,
+  //   maxDepthBounds        = 1.0,
+  // };
+
+  color_blending: VkPipelineColorBlendStateCreateInfo = .{
+    logicOpEnable   = xx false,
+    logicOp         = .COPY,
+    attachmentCount = 1,
+    pAttachments    = *color_blend_attachment,
+  };
+
+  vertex_input: VkPipelineVertexInputStateCreateInfo;
+
+  dynamic_states: []VkDynamicState = .[ .VIEWPORT, .SCISSOR ];
+  dynamic_state_info: VkPipelineDynamicStateCreateInfo = .{
+    pDynamicStates    = dynamic_states.data,
+    dynamicStateCount = xx dynamic_states.count,
+  };
+
+  create_info: VkGraphicsPipelineCreateInfo = .{
+    pNext               = *rendering,
+    stageCount          = xx stages.count,
+    pStages             = stages.data,
+    pVertexInputState   = *vertex_input,
+    pInputAssemblyState = *input_assembly,
+    pViewportState      = *viewport,
+    pRasterizationState = *rasterization,
+    pMultisampleState   = *multisampling,
+    // pDepthStencilState  = *depth_stencil_state,
+    pColorBlendState    = *color_blending,
+    pDynamicState       = *dynamic_state_info,
+    layout              = layout,
+  };
+  pipeline := create_graphics_pipeline(create_info);
+
+  return .{
+    pipeline = pipeline,
+    layout = layout,
+  };
+}
+
 destroy_pipeline :: (pipeline: Pipeline) {
   if pipeline.dsl destroy_descriptor_set_layout(pipeline.dsl);
   if pipeline.layout destroy_pipeline_layout(pipeline.layout);
@@ -1600,6 +1751,49 @@ camera_ray_mesh_intersection :: (
   };
   s, r := mesh_ray_intersection(mesh, ray);
   return s, r;
+}
+
+DebugMesh :: struct {
+  vertex_offset: u32;
+  vertex_count:  u32;
+  color:         RGBA;
+}
+
+debug_draw_arrow :: (start: Vector3, end: Vector3, color := MAGENTA) {
+  ok, last_mesh   := last(*debug_meshes);
+  starting_offset := ifx ok then last_mesh.vertex_offset + last_mesh.vertex_count;
+
+  vertices := host_memory(debug_meshes_vertex_buffer);
+  vv := fixed_slice(vertices);
+  vv.count = starting_offset;
+
+  push(*vv, start);
+  push(*vv, end);
+
+  d     := normalize(end - start);
+  right := cross(d, .{z = 1.0});
+  up    := cross(right, d);
+
+  d     *= 0.2;
+  right *= 0.2;
+  up    *= 0.2;
+
+  push(*vv, end);
+  push(*vv, end + right - d);
+  push(*vv, end);
+  push(*vv, end - right - d);
+
+  push(*vv, end);
+  push(*vv, end + up - d);
+  push(*vv, end);
+  push(*vv, end - up - d);
+
+  new_mesh: DebugMesh = .{
+    starting_offset,
+    vv.count - starting_offset,
+    color,
+  };
+  array_add(*debug_meshes, new_mesh);
 }
 
 #load "ui.jai";
