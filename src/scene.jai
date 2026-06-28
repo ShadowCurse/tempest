@@ -285,8 +285,8 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
     }
   }
   for i: 0..sectors - 1 {
-    push(*ii, total_vertices - 1);
     push(*ii, total_vertices - 1 - sectors + i);
+    push(*ii, total_vertices - 1);
     if i != sectors - 1 {
       push(*ii, total_vertices - 1 - sectors + i + 1);
     } else {
@@ -377,8 +377,8 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
     }
   }
   for i: 0..sectors - 1 {
-    push(*ii, total_vertices - 1);
     push(*ii, total_vertices - 1 - sectors + i);
+    push(*ii, total_vertices - 1);
     if i != sectors - 1 {
       push(*ii, total_vertices - 1 - sectors + i + 1);
     } else {
@@ -436,8 +436,8 @@ create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
     }
   }
   for i: 0..sectors - 1 {
-    push(*ii, total_vertices - 1);
     push(*ii, total_vertices - 1 - sectors + i);
+    push(*ii, total_vertices - 1);
     if i != sectors - 1 {
       push(*ii, total_vertices - 1 - sectors + i + 1);
     } else {

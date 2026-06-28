@@ -1097,7 +1097,7 @@ create_mesh_pipeline :: () -> Pipeline {
   input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
   rasterization: VkPipelineRasterizationStateCreateInfo = .{
     polygonMode = .FILL,
-    // cullMode    = .BACK_BIT,
+    cullMode    = .BACK_BIT,
     frontFace   = .COUNTER_CLOCKWISE,
     lineWidth   = 1.0,
   };
@@ -1209,7 +1209,7 @@ create_gizmo_pipeline :: () -> Pipeline {
   input_assembly: VkPipelineInputAssemblyStateCreateInfo = .{ topology = .TRIANGLE_LIST };
   rasterization: VkPipelineRasterizationStateCreateInfo = .{
     polygonMode = .FILL,
-    // cullMode    = .BACK_BIT,
+    cullMode    = .BACK_BIT,
     frontFace   = .COUNTER_CLOCKWISE,
     lineWidth   = 1.0,
   };
