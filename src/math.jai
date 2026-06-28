@@ -752,6 +752,12 @@ quat_to_mat4 :: (quat: Quaternion) -> Matrix4 {
 
 RGBA :: #type,distinct u32;
 
+WHITE   :: cast(RGBA)0xffffffff;
+RED     :: cast(RGBA)0xff0000ff;
+GREEN   :: cast(RGBA)0x00ff00ff;
+BLUE    :: cast(RGBA)0x0000ffff;
+MAGENTA :: cast(RGBA)0xff00ffff;
+
 rgba :: (r: u8, g: u8, b: u8, a: u8) -> RGBA {
   return (cast(RGBA)r) << 24 | (cast(RGBA)g) << 16 | (cast(RGBA)b) << 8 | cast(RGBA)a;
 }
