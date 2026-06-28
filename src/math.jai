@@ -471,6 +471,16 @@ operator * :: (m: Matrix4, n: Matrix4) -> Matrix4 {
   return result;
 } @NoProfile
 
+row :: (m: Matrix4, idx: u8) -> Vector4 {
+  assert(idx < 4);
+  return .{
+    m.floats[idx + 0],
+    m.floats[idx + 4],
+    m.floats[idx + 8],
+    m.floats[idx + 12],
+  };
+}
+
 transpose :: (m: Matrix4) -> Matrix4 {
   r: Matrix4 = ---;
   for i: 0..3 for j: 0..3 {
@@ -600,11 +610,7 @@ scale :: (m: *Matrix4, v: Vector3) {
 }
 
 scale :: (m: Matrix4) -> Vector3 {
-  return .{
-    length(Vector4.{m.i.x, m.j.x, m.k.x, m.t.x }),
-    length(Vector4.{m.i.y, m.j.y, m.k.y, m.t.y }),
-    length(Vector4.{m.i.z, m.j.z, m.k.z, m.t.z }),
- };
+  return .{length(m.i), length(m.j), length(m.k)};
 }
 
 perspective :: (fovy: float, aspect: float, near: float, far: float) -> Matrix4 {
@@ -623,9 +629,9 @@ mat3_from_mat4 :: (m: Matrix4) -> Matrix3 {
 }
 
 mat4_from_trs :: (
-  translation: Vector3 = .{},
-  rotation: Quaternion = .{},
-  scale: Vector3 = .{1.0, 1.0, 1.0}
+  translation: Vector3    = .{},
+  rotation:    Quaternion = .{},
+  scale:       Vector3    = .{1.0, 1.0, 1.0},
 ) -> Matrix4 {
   qx := rotation.x;
   qy := rotation.y;
@@ -782,6 +788,14 @@ AABB :: struct {
   min: Vector3;
   max: Vector3;
 };
+
+scale :: (aabb: AABB, scale: Vector3) -> AABB {
+  return .{aabb.min * scale, aabb.max * scale};
+}
+
+translate :: (aabb: AABB, t: Vector3) -> AABB {
+  return .{aabb.min + t, aabb.max + t};
+}
 
 // Scale and translation to apply to unit cube to convert it to AABB
 aabb_to_scale_and_translation :: (aabb: AABB) -> Vector3, Vector3 {
