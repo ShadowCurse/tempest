@@ -15,7 +15,7 @@ layout(push_constant) uniform constants {
 Vertex get_vertex_from_mesh_bytes(uint vertex_idx) {
   MeshPushConstant pc = PushConstants.data;
   MeshBytesRef bytes = MeshBytesRef(pc.mesh_buffer);
-  uint base_offset = pc.vertices_offset / 4 + vertex_idx * 48 / 4;
+  uint base_offset = pc.vertex_offset / 4 + vertex_idx * 48 / 4;
   Vertex result = Vertex(
       vec3(
         uintBitsToFloat(bytes.bytes[base_offset + 0]),

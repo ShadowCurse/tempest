@@ -229,16 +229,16 @@ main :: () {
       mesh_info := array_add(*gpu_mesh_infos);
       if mesh.vertices.count == 0 || mesh.indices.count == 0 then continue;
 
-      vertices_bytes := mesh.vertices.count * size_of(Vertex);
-      indices_bytes  := mesh.indices.count  * size_of(u32);
-      total_bytes    := vertices_bytes + indices_bytes;
-      assert(vertices_bytes + indices_bytes < staging_buffer_host_mem.count);
-      memcpy(staging_buffer_host_mem.data, mesh.vertices.data, vertices_bytes);
-      memcpy(staging_buffer_host_mem.data + vertices_bytes, mesh.indices.data, indices_bytes);
+      vertex_bytes := mesh.vertices.count * size_of(Vertex);
+      index_bytes  := mesh.indices.count  * size_of(u32);
+      total_bytes  := vertex_bytes + index_bytes;
+      assert(vertex_bytes + index_bytes < staging_buffer_host_mem.count);
+      memcpy(staging_buffer_host_mem.data, mesh.vertices.data, vertex_bytes);
+      memcpy(staging_buffer_host_mem.data + vertex_bytes, mesh.indices.data, index_bytes);
       mesh_buffer_offset = align_up(mesh_buffer_offset, 4);
       mesh_info.* = .{
         cast(u64)mesh_buffer_offset,
-        cast(u32)mesh_buffer_offset + cast(u32)vertices_bytes,
+        cast(u32)mesh_buffer_offset + cast(u32)vertex_bytes,
         cast(u32)mesh.indices.count,
         cast(u32)mesh.vertices.count
       };
@@ -680,12 +680,12 @@ main :: () {
             scene_buffer.device_address,
             mesh_buffer.device_address,
             current_instance_buffer .device_address,
-            xx info.vertices_buffer_offset,
+            xx info.vertex_buffer_offset,
             0,
           };
 
           cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
+          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.index_buffer_offset, .UINT32);
           cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
         }
 
@@ -695,12 +695,12 @@ main :: () {
             scene_buffer.device_address,
             mesh_buffer.device_address,
             current_instance_buffer .device_address,
-            xx info.vertices_buffer_offset,
+            xx info.vertex_buffer_offset,
             3,
           };
 
           cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
+          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.index_buffer_offset, .UINT32);
           cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
         }
       }
@@ -773,13 +773,13 @@ draw_aabb :: (cmd: RenderCommand, aabb: AABB, transform: Matrix4) {
     m_inverse,
     mesh_buffer.device_address,
     scene_buffer.device_address,
-    xx cube_mesh_info.vertices_buffer_offset,
+    xx cube_mesh_info.vertex_buffer_offset,
   };
   cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
   cmd_bind_index_buffer(
     cmd,
     mesh_buffer.buffer,
-    cube_mesh_info.indices_buffer_offset,
+    cube_mesh_info.index_buffer_offset,
     .UINT32
   );
   cmd_draw_indexed(cmd, cube_mesh_info.index_count, 1, 0, 0, 0);
@@ -803,10 +803,10 @@ draw_node :: (
       final_transform_inverse ,
       mesh_buffer.device_address,
       scene_buffer.device_address,
-      xx info.vertices_buffer_offset,
+      xx info.vertex_buffer_offset,
     };
     cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-    cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.indices_buffer_offset, .UINT32);
+    cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.index_buffer_offset, .UINT32);
     cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
 
     if node_idx == selected_scene_node_idx {
@@ -1103,11 +1103,11 @@ create_grid_pipeline :: () -> Pipeline {
 }
 
 MeshPushConstant :: struct {
-  transform:       Matrix4;
-  transform_inv:   Matrix4;
-  mesh_buffer:     VkDeviceAddress;
-  scene_buffer:    VkDeviceAddress;
-  vertices_offset: u32;
+  transform:     Matrix4;
+  transform_inv: Matrix4;
+  mesh_buffer:   VkDeviceAddress;
+  scene_buffer:  VkDeviceAddress;
+  vertex_offset: u32;
 } @ShaderType
 create_mesh_pipeline :: () -> Pipeline {
   push_constants: VkPushConstantRange = .{
@@ -1214,7 +1214,7 @@ GizmoPushConstant :: struct {
   scene_buffer:           VkDeviceAddress;
   mesh_buffer:            VkDeviceAddress;
   instance_buffer:        VkDeviceAddress;
-  vertices_offset:        u32;
+  vertex_offset:          u32;
   instance_buffer_offset: u32;
 } @ShaderType
 // This one is essentially same as mesh pipeline with only a change to the
@@ -1575,10 +1575,10 @@ SceneInfo :: struct {
 } @ShaderType
 
 GpuMeshInfo :: struct {
-  vertices_buffer_offset: u64;
-  indices_buffer_offset:  u32;
-  index_count:            u32;
-  vertex_count:           u32;
+  vertex_buffer_offset: u64;
+  index_buffer_offset:  u32;
+  index_count:          u32;
+  vertex_count:         u32;
 }
 
 prof_selected_bound := -1;

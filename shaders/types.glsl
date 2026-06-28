@@ -14,7 +14,7 @@ struct GizmoPushConstant {
     VkDeviceAddress scene_buffer;
     VkDeviceAddress mesh_buffer;
     VkDeviceAddress instance_buffer;
-    uint vertices_offset;
+    uint vertex_offset;
     uint instance_buffer_offset;
 };
 
@@ -27,7 +27,7 @@ struct MeshPushConstant {
     mat4 transform_inv;
     VkDeviceAddress mesh_buffer;
     VkDeviceAddress scene_buffer;
-    uint vertices_offset;
+    uint vertex_offset;
 };
 
 #define QuadUsage uint

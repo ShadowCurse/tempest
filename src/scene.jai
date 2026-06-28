@@ -217,10 +217,10 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
   inner_stacks := stacks - 2;
   stack_step  := PI / cast(float)(stacks - 1);
 
-  total_vertices := sectors * inner_stacks + 2; // 2 for top and bottom
-  total_indices  := sectors * 3 * 2 + (sectors * (inner_stacks - 1)) * 2 * 3;
-  vertices := new_array(total_vertices, Vertex, initialized = false);
-  indices  := new_array(total_indices,  u32,    initialized = false);
+  vertex_count := sectors * inner_stacks + 2; // 2 for top and bottom
+  index_count  := sectors * 3 * 2 + (sectors * (inner_stacks - 1)) * 2 * 3;
+  vertices := new_array(vertex_count, Vertex, initialized = false);
+  indices  := new_array(index_count,  u32,    initialized = false);
 
   vv := fixed_slice(vertices);
 
@@ -241,7 +241,7 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
     }
   }
   push(*vv, .{.{0.0, 0.0, -radius}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
-  assert(vv.count == total_vertices, "% != %", vv.count, total_vertices);
+  assert(vv.count == vertex_count, "% != %", vv.count, vertex_count);
 
   ii := fixed_slice(indices);
   for i: 0..sectors - 1 {
@@ -285,15 +285,15 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
     }
   }
   for i: 0..sectors - 1 {
-    push(*ii, total_vertices - 1 - sectors + i);
-    push(*ii, total_vertices - 1);
+    push(*ii, vertex_count - 1 - sectors + i);
+    push(*ii, vertex_count - 1);
     if i != sectors - 1 {
-      push(*ii, total_vertices - 1 - sectors + i + 1);
+      push(*ii, vertex_count - 1 - sectors + i + 1);
     } else {
-      push(*ii, total_vertices - 1 - sectors);
+      push(*ii, vertex_count - 1 - sectors);
     }
   }
-  assert(ii.count == total_indices, "% != %", ii.count, total_indices);
+  assert(ii.count == index_count, "% != %", ii.count, index_count);
 
   return .{
     0,
@@ -314,10 +314,10 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
     push(*pp, .{cos(angle), sin(angle), 0});
   }
 
-  total_vertices := sectors * 2 + 2; // for 2 centers
-  total_indices  := sectors * 2 * 3 * 2;
-  vertices := new_array(total_vertices, Vertex, initialized = false);
-  indices  := new_array(total_indices,  u32,    initialized = false);
+  vertex_count := sectors * 2 + 2; // for 2 centers
+  index_count  := sectors * 2 * 3 * 2;
+  vertices := new_array(vertex_count, Vertex, initialized = false);
+  indices  := new_array(index_count,  u32,    initialized = false);
 
   vv := fixed_slice(vertices);
   push(*vv, .{.{0.0, 0.0, half_h}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
@@ -334,7 +334,7 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
     }
   }
   push(*vv, .{.{0.0, 0.0, -half_h}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
-  assert(vv.count == total_vertices, "% != %", vv.count, total_vertices);
+  assert(vv.count == vertex_count, "% != %", vv.count, vertex_count);
 
   // note(sc): this logic is basically same as for sphere
   ii := fixed_slice(indices);
@@ -377,15 +377,15 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
     }
   }
   for i: 0..sectors - 1 {
-    push(*ii, total_vertices - 1 - sectors + i);
-    push(*ii, total_vertices - 1);
+    push(*ii, vertex_count - 1 - sectors + i);
+    push(*ii, vertex_count - 1);
     if i != sectors - 1 {
-      push(*ii, total_vertices - 1 - sectors + i + 1);
+      push(*ii, vertex_count - 1 - sectors + i + 1);
     } else {
-      push(*ii, total_vertices - 1 - sectors);
+      push(*ii, vertex_count - 1 - sectors);
     }
   }
-  assert(ii.count == total_indices, "% != %", ii.count, total_indices);
+  assert(ii.count == index_count, "% != %", ii.count, index_count);
 
   return .{
     0,
@@ -404,10 +404,10 @@ create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
     push(*pp, .{cos(angle), sin(angle), 0});
   }
 
-  total_vertices := sectors + 2;
-  total_indices  := sectors * 3 * 2;
-  vertices := new_array(total_vertices, Vertex, initialized = false);
-  indices  := new_array(total_indices,  u32,    initialized = false);
+  vertex_count := sectors + 2;
+  index_count  := sectors * 3 * 2;
+  vertices := new_array(vertex_count, Vertex, initialized = false);
+  indices  := new_array(index_count,  u32,    initialized = false);
 
   vv := fixed_slice(vertices);
   push(*vv, .{.{0.0, 0.0, height}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
@@ -422,7 +422,7 @@ create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
   }
 
   push(*vv, .{.{0.0, 0.0, 0}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
-  assert(vv.count == total_vertices, "% != %", vv.count, total_vertices);
+  assert(vv.count == vertex_count, "% != %", vv.count, vertex_count);
 
   // note(sc): this logic is basically same as for sphere
   ii := fixed_slice(indices);
@@ -436,15 +436,15 @@ create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
     }
   }
   for i: 0..sectors - 1 {
-    push(*ii, total_vertices - 1 - sectors + i);
-    push(*ii, total_vertices - 1);
+    push(*ii, vertex_count - 1 - sectors + i);
+    push(*ii, vertex_count - 1);
     if i != sectors - 1 {
-      push(*ii, total_vertices - 1 - sectors + i + 1);
+      push(*ii, vertex_count - 1 - sectors + i + 1);
     } else {
-      push(*ii, total_vertices - 1 - sectors);
+      push(*ii, vertex_count - 1 - sectors);
     }
   }
-  assert(ii.count == total_indices, "% != %", ii.count, total_indices);
+  assert(ii.count == index_count, "% != %", ii.count, index_count);
 
   return .{
     0,
@@ -483,26 +483,26 @@ GltfLoading :: struct {
 add_gltf_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: GltfLoading) {
   assert(mesh.primitives_count == 1, "Cannot load the scene: mesh has too many primitives");
   assert(mesh.primitives_count == 1);
-  primitive      := *mesh.primitives[0];
-  indices_count  := primitive.indices[0].count;
-  vertices_count := primitive.attributes[0].data[0].count;
+  primitive    := *mesh.primitives[0];
+  index_count  := primitive.indices[0].count;
+  vertex_count := primitive.attributes[0].data[0].count;
 
   material_idx := cast(MaterialIdx) (l.prev_materials_count + primitive.material - l.data.materials);
 
-  total_bytes := indices_count * size_of(u32) + vertices_count * size_of(Vertex);
+  total_bytes  := index_count * size_of(u32) + vertex_count * size_of(Vertex);
   model_memory := new_array(xx total_bytes, u8, initialized = false,, allocator(*scene.mesh_arena));
 
   indices: []u32 = {
-    data  = cast(*u32)(model_memory.data + vertices_count * size_of(Vertex)),
-    count = xx indices_count
+    data  = cast(*u32)(model_memory.data + vertex_count * size_of(Vertex)),
+    count = xx index_count
   };
-  for i: 0..indices_count - 1 indices[i] = xx cgltf_accessor_read_index(primitive.indices, i);
+  for i: 0..index_count - 1 indices[i] = xx cgltf_accessor_read_index(primitive.indices, i);
 
   aabb: AABB = .{
     .{ FLOAT32_MAX, FLOAT32_MAX, FLOAT32_MAX },
     .{ FLOAT32_MIN, FLOAT32_MIN, FLOAT32_MIN },
   };
-  vertices: []Vertex = { data = cast(*Vertex)model_memory.data, count = xx vertices_count };
+  vertices: []Vertex = { data = cast(*Vertex)model_memory.data, count = xx vertex_count };
   // log("Mesh primitive type: %", primitive.type);
   for i: 0..primitive.attributes_count - 1 {
     attr := *primitive.attributes[i];
@@ -526,7 +526,7 @@ add_gltf_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: GltfLoading) {
         positions: []Vector3 = ---;
         positions.data  = cast(*Vector3)floats.data;
         positions.count = floats.count / 3;
-        for i: 0..vertices_count - 1 {
+        for i: 0..vertex_count - 1 {
           vertices[i].position = positions[i];
           aabb.min = min(aabb.min, positions[i]);
           aabb.max = max(aabb.max, positions[i]);
@@ -539,7 +539,7 @@ add_gltf_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: GltfLoading) {
         normals: []Vector3 = ---;
         normals.data  = cast(*Vector3)floats.data;
         normals.count = floats.count / 3;
-        for i: 0..vertices_count - 1 vertices[i].normal = normals[i];
+        for i: 0..vertex_count - 1 vertices[i].normal = normals[i];
       case .cgltf_attribute_type_texcoord;
         num_components := cgltf_num_components(attr.data[0].type);
         // log("Texture coord has % components", num_components);
@@ -548,7 +548,7 @@ add_gltf_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: GltfLoading) {
         uvs: []Vector2 = ---;
         uvs.data  = cast(*Vector2)floats.data;
         uvs.count = floats.count / 2;
-        for i: 0..vertices_count - 1 {
+        for i: 0..vertex_count - 1 {
           vertices[i].uv_x = uvs[i].x;
           vertices[i].uv_y = uvs[i].y;
         }
