@@ -16,6 +16,15 @@ array_add :: (fa: *FixedArray) -> *fa.T {
   return result;
 }
 
+reset :: (fa: *FixedArray) {
+  fa.count = 0;
+}
+
+last :: (fa: *FixedArray) -> (success: bool, result: *fa.T) {
+  if fa.count == 0 then return false, null;
+                   else return true, *fa.data[fa.count - 1];
+}
+
 operator [] :: (fa: FixedArray, idx: fa.I, loc := #caller_location) -> fa.T {
   i := cast(u32) idx;
   assert(i < fa.count, "[%:%]: index: % count: %", loc.fully_pathed_filename, loc.line_number, i, fa.count);
@@ -35,7 +44,7 @@ operator []= :: (fa: *FixedArray, idx: fa.I, value: fa.T, loc := #caller_locatio
 }
 
 for_expansion :: (fa: FixedArray, body: Code, flags: For_Flags) #expand {
-  for i: 0..fa.count - 1 {
+  if fa.count != 0 for i: 0..fa.count - 1 {
     `it_index := i;
     `it       := fa.data[i];
     #insert body;
@@ -43,7 +52,7 @@ for_expansion :: (fa: FixedArray, body: Code, flags: For_Flags) #expand {
 }
 
 for_expansion :: (fa: *FixedArray, body: Code, flags: For_Flags) #expand {
-  for i: 0..fa.count - 1 {
+  if fa.count != 0 for i: 0..fa.count - 1 {
     `it_index := i;
     `it       := *fa.data[i];
     #insert body;
