@@ -98,15 +98,18 @@ GpuBufferArena :: struct {
   end:              u32;
 };
 
-init :: (arena: *GpuBufferArena, memory: GpuMemory, usage: VkBufferUsageFlags) {
+init :: (arena: *GpuBufferArena, memory: GpuMemory, usage: VkBufferUsageFlags2) {
+  usage_flags: VkBufferUsageFlags2CreateInfo = .{
+    usage = usage,
+  };
   buffer_create_info: VkBufferCreateInfo = .{
+    pNext       = *usage_flags,
     size        = memory.capacity,
-    usage       = usage,
     sharingMode = .EXCLUSIVE,
   };
   buffer := create_buffer(buffer_create_info);
   bind_buffer_memory(buffer, memory, 0);
-  device_address := ifx usage & .SHADER_DEVICE_ADDRESS_BIT get_buffer_address(buffer);
+  device_address := ifx usage & VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT then get_buffer_address(buffer);
   arena.* = .{ memory, buffer, device_address, 0 };
 }
 

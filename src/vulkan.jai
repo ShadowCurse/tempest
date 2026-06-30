@@ -18,6 +18,7 @@ DEVICE_EXTENSIONS := *u8.[
   "VK_KHR_calibrated_timestamps",
   "VK_EXT_present_timing",
   // "VK_KHR_unified_image_layouts",
+  "VK_KHR_shader_draw_parameters",
 ];
 MINIMAL_API_VERSION :: #run api_version(0, 1, 3, 0);
 
@@ -354,6 +355,16 @@ cmd_draw_indexed :: (
   first_instance: u32,
 ) {
   vkCmdDrawIndexed(cmd, index_count, instance_count, first_index, xx vertex_offset, first_instance);
+}
+
+cmd_draw_indirect :: (
+  cmd:        VkCommandBuffer,
+  buffer:     VkBuffer,
+  offset:     VkDeviceSize,
+  draw_count: u32,
+  stride:     u32,
+) {
+  vkCmdDrawIndirect(cmd, buffer, offset, draw_count, stride);
 }
 
 cmd_begin_rendering_to_swapchain :: (
@@ -1060,8 +1071,9 @@ init_device :: () {
     descriptorIndexing  = xx true,
   };
   physical_device_features: VkPhysicalDeviceFeatures = .{
-    shaderInt64      = xx true,
-    fillModeNonSolid = xx true,
+    shaderInt64       = xx true,
+    fillModeNonSolid  = xx true,
+    multiDrawIndirect = xx true,
   };
 
   create_info: VkDeviceCreateInfo = .{
@@ -1374,6 +1386,7 @@ DONE
   "vkCmdCopyBuffer",
   "vkCmdDraw",
   "vkCmdDrawIndexed",
+  "vkCmdDrawIndirect",
   "vkCreateQueryPool",
   "vkGetQueryPoolResults",
   "vkCmdResetQueryPool",

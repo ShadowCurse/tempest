@@ -3,11 +3,19 @@
 #define VkDeviceAddress uint64_t
 
 #define RGBA uint
+struct DebugMeshIndirectCommand {
+    uint vertex_count;
+    uint instance_count;
+    uint first_vertex;
+    uint first_instance;
+    uint vertex_offset;
+    RGBA color;
+};
+
 struct DebugMeshPushConstant {
     VkDeviceAddress scene_buffer;
     VkDeviceAddress vertex_buffer;
-    uint vertex_offset;
-    RGBA color;
+    VkDeviceAddress cmd_buffer;
 };
 
 struct GizmoPushConstant {

@@ -22,7 +22,8 @@ ui_buffers:              [FRAMES]GpuBufferSlice(Quad);
 scene_buffer:            GpuBufferSlice(SceneInfo);
 gizmo_buffers:           [FRAMES]GpuBufferSlice(Matrix4);
 
-debug_meshes:               FixedArray(DebugMesh, 8096);
+debug_meshes_cmd_count:     u32 = 0;
+debug_meshes_cmd_buffer:    GpuBufferSlice(DebugMeshIndirectCommand);
 debug_meshes_vertex_buffer: GpuBufferSlice(Vector3);
 
 gpu_buffer_arena: GpuBufferArena;
@@ -101,7 +102,7 @@ main :: () {
 
   for *rc: render_commands rc.* = create_render_command();
   cpu_to_gpu_memory := allocate_gpu_memory(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
-  init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, .TRANSFER_SRC_BIT | .SHADER_DEVICE_ADDRESS_BIT);
+  init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, VK_BUFFER_USAGE_2_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT);// .TRANSFER_SRC_BIT | .SHADER_DEVICE_ADDRESS_BIT);
   ok, staging_buffer := push(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
   assert(ok);
   for * ui_buffers {
@@ -115,11 +116,13 @@ main :: () {
     assert(ok);
   }
 
+  ok, debug_meshes_cmd_buffer = push(*cpu_to_gpu_buffer_arena, DebugMeshIndirectCommand, 8096);
+  assert(ok);
   ok, debug_meshes_vertex_buffer = push(*cpu_to_gpu_buffer_arena, Vector3, 8096 * 32);
   assert(ok);
 
   gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
-  init(*gpu_buffer_arena, gpu_memory, .TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
+  init(*gpu_buffer_arena, gpu_memory, VK_BUFFER_USAGE_2_TRANSFER_DST_BIT | VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT |  VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);//.TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
   ok, mesh_buffer = push(*gpu_buffer_arena, u8, 128 << 20);
   assert(ok);
 
@@ -273,7 +276,7 @@ main :: () {
 
   while !quit {
     reset_temporary_storage();
-    reset(*debug_meshes);
+    debug_meshes_cmd_count = 0;
     platform_new_frame();
     new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
     ui.mouse_position     = mouse_position;
@@ -535,20 +538,22 @@ main :: () {
 
         cmd_bind_pipeline(render_command, debug_mesh_pipeline, .GRAPHICS);
 
-        for * debug_meshes {
-          constant: DebugMeshPushConstant = .{
-            scene_buffer.device_address,
-            debug_meshes_vertex_buffer.device_address,
-            it.vertex_offset,
-            it.color,
-          };
-          cmd_push_constants(render_command,
-                             debug_mesh_pipeline,
-                             .VERTEX_BIT | .FRAGMENT_BIT,
-                             *constant);
-          cmd_draw(render_command, it.vertex_count, 1, 0, 0);
-          // log("drawing debug mesh with offset: %", it.vertex_offset);
-        }
+        constant: DebugMeshPushConstant = .{
+          scene_buffer.device_address,
+          debug_meshes_vertex_buffer.device_address,
+          debug_meshes_cmd_buffer.device_address,
+        };
+        cmd_push_constants(render_command,
+                           debug_mesh_pipeline,
+                           .VERTEX_BIT | .FRAGMENT_BIT,
+                           *constant);
+        cmd_draw_indirect(
+          render_command,
+          debug_meshes_cmd_buffer.buffer,
+          debug_meshes_cmd_buffer.byte_offset,
+          debug_meshes_cmd_count,
+          size_of(DebugMeshIndirectCommand)
+        );
       }
     }
 
@@ -1294,8 +1299,9 @@ create_gizmo_pipeline :: () -> Pipeline {
 DebugMeshPushConstant :: struct {
   scene_buffer:  VkDeviceAddress;
   vertex_buffer: VkDeviceAddress;
-  vertex_offset: u32;
-  color:         RGBA; @u32
+  cmd_buffer:    VkDeviceAddress;
+  // vertex_offset: u32;
+  // color:         RGBA; @u32
 } @ShaderType
 create_debug_mesh_pipeline :: () -> Pipeline {
   push_constants: VkPushConstantRange = .{
@@ -1722,19 +1728,28 @@ camera_ray_mesh_intersection :: (
   return s, r;
 }
 
-DebugMesh :: struct {
-  vertex_offset: u32;
-  vertex_count:  u32;
-  color:         RGBA;
-}
+DebugMeshIndirectCommand :: struct {
+  // same as VkDrawIndirectCommand;
+  vertex_count:   u32;
+  instance_count: u32;
+  first_vertex:   u32;
+  first_instance: u32;
+
+  vertex_offset:  u32;
+  color:          RGBA; @u32
+} @ShaderType
 
 debug_draw_arrow :: (start: Vector3, end: Vector3, color := MAGENTA) {
-  ok, last_mesh   := last(*debug_meshes);
-  starting_offset := ifx ok then last_mesh.vertex_offset + last_mesh.vertex_count;
+  commands := host_memory(debug_meshes_cmd_buffer);
+  vertex_offest: u32 = 0;
+  if debug_meshes_cmd_count {
+    last := *commands[debug_meshes_cmd_count - 1];
+    vertex_offest = last.vertex_offset + last.vertex_count;
+  }
 
   vertices := host_memory(debug_meshes_vertex_buffer);
   vv := fixed_slice(vertices);
-  vv.count = starting_offset;
+  vv.count = vertex_offest;
 
   push(*vv, start);
   push(*vv, end);
@@ -1757,21 +1772,28 @@ debug_draw_arrow :: (start: Vector3, end: Vector3, color := MAGENTA) {
   push(*vv, end);
   push(*vv, end - up - d);
 
-  new_mesh: DebugMesh = .{
-    starting_offset,
-    vv.count - starting_offset,
-    color,
+  new_cmd: DebugMeshIndirectCommand = .{
+    vertex_count   = vv.count - vertex_offest,
+    instance_count = 1,
+    vertex_offset  = vertex_offest,
+    color          = color,
   };
-  array_add(*debug_meshes, new_mesh);
+  commands[debug_meshes_cmd_count] = new_cmd;
+  debug_meshes_cmd_count += 1;
 }
 
 debug_draw_aabb :: (aabb: AABB, transform: Matrix4, color := MAGENTA) {
-  ok, last_mesh   := last(*debug_meshes);
-  starting_offset := ifx ok then last_mesh.vertex_offset + last_mesh.vertex_count;
+  commands := host_memory(debug_meshes_cmd_buffer);
+  vertex_offest: u32 = 0;
+  if debug_meshes_cmd_count {
+    last := *commands[debug_meshes_cmd_count - 1];
+    vertex_offest = last.vertex_offset + last.vertex_count;
+  }
 
   vertices := host_memory(debug_meshes_vertex_buffer);
   vv       := fixed_slice(vertices);
-  vv.count  = starting_offset;
+  // vv.count  = starting_offset;
+  vv.count = vertex_offest;
 
   position := translation(transform);
   i := transform.i.xyz;
@@ -1818,12 +1840,14 @@ debug_draw_aabb :: (aabb: AABB, transform: Matrix4, color := MAGENTA) {
   push(*vv, low3);
   push(*vv, top3);
 
-  new_mesh: DebugMesh = .{
-    starting_offset,
-    vv.count - starting_offset,
-    color,
+  new_cmd: DebugMeshIndirectCommand = .{
+    vertex_count   = vv.count - vertex_offest,
+    instance_count = 1,
+    vertex_offset  = vertex_offest,
+    color          = color,
   };
-  array_add(*debug_meshes, new_mesh);
+  commands[debug_meshes_cmd_count] = new_cmd;
+  debug_meshes_cmd_count += 1;
 }
 
 #load "ui.jai";
