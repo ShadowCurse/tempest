@@ -1,154 +1,129 @@
-VALIDATION_LAYERS_NAMES := *u8.[
-  "VK_LAYER_KHRONOS_validation",
-];
-INSTANCE_EXTENSIONS := *u8.[
-  "VK_EXT_debug_utils",
-  "VK_EXT_surface_maintenance1",
-  "VK_KHR_get_surface_capabilities2",
-];
-BASE_DEVICE_EXTENSIONS := *u8.[
-  "VK_KHR_swapchain",
-  "VK_KHR_maintenance5",
-  "VK_EXT_swapchain_maintenance1",
-  "VK_KHR_push_descriptor",
-  "VK_EXT_extended_dynamic_state3",
-  // "VK_KHR_unified_image_layouts",
-  "VK_KHR_shader_draw_parameters",
-];
-VK_EXT_PRESENT_TIMING_DEVICE_EXTENSIONS := *u8.[
-  // these 2 required for VK_EXT_present_timing
-  "VK_KHR_present_id2",
-  "VK_KHR_calibrated_timestamps",
-  "VK_EXT_present_timing",
-];
-MINIMAL_API_VERSION :: #run api_version(0, 1, 3, 0);
+vk_instance:              VkInstance;
+vk_instance_version:      VkApiVersion;
+vk_debug_messanger:       VkDebugUtilsMessengerEXT;
+vk_surface:               VkSurfaceKHR;
 
-instance:              VkInstance;
-instance_version:      ApiVersion;
-debug_messanger:       VkDebugUtilsMessengerEXT;
-surface:               VkSurfaceKHR;
-
-physical_device:       VkPhysicalDevice;
+vk_physical_device:       VkPhysicalDevice;
 vk_supports_present_timing: bool;
 
-device:                VkDevice;
-graphics_queue_family: u32;
-graphics_queue:        VkQueue;
-present_queue_family:  u32;
-present_queue:         VkQueue;
-compute_queue_family:  u32;
-compute_queue:         VkQueue;
-transfer_queue_family: u32;
-transfer_queue:        VkQueue;
+vk_device:                VkDevice;
+vk_graphics_queue_family: u32;
+vk_graphics_queue:        VkQueue;
+vk_present_queue_family:  u32;
+vk_present_queue:         VkQueue;
+vk_compute_queue_family:  u32;
+vk_compute_queue:         VkQueue;
+vk_transfer_queue_family: u32;
+vk_transfer_queue:        VkQueue;
 
-swapchain_arena:       BufferAllocator;
-swapchain:             VkSwapchainKHR;
-swapchain_images:      []VkImage;
-swapchain_image_views: []VkImageView;
+vk_swapchain_arena:       BufferAllocator;
+vk_swapchain:             VkSwapchainKHR;
+vk_swapchain_images:      []VkImage;
+vk_swapchain_image_views: []VkImageView;
 // NOTE: per swapchain image semaphores are required to safely reuse
 // swapchain images. these are used between vkQueueSubmit and vkQueuePresent calls
-swapchain_semaphores: []VkSemaphore;
+vk_swapchain_semaphores: []VkSemaphore;
 // NOTE: these are for vkQueuePresentKHR. They will be signaled when the resources
 // associated with a present operation can be safely destroyed.
-swapchain_fences: []VkFence;
-swapchain_format: VkFormat = .UNDEFINED;
-swapchain_extent: VkExtent2D;
-swapchain_present_timing_surface:    VkPresentTimingSurfaceCapabilitiesEXT;
-swapchain_past_presentation_timings: []VkPastPresentationTimingEXT;
-swapchain_present_stage_times:       []VkPresentStageTimeEXT;
+vk_swapchain_fences:                    []VkFence;
+vk_swapchain_format:                    VkFormat = .UNDEFINED;
+vk_swapchain_extent:                    VkExtent2D;
+vk_swapchain_present_timing_surface:    VkPresentTimingSurfaceCapabilitiesEXT;
+vk_swapchain_past_presentation_timings: []VkPastPresentationTimingEXT;
+vk_swapchain_present_stage_times:       []VkPresentStageTimeEXT;
 
-graphics_command_pool: VkCommandPool;
+vk_graphics_command_pool: VkCommandPool;
 
-vulkan_init :: (enable_validation: bool) -> success: bool {
+vk_init :: (enable_validation: bool) -> success: bool {
   get_proc := platform_vulkan_proc_addr();
-  if !load_basic_procs(get_proc) return false;
-  init_instance(enable_validation);
-  if !instance return false;
-  if !load_instance_procs(get_proc) return false;
-  if enable_validation then debug_messanger = init_debug_messanger();
-  platform_create_surface(instance, *surface);
-  if !surface return false;
-  select_physical_device(enable_validation);
-  if !physical_device return false;
+  if !vk_load_basic_procs(get_proc) return false;
+  vk_init_instance(enable_validation);
+  if !vk_instance return false;
+  if !vk_load_instance_procs(get_proc) return false;
+  if enable_validation then vk_debug_messanger = vk_init_debug_messanger();
+  platform_create_surface(vk_instance, *vk_surface);
+  if !vk_surface return false;
+  vk_select_physical_device(enable_validation);
+  if !vk_physical_device return false;
   vk_check_additional_extensions_support();
-  init_device();
-  if !device return false;
-  init(*swapchain_arena, new_array(1024, u8, initialized = false));
-  init_swapchain(window_width, window_height, null);
-  if !swapchain return false;
-  graphics_command_pool = init_command_pool(graphics_queue_family);
+  vk_init_device();
+  if !vk_device return false;
+  init(*vk_swapchain_arena, new_array(1024, u8, initialized = false));
+  vk_init_swapchain(window_width, window_height, null);
+  if !vk_swapchain return false;
+  vk_graphics_command_pool = vk_init_command_pool(vk_graphics_queue_family);
   return true;
 }
 
-create_fence :: (create_info: VkFenceCreateInfo) -> VkFence  {
+vk_create_fence :: (create_info: VkFenceCreateInfo) -> VkFence  {
   result: VkFence = ---;
-  assert(!vkCreateFence(device, *create_info, null, *result));
+  assert(!vkCreateFence(vk_device, *create_info, null, *result));
   return result;
 }
 
-create_semaphore :: (create_info: VkSemaphoreCreateInfo) -> VkSemaphore  {
+vk_create_semaphore :: (create_info: VkSemaphoreCreateInfo) -> VkSemaphore  {
   result: VkSemaphore = ---;
-  assert(!vkCreateSemaphore(device, *create_info, null, *result));
+  assert(!vkCreateSemaphore(vk_device, *create_info, null, *result));
   return result;
 }
 
-create_buffer:: (create_info: VkBufferCreateInfo) -> VkBuffer {
+vk_create_buffer:: (create_info: VkBufferCreateInfo) -> VkBuffer {
   result: VkBuffer = ---;
-  assert(!vkCreateBuffer(device, *create_info, null, *result));
+  assert(!vkCreateBuffer(vk_device, *create_info, null, *result));
   return result;
 }
 
-create_image:: (create_info: VkImageCreateInfo) -> VkImage {
+vk_create_image:: (create_info: VkImageCreateInfo) -> VkImage {
   result: VkImage = ---;
-  assert(!vkCreateImage(device, *create_info, null, *result));
+  assert(!vkCreateImage(vk_device, *create_info, null, *result));
   return result;
 }
 
-create_image_view :: (create_info: VkImageViewCreateInfo) -> VkImageView {
+vk_create_image_view :: (create_info: VkImageViewCreateInfo) -> VkImageView {
   result: VkImageView = ---;
-  assert(!vkCreateImageView(device, *create_info, null, *result));
+  assert(!vkCreateImageView(vk_device, *create_info, null, *result));
   return result;
 }
 
-create_descriptor_set_layout :: (create_info: VkDescriptorSetLayoutCreateInfo) -> VkDescriptorSetLayout {
+vk_create_descriptor_set_layout :: (create_info: VkDescriptorSetLayoutCreateInfo) -> VkDescriptorSetLayout {
   result: VkDescriptorSetLayout = ---;
-  assert(!vkCreateDescriptorSetLayout(device, *create_info, null, *result));
+  assert(!vkCreateDescriptorSetLayout(vk_device, *create_info, null, *result));
   return result;
 }
 
-create_sampler :: (create_info: VkSamplerCreateInfo) -> VkSampler {
+vk_create_sampler :: (create_info: VkSamplerCreateInfo) -> VkSampler {
   result: VkSampler = ---;
-  assert(!vkCreateSampler(device, *create_info, null, *result));
+  assert(!vkCreateSampler(vk_device, *create_info, null, *result));
   return result;
 }
 
-create_pipeline_layout :: (create_info: VkPipelineLayoutCreateInfo) -> VkPipelineLayout {
+vk_create_pipeline_layout :: (create_info: VkPipelineLayoutCreateInfo) -> VkPipelineLayout {
   result: VkPipelineLayout = ---;
-  assert(!vkCreatePipelineLayout(device, *create_info, null, *result));
+  assert(!vkCreatePipelineLayout(vk_device, *create_info, null, *result));
   return result;
 }
 
-create_compute_pipeline :: (create_info: VkComputePipelineCreateInfo) -> VkPipeline {
+vk_create_compute_pipeline :: (create_info: VkComputePipelineCreateInfo) -> VkPipeline {
   result: VkPipeline = ---;
-  assert(!vkCreateComputePipelines(device, null, 1, *create_info, null, *result));
+  assert(!vkCreateComputePipelines(vk_device, null, 1, *create_info, null, *result));
   return result;
 }
 
-create_graphics_pipeline :: (create_info: VkGraphicsPipelineCreateInfo) -> VkPipeline {
+vk_create_graphics_pipeline :: (create_info: VkGraphicsPipelineCreateInfo) -> VkPipeline {
   result: VkPipeline = ---;
-  assert(!vkCreateGraphicsPipelines(device, null, 1, *create_info, null, *result));
+  assert(!vkCreateGraphicsPipelines(vk_device, null, 1, *create_info, null, *result));
   return result;
 }
 
-create_query_pool :: (create_info: VkQueryPoolCreateInfo) -> VkQueryPool {
+vk_create_query_pool :: (create_info: VkQueryPoolCreateInfo) -> VkQueryPool {
   result: VkQueryPool = ---;
-  assert(!vkCreateQueryPool(device, *create_info, null, *result));
+  assert(!vkCreateQueryPool(vk_device, *create_info, null, *result));
   return result;
 }
 
-get_query_pool_results :: (pool: VkQueryPool, data: []u64, wait := false) {
+vk_get_query_pool_results :: (pool: VkQueryPool, data: []u64, wait := false) {
   r := vkGetQueryPoolResults(
-      device,
+      vk_device,
       pool,
       0,
       xx data.count,
@@ -161,129 +136,129 @@ get_query_pool_results :: (pool: VkQueryPool, data: []u64, wait := false) {
   // assert(r == .SUCCESS || r == .NOT_READY);
 }
 
-get_buffer_memory_requirements :: (buffer: VkBuffer) -> VkMemoryRequirements {
+vk_get_buffer_memory_requirements :: (buffer: VkBuffer) -> VkMemoryRequirements {
   result: VkMemoryRequirements = ---;
-  vkGetBufferMemoryRequirements(device, buffer, *result);
+  vkGetBufferMemoryRequirements(vk_device, buffer, *result);
   return result;
 }
 
-get_image_memory_requirements :: (image: VkImage) -> VkMemoryRequirements {
+vk_get_image_memory_requirements :: (image: VkImage) -> VkMemoryRequirements {
   result: VkMemoryRequirements = ---;
-  vkGetImageMemoryRequirements(device, image, *result);
+  vkGetImageMemoryRequirements(vk_device, image, *result);
   return result;
 }
 
-get_buffer_address :: (buffer: VkBuffer) -> VkDeviceAddress {
+vk_get_buffer_address :: (buffer: VkBuffer) -> VkDeviceAddress {
   result: VkDeviceAddress = ---;
   info: VkBufferDeviceAddressInfo = .{ buffer = buffer };
-  result = vkGetBufferDeviceAddress(device, *info);
+  result = vkGetBufferDeviceAddress(vk_device, *info);
   return result;
 }
 
-get_swapchain_timing_properties :: () -> (refresh_duration: u64,
+vk_get_swapchain_timing_properties :: () -> (refresh_duration: u64,
                                           refresh_interval: u64,
                                           properties_counter: u64) {
   timing_props: VkSwapchainTimingPropertiesEXT;
   counter: u64;
-  _ = vkGetSwapchainTimingPropertiesEXT(device, swapchain, *timing_props, *counter);
+  _ = vkGetSwapchainTimingPropertiesEXT(vk_device, vk_swapchain, *timing_props, *counter);
   return timing_props.refreshDuration, timing_props.refreshInterval, counter;
 }
 
-get_past_presentation_timing :: () -> []VkPastPresentationTimingEXT {
+vk_get_past_presentation_timing :: () -> []VkPastPresentationTimingEXT {
   result: []VkPastPresentationTimingEXT = .[];
-  if swapchain_present_timing_surface.presentTimingSupported {
-    past_timing_info: VkPastPresentationTimingInfoEXT = .{ swapchain = swapchain };
+  if vk_swapchain_present_timing_surface.presentTimingSupported {
+    past_timing_info: VkPastPresentationTimingInfoEXT = .{ swapchain = vk_swapchain };
     past_timing_properties: VkPastPresentationTimingPropertiesEXT = .{};
-    if vkGetPastPresentationTimingEXT(device, *past_timing_info, *past_timing_properties) then return .[];
-    past_timing_properties.pPresentationTimings = swapchain_past_presentation_timings.data;
-    if vkGetPastPresentationTimingEXT(device, *past_timing_info, *past_timing_properties) then return .[];
+    if vkGetPastPresentationTimingEXT(vk_device, *past_timing_info, *past_timing_properties) then return .[];
+    past_timing_properties.pPresentationTimings = vk_swapchain_past_presentation_timings.data;
+    if vkGetPastPresentationTimingEXT(vk_device, *past_timing_info, *past_timing_properties) then return .[];
     result = .{
-      data = swapchain_past_presentation_timings.data,
+      data = vk_swapchain_past_presentation_timings.data,
       count = past_timing_properties.presentationTimingCount
     };
   }
   return result;
 }
 
-bind_buffer_memory :: (buffer: VkBuffer, device_memory: VkDeviceMemory, offset: u32) {
-  assert(!vkBindBufferMemory(device, buffer, device_memory, offset));
+vk_bind_buffer_memory :: (buffer: VkBuffer, device_memory: VkDeviceMemory, offset: u32) {
+  assert(!vkBindBufferMemory(vk_device, buffer, device_memory, offset));
 }
 
-bind_image_memory :: (image: VkImage, device_memory: VkDeviceMemory, offset: u32) {
-  assert(!vkBindImageMemory(device, image, device_memory, offset));
+vk_bind_image_memory :: (image: VkImage, device_memory: VkDeviceMemory, offset: u32) {
+  assert(!vkBindImageMemory(vk_device, image, device_memory, offset));
 }
 
-allocate_command_buffer :: (allocate_info: VkCommandBufferAllocateInfo) -> VkCommandBuffer {
+vk_allocate_command_buffer :: (allocate_info: VkCommandBufferAllocateInfo) -> VkCommandBuffer {
   result: VkCommandBuffer = ---;
-  assert(!vkAllocateCommandBuffers(device, *allocate_info, *result));
+  assert(!vkAllocateCommandBuffers(vk_device, *allocate_info, *result));
   return result;
 }
 
-reset_command_buffer :: (cmd: VkCommandBuffer) {
+vk_reset_command_buffer :: (cmd: VkCommandBuffer) {
   assert(!vkResetCommandBuffer(cmd, 0));
 }
 
-device_wait_idle :: () {
-  vkDeviceWaitIdle(device);
+vk_device_wait_idle :: () {
+  vkDeviceWaitIdle(vk_device);
 }
 
-destroy_image :: (image: VkImage) {
-  vkDestroyImage(device, image, null);
+vk_destroy_image :: (image: VkImage) {
+  vkDestroyImage(vk_device, image, null);
 }
 
-destroy_image_view :: (view: VkImageView) {
-  vkDestroyImageView(device, view, null);
+vk_destroy_image_view :: (view: VkImageView) {
+  vkDestroyImageView(vk_device, view, null);
 }
 
-destroy_semaphore :: (semaphore: VkSemaphore) {
-  vkDestroySemaphore(device, semaphore, null);
+vk_destroy_semaphore :: (semaphore: VkSemaphore) {
+  vkDestroySemaphore(vk_device, semaphore, null);
 }
 
-destroy_fence :: (fence: VkFence) {
-  vkDestroyFence(device, fence, null);
+vk_destroy_fence :: (fence: VkFence) {
+  vkDestroyFence(vk_device, fence, null);
 }
 
-destroy_swapchain :: (swapchain: VkSwapchainKHR) {
-  vkDestroySwapchainKHR(device, swapchain, null);
+vk_destroy_swapchain :: (swapchain: VkSwapchainKHR) {
+  vkDestroySwapchainKHR(vk_device, swapchain, null);
 }
 
-destroy_descriptor_set_layout :: (layout: VkDescriptorSetLayout) {
-  vkDestroyDescriptorSetLayout(device, layout, null);
+vk_destroy_descriptor_set_layout :: (layout: VkDescriptorSetLayout) {
+  vkDestroyDescriptorSetLayout(vk_device, layout, null);
 }
 
-destroy_pipeline_layout :: (layout: VkPipelineLayout) {
-  vkDestroyPipelineLayout(device, layout, null);
+vk_destroy_pipeline_layout :: (layout: VkPipelineLayout) {
+  vkDestroyPipelineLayout(vk_device, layout, null);
 }
 
-destroy_pipeline :: (pipeline: VkPipeline) {
-  vkDestroyPipeline(device, pipeline, null);
+vk_destroy_pipeline :: (pipeline: VkPipeline) {
+  vkDestroyPipeline(vk_device, pipeline, null);
 }
 
-begin_command_buffer :: (cmd: VkCommandBuffer, begin_info: VkCommandBufferBeginInfo) {
+vk_begin_command_buffer :: (cmd: VkCommandBuffer, begin_info: VkCommandBufferBeginInfo) {
   assert(!vkBeginCommandBuffer(cmd, *begin_info));
 }
 
-end_command_buffer :: (cmd: VkCommandBuffer) {
+vk_end_command_buffer :: (cmd: VkCommandBuffer) {
   assert(!vkEndCommandBuffer(cmd));
 }
 
-wait_for_fence :: (fence: VkFence) {
-  assert(!vkWaitForFences(device, 1, *fence, xx true, ~0));
+vk_wait_for_fence :: (fence: VkFence) {
+  assert(!vkWaitForFences(vk_device, 1, *fence, xx true, ~0));
 }
 
-reset_fences :: (fences: []VkFence) {
-  assert(!vkResetFences(device, xx fences.count, fences.data));
+vk_reset_fences :: (fences: []VkFence) {
+  assert(!vkResetFences(vk_device, xx fences.count, fences.data));
 }
 
-wait_swapchain_fence :: (index: u32) {
-  wait_for_fence(swapchain_fences[index]);
+vk_wait_swapchain_fence :: (index: u32) {
+  vk_wait_for_fence(vk_swapchain_fences[index]);
 }
 
-cmd_copy_buffer_to_buffer :: (cmd: VkCommandBuffer, dst: VkBuffer, src: VkBuffer, copy: VkBufferCopy) {
+vk_cmd_copy_buffer_to_buffer :: (cmd: VkCommandBuffer, dst: VkBuffer, src: VkBuffer, copy: VkBufferCopy) {
   vkCmdCopyBuffer(cmd, src, dst, 1, *copy);
 }
 
-cmd_copy_buffer_to_image :: (cmd: VkCommandBuffer, buffer: VkBuffer, image: VkImage, extent: VkExtent3D) {
+vk_cmd_copy_buffer_to_image :: (cmd: VkCommandBuffer, buffer: VkBuffer, image: VkImage, extent: VkExtent3D) {
   copy_region: VkBufferImageCopy = .{
     imageExtent = extent,
     imageSubresource = .{
@@ -294,15 +269,15 @@ cmd_copy_buffer_to_image :: (cmd: VkCommandBuffer, buffer: VkBuffer, image: VkIm
   vkCmdCopyBufferToImage(cmd, buffer, image, .GENERAL, 1, *copy_region);
 }
 
-cmd_bind_pipeline :: (cmd: VkCommandBuffer, pipeline: VkPipeline, bind_point: VkPipelineBindPoint) {
+vk_cmd_bind_pipeline :: (cmd: VkCommandBuffer, pipeline: VkPipeline, bind_point: VkPipelineBindPoint) {
   vkCmdBindPipeline(cmd, bind_point, pipeline);
 }
 
-cmd_bind_index_buffer :: (cmd: VkCommandBuffer, buffer: VkBuffer, offset: u32, index_type: VkIndexType) {
+vk_cmd_bind_index_buffer :: (cmd: VkCommandBuffer, buffer: VkBuffer, offset: u32, index_type: VkIndexType) {
   vkCmdBindIndexBuffer(cmd, buffer, offset, index_type);
 }
 
-cmd_push_descriptors :: (
+vk_cmd_push_descriptors :: (
   cmd:             VkCommandBuffer,
   pipeline_layout: VkPipelineLayout,
   bind_point:      VkPipelineBindPoint,
@@ -311,7 +286,7 @@ cmd_push_descriptors :: (
   vkCmdPushDescriptorSetKHR(cmd, bind_point, pipeline_layout, 0, xx descriptors.count, descriptors.data);
 }
 
-cmd_push_constants :: (
+vk_cmd_push_constants :: (
   cmd:             VkCommandBuffer,
   pipeline_layout: VkPipelineLayout,
   stage_flags:     VkShaderStageFlags,
@@ -320,11 +295,11 @@ cmd_push_constants :: (
   vkCmdPushConstants(cmd, pipeline_layout, stage_flags, 0, size_of(T), constants);
 }
 
-cmd_reset_query_pool :: (cmd: VkCommandBuffer, pool: VkQueryPool, size: u32) {
+vk_cmd_reset_query_pool :: (cmd: VkCommandBuffer, pool: VkQueryPool, size: u32) {
   vkCmdResetQueryPool(cmd, pool, 0, size);
 }
 
-cmd_write_timestamp :: (
+vk_cmd_write_timestamp :: (
   cmd:   VkCommandBuffer,
   pool:  VkQueryPool,
   stage: VkPipelineStageFlags,
@@ -333,15 +308,15 @@ cmd_write_timestamp :: (
   vkCmdWriteTimestamp(cmd, stage, pool, idx);
 }
 
-cmd_set_polygon_mode :: (cmd:   VkCommandBuffer, mode: VkPolygonMode) {
+vk_cmd_set_polygon_mode :: (cmd:   VkCommandBuffer, mode: VkPolygonMode) {
   vkCmdSetPolygonModeEXT(cmd, mode);
 }
 
-cmd_dispatch :: (cmd: VkCommandBuffer, group_count_x: u32,  group_count_y: u32, group_count_z: u32) {
+vk_cmd_dispatch :: (cmd: VkCommandBuffer, group_count_x: u32,  group_count_y: u32, group_count_z: u32) {
   vkCmdDispatch(cmd, group_count_x, group_count_y, group_count_z);
 }
 
-cmd_draw :: (
+vk_cmd_draw :: (
   cmd:            VkCommandBuffer,
   vertex_count:   u32,
   instance_count: u32,
@@ -351,7 +326,7 @@ cmd_draw :: (
   vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, first_instance);
 }
 
-cmd_draw_indexed :: (
+vk_cmd_draw_indexed :: (
   cmd:            VkCommandBuffer,
   index_count:    u32,
   instance_count: u32,
@@ -362,7 +337,7 @@ cmd_draw_indexed :: (
   vkCmdDrawIndexed(cmd, index_count, instance_count, first_index, xx vertex_offset, first_instance);
 }
 
-cmd_draw_indirect :: (
+vk_cmd_draw_indirect :: (
   cmd:        VkCommandBuffer,
   buffer:     VkBuffer,
   offset:     VkDeviceSize,
@@ -372,12 +347,12 @@ cmd_draw_indirect :: (
   vkCmdDrawIndirect(cmd, buffer, offset, draw_count, stride);
 }
 
-cmd_begin_rendering_to_swapchain :: (
+vk_cmd_begin_rendering_to_swapchain :: (
   cmd: VkCommandBuffer,
   image_index: u32,
   depth_image_view: VkImageView = null
 ) {
-  sc_view := swapchain_image_views[image_index];
+  sc_view := vk_swapchain_image_views[image_index];
 
   color_attachment: VkRenderingAttachmentInfo = .{
     imageView          = sc_view,
@@ -403,7 +378,7 @@ cmd_begin_rendering_to_swapchain :: (
     pColorAttachments    = *color_attachment,
     colorAttachmentCount = 1,
     pDepthAttachment     = ifx depth_image_view then *depth_attachment,
-    renderArea           = .{ extent = swapchain_extent },
+    renderArea           = .{ extent = vk_swapchain_extent },
     layerCount           = 1,
   };
   vkCmdBeginRendering(cmd, *render_info);
@@ -411,21 +386,21 @@ cmd_begin_rendering_to_swapchain :: (
   viewport: VkViewport = .{
     x        = 0.0,
     y        = 0.0,
-    width    = xx swapchain_extent.width,
-    height   = xx swapchain_extent.height,
+    width    = xx vk_swapchain_extent.width,
+    height   = xx vk_swapchain_extent.height,
     minDepth = 0.0,
     maxDepth = 1.0,
   };
   vkCmdSetViewport(cmd, 0, 1, *viewport);
-  scissor: VkRect2D = .{ offset = .{ 0, 0 }, extent = swapchain_extent };
+  scissor: VkRect2D = .{ offset = .{ 0, 0 }, extent = vk_swapchain_extent };
   vkCmdSetScissor(cmd, 0, 1, *scissor);
 }
 
-cmd_end_rendering :: (cmd: VkCommandBuffer) {
+vk_cmd_end_rendering :: (cmd: VkCommandBuffer) {
   vkCmdEndRendering(cmd);
 }
 
-cmd_barrier :: (
+vk_cmd_barrier :: (
   cmd: VkCommandBuffer,
   src_stage:  VkPipelineStageFlags2,
   dst_stage:  VkPipelineStageFlags2,
@@ -445,7 +420,7 @@ cmd_barrier :: (
   vkCmdPipelineBarrier2(cmd, *dependency);
 }
 
-transition_image :: (
+vk_transition_image :: (
   cmd:        VkCommandBuffer,
   image:      VkImage,
   usage:      VkImageUsageFlags,
@@ -482,13 +457,13 @@ transition_image :: (
   vkCmdPipelineBarrier2(cmd, *dependency);
 }
 
-queue_submit :: (submit_info: VkSubmitInfo2, fence: VkFence) {
-  assert(!vkQueueSubmit2(graphics_queue, 1, *submit_info, fence));
+vk_queue_submit :: (submit_info: VkSubmitInfo2, fence: VkFence) {
+  assert(!vkQueueSubmit2(vk_graphics_queue, 1, *submit_info, fence));
 }
 
-find_arena_index :: (type_bits: u32, properties: VkMemoryPropertyFlags) -> u32 {
+vk_find_arena_index :: (type_bits: u32, properties: VkMemoryPropertyFlags) -> u32 {
   result: u32;
-  mp := get_physical_device_memory_properties(physical_device);
+  mp := vk_get_physical_device_memory_properties(vk_physical_device);
   for 0..mp.memoryTypeCount -1 {
     if (1 << it & type_bits) != 0 &&
        mp.memoryTypes[it].propertyFlags & properties == properties {
@@ -499,7 +474,7 @@ find_arena_index :: (type_bits: u32, properties: VkMemoryPropertyFlags) -> u32 {
   return result;
 }
 
-allocate_memory :: (memory_type_idx: u32, size: u64) -> VkDeviceMemory {
+vk_allocate_memory :: (memory_type_idx: u32, size: u64) -> VkDeviceMemory {
   // note(sc): this should be fine to enable all the time if the
   // VkPhysicalDeviceBufferDeviceAddressFeatures.bufferDeviceAddress is set
   // which is required.
@@ -510,38 +485,38 @@ allocate_memory :: (memory_type_idx: u32, size: u64) -> VkDeviceMemory {
       memoryTypeIndex = memory_type_idx,
   };
   result: VkDeviceMemory = ---;
-  assert(!vkAllocateMemory(device, *memory_allocate_info, null, *result));
+  assert(!vkAllocateMemory(vk_device, *memory_allocate_info, null, *result));
   return result;
 }
 
-map_memory :: (device_memory: VkDeviceMemory, size: u32) -> []u8 {
+vk_map_memory :: (device_memory: VkDeviceMemory, size: u32) -> []u8 {
   result: []u8;
-  assert(!vkMapMemory(device, device_memory, 0, size, 0, xx *result.data));
+  assert(!vkMapMemory(vk_device, device_memory, 0, size, 0, xx *result.data));
   result.count = size;
   return result;
 }
 
-acquire_next_image :: (smaphore: VkSemaphore) -> next_image: u32, need_swapchain_recreation: bool {
+vk_acquire_next_image :: (smaphore: VkSemaphore) -> next_image: u32, need_swapchain_recreation: bool {
   result: u32 = ---;
-  r := vkAcquireNextImageKHR(device, swapchain, ~0, smaphore, null, *result);
+  r := vkAcquireNextImageKHR(vk_device, vk_swapchain, ~0, smaphore, null, *result);
   if r == .VK_SUBOPTIMAL_KHR || r == .VK_ERROR_OUT_OF_DATE_KHR return result, true;
 
   assert(!r, "Cannot acquire next image: %", r);
 
-  fence := swapchain_fences[result];
-  wait_for_fence(fence);
-  reset_fences(.[fence]);
+  fence := vk_swapchain_fences[result];
+  vk_wait_for_fence(fence);
+  vk_reset_fences(.[fence]);
   return result, false;
 }
 
-graphics_queue_submit :: (cmd: VkCommandBuffer, semaphore: VkSemaphore, fence: VkFence, image_idx: u32) {
+vk_graphics_queue_submit :: (cmd: VkCommandBuffer, semaphore: VkSemaphore, fence: VkFence, image_idx: u32) {
   buffer_submit_info: VkCommandBufferSubmitInfo = .{ commandBuffer = cmd, deviceMask = 0 };
   wait_semaphore_info: VkSemaphoreSubmitInfo = .{
     semaphore = semaphore,
     stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
   };
   signal_semaphore_info: VkSemaphoreSubmitInfo = .{
-    semaphore = swapchain_semaphores[image_idx],
+    semaphore = vk_swapchain_semaphores[image_idx],
     stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
   };
   submit_info: VkSubmitInfo2 = .{
@@ -552,11 +527,11 @@ graphics_queue_submit :: (cmd: VkCommandBuffer, semaphore: VkSemaphore, fence: V
     pCommandBufferInfos      = *buffer_submit_info,
     commandBufferInfoCount   = 1,
   };
-  queue_submit(submit_info, fence);
+  vk_queue_submit(submit_info, fence);
 }
 
-present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
-  fence := *swapchain_fences[image_idx];
+vk_present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
+  fence := *vk_swapchain_fences[image_idx];
 
   present_info_fence: VkSwapchainPresentFenceInfoKHR = .{
     swapchainCount = 1,
@@ -564,16 +539,16 @@ present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
   };
   present_info: VkPresentInfoKHR = .{
     pNext              = *present_info_fence,
-    pSwapchains        = *swapchain,
+    pSwapchains        = *vk_swapchain,
     swapchainCount     = 1,
-    pWaitSemaphores    = *swapchain_semaphores[image_idx],
+    pWaitSemaphores    = *vk_swapchain_semaphores[image_idx],
     waitSemaphoreCount = 1,
     pImageIndices      = *image_idx,
   };
 
   timing_info:          VkPresentTimingInfoEXT  = ---;
   present_timings_info: VkPresentTimingsInfoEXT = ---;
-  if swapchain_present_timing_surface.presentTimingSupported {
+  if vk_swapchain_present_timing_surface.presentTimingSupported {
     timing_info = .{
       flags = xx VkPresentTimingInfoFlagBitsEXT.PRESENT_AT_NEAREST_REFRESH_CYCLE_BIT_EXT,
       // note(sc): no absolute or relative options are available for now
@@ -589,67 +564,96 @@ present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
     present_info_fence.pNext = *present_timings_info;
   }
 
-  r := vkQueuePresentKHR(graphics_queue, *present_info);
+  r := vkQueuePresentKHR(vk_graphics_queue, *present_info);
   if r != .VK_SUCCESS && r != .VK_SUBOPTIMAL_KHR {
     log_error("Cannot present to graphics queue: %", r);
   }
   // note(sc): the windowing system might not tell the driver about the window resizing
   // so do the check manually
   need_swapchain_recreation := r == .VK_SUBOPTIMAL_KHR ||
-                               swapchain_extent.width  != window_width ||
-                               swapchain_extent.height != window_height;
+                               vk_swapchain_extent.width  != window_width ||
+                               vk_swapchain_extent.height != window_height;
   return need_swapchain_recreation;
 }
 
-recreate_swapchain :: () {
-  for swapchain_image_views destroy_image_view(it);
-  for swapchain_semaphores  destroy_semaphore(it);
-  for swapchain_fences      destroy_fence(it);
-  old_swapchain := swapchain;
-  init_swapchain(window_width, window_height, old_swapchain);
-  destroy_swapchain(old_swapchain);
+vk_recreate_swapchain :: () {
+  for vk_swapchain_image_views vk_destroy_image_view(it);
+  for vk_swapchain_semaphores  vk_destroy_semaphore(it);
+  for vk_swapchain_fences      vk_destroy_fence(it);
+  old_swapchain := vk_swapchain;
+  vk_init_swapchain(window_width, window_height, old_swapchain);
+  vk_destroy_swapchain(old_swapchain);
 }
 
-#scope_file
+VK_VALIDATION_LAYERS_NAMES := *u8.[
+  "VK_LAYER_KHRONOS_validation",
+];
+VK_INSTANCE_EXTENSIONS := *u8.[
+  "VK_EXT_debug_utils",
+  "VK_EXT_surface_maintenance1",
+  "VK_KHR_get_surface_capabilities2",
+];
+VK_BASE_DEVICE_EXTENSIONS := *u8.[
+  "VK_KHR_swapchain",
+  "VK_KHR_maintenance5",
+  "VK_EXT_swapchain_maintenance1",
+  "VK_KHR_push_descriptor",
+  "VK_EXT_extended_dynamic_state3",
+  // "VK_KHR_unified_image_layouts",
+  "VK_KHR_shader_draw_parameters",
+];
+VK_EXT_PRESENT_TIMING_DEVICE_EXTENSIONS := *u8.[
+  // these 2 required for VK_EXT_present_timing
+  "VK_KHR_present_id2",
+  "VK_KHR_calibrated_timestamps",
+  "VK_EXT_present_timing",
+];
+VK_MINIMAL_API_VERSION :: #run vk_create_api_version(0, 1, 3, 0);
 
-ApiVersion :: #type,distinct u32;
-api_version :: (variant: u32, major: u32, minor: u32, patch: u32) -> ApiVersion {
+VkApiVersion :: #type,distinct u32;
+vk_create_api_version :: (variant: u32, major: u32, minor: u32, patch: u32) -> VkApiVersion {
   return xx ((variant & ((1 <<  3) - 1)) << 29) |
             ((major   & ((1 <<  7) - 1)) << 22) |
             ((minor   & ((1 << 10) - 1)) << 12) |
             ((patch   & ((1 << 12) - 1)));
 } @NoProfile
-api_version_patch :: (version: ApiVersion) -> u32 {
-  v: u32 = xx version;
+
+vk_api_version_patch :: (version: VkApiVersion) -> u32 {
+  v:    u32 = xx version;
   MASK: u32 = (1 << 12) - 1;
   return v & MASK;
 } @NoProfile
-api_version_minor :: (version: ApiVersion) -> u32 {
-  v: u32 = xx version;
-  MASK: u32 = (1 << 10) - 1;
+
+vk_api_version_minor :: (version: VkApiVersion) -> u32 {
+  v:     u32 = xx version;
+  MASK:  u32 = (1 << 10) - 1;
   SHIFT: u32 = 12;
   return (v >> SHIFT) & MASK;
 } @NoProfile
-api_version_major :: (version: ApiVersion) -> u32 {
-  v: u32 = xx version;
-  MASK: u32 = (1 << 7) - 1;
+
+vk_api_version_major :: (version: VkApiVersion) -> u32 {
+  v:     u32 = xx version;
+  MASK:  u32 = (1 << 7) - 1;
   SHIFT: u32 = 22;
   return (v >> SHIFT) & MASK;
 } @NoProfile
-api_version_variant :: (version: ApiVersion) -> u32 {
-  v: u32 = xx version;
-  MASK: u32 = (1 << 3) - 1;
+
+vk_api_version_variant :: (version: VkApiVersion) -> u32 {
+  v:     u32 = xx version;
+  MASK:  u32 = (1 << 3) - 1;
   SHIFT: u32 = 29;
   return (v >> SHIFT) & MASK;
 } @NoProfile
 
-get_api_version :: () -> ApiVersion, bool {
-  version: ApiVersion = ---;
+#scope_file
+
+vk_get_api_version :: () -> VkApiVersion, bool {
+  version: VkApiVersion = ---;
   result := vkEnumerateInstanceVersion(*version) == .VK_SUCCESS;
   return version, result;
 } @NoProfile
 
-get_instance_extensions :: () -> (result: VkResult, data: []VkExtensionProperties) {
+vk_get_instance_extensions :: () -> (result: VkResult, data: []VkExtensionProperties) {
   count:  u32                     = ---;
   data:   []VkExtensionProperties = ---;
   result: VkResult                = ---;
@@ -660,7 +664,7 @@ get_instance_extensions :: () -> (result: VkResult, data: []VkExtensionPropertie
   return result, data;
 } @NoProfile
 
-get_instance_layers :: () -> (result: VkResult, data: []VkLayerProperties) {
+vk_get_instance_layers :: () -> (result: VkResult, data: []VkLayerProperties) {
   count:  u32                 = ---;
   data:   []VkLayerProperties = ---;
   result: VkResult            = ---;
@@ -671,7 +675,7 @@ get_instance_layers :: () -> (result: VkResult, data: []VkLayerProperties) {
   return result, data;
 } @NoProfile
 
-contains_all_extensions :: (
+vk_contains_all_extensions :: (
   prefix: string,
   extensions: []VkExtensionProperties,
   to_find_slices: [][]*u8
@@ -707,7 +711,7 @@ contains_all_extensions :: (
   return found_all;
 }
 
-contains_all_layers :: (prefix: string, layers: []VkLayerProperties, to_find: []*u8) -> bool {
+vk_contains_all_layers :: (prefix: string, layers: []VkLayerProperties, to_find: []*u8) -> bool {
   found_layers := 0;
   bitfind      := 0;
   for l: layers {
@@ -732,57 +736,57 @@ contains_all_layers :: (prefix: string, layers: []VkLayerProperties, to_find: []
   return found_all;
 }
 
-init_instance :: (enable_validation: bool) {
-  current_version, ok := get_api_version();
+vk_init_instance :: (enable_validation: bool) {
+  current_version, ok := vk_get_api_version();
   if !ok return;
 
   log("Supported vulkan version: %.%.%",
-      api_version_major(current_version),
-      api_version_minor(current_version),
-      api_version_patch(current_version),
+      vk_api_version_major(current_version),
+      vk_api_version_minor(current_version),
+      vk_api_version_patch(current_version),
   );
   log(
       "Wanted vulkan version: %.%.%",
-      api_version_major(MINIMAL_API_VERSION),
-      api_version_minor(MINIMAL_API_VERSION),
-      api_version_patch(MINIMAL_API_VERSION),
+      vk_api_version_major(VK_MINIMAL_API_VERSION),
+      vk_api_version_minor(VK_MINIMAL_API_VERSION),
+      vk_api_version_patch(VK_MINIMAL_API_VERSION),
   );
-  if current_version < MINIMAL_API_VERSION {
+  if current_version < VK_MINIMAL_API_VERSION {
       log_error("Wanted vulkan api version is above the supported version");
       return;
   }
 
-  err, extensions := get_instance_extensions(,, temp);
+  err, extensions := vk_get_instance_extensions(,, temp);
   if err return;
   platform_extensions := platform_vulkan_extensions();
 
-  if !contains_all_extensions("Instance", extensions, .[platform_extensions, INSTANCE_EXTENSIONS]) {
+  if !vk_contains_all_extensions("Instance", extensions, .[platform_extensions, VK_INSTANCE_EXTENSIONS]) {
     return;
   }
 
-  total_extensions_count := platform_extensions.count + INSTANCE_EXTENSIONS.count;
+  total_extensions_count := platform_extensions.count + VK_INSTANCE_EXTENSIONS.count;
   enabled_extensions: []*u8 = new_array(total_extensions_count, *u8, initialized = false,, temp);
   if !enabled_extensions return;
   {
     i: u32 = 0;
     for platform_extensions { enabled_extensions[i] = it; i += 1; }
-    for INSTANCE_EXTENSIONS { enabled_extensions[i] = it; i += 1; }
+    for VK_INSTANCE_EXTENSIONS { enabled_extensions[i] = it; i += 1; }
   }
 
   enabled_layers: []*u8;
   if enable_validation {
-      err, layers := get_instance_layers(,, temp);
+      err, layers := vk_get_instance_layers(,, temp);
       if err return;
-      if !contains_all_layers("Instance", layers, VALIDATION_LAYERS_NAMES) return;
-      enabled_layers = VALIDATION_LAYERS_NAMES;
+      if !vk_contains_all_layers("Instance", layers, VK_VALIDATION_LAYERS_NAMES) return;
+      enabled_layers = VK_VALIDATION_LAYERS_NAMES;
   }
 
-  instance_version = current_version;
+  vk_instance_version = current_version;
   app_info := VkApplicationInfo.{
       pApplicationName   = "shiver",
-      applicationVersion = xx api_version(0, 0, 0, 1),
+      applicationVersion = xx vk_create_api_version(0, 0, 0, 1),
       pEngineName        = "tempest",
-      engineVersion      = xx api_version(0, 0, 0, 1),
+      engineVersion      = xx vk_create_api_version(0, 0, 0, 1),
       apiVersion         = xx current_version,
   };
   instance_create_info := VkInstanceCreateInfo.{
@@ -795,13 +799,13 @@ init_instance :: (enable_validation: bool) {
   for enabled_extensions log("Instance: enabling extension: %", to_string(it));
   for enabled_layers     log("Instance: enabling layer: %",     to_string(it));
 
-  r := vkCreateInstance(*instance_create_info, null, *instance);
+  r := vkCreateInstance(*instance_create_info, null, *vk_instance);
   if r != .VK_SUCCESS {
     log_error("Failed to create instance: %\n", r);
   }
 }
 
-init_debug_messanger :: () -> VkDebugUtilsMessengerEXT {
+vk_init_debug_messanger :: () -> VkDebugUtilsMessengerEXT {
   result: VkDebugUtilsMessengerEXT;
   if vkCreateDebugUtilsMessengerEXT {
     create_info := VkDebugUtilsMessengerCreateInfoEXT.{
@@ -811,18 +815,18 @@ init_debug_messanger :: () -> VkDebugUtilsMessengerEXT {
       messageType = .VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                     .VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                     .VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-      pfnUserCallback = debug_messanger_callback,
+      pfnUserCallback = vk_debug_messanger_callback,
     };
-    vkCreateDebugUtilsMessengerEXT(instance, *create_info, null, *result);
+    vkCreateDebugUtilsMessengerEXT(vk_instance, *create_info, null, *result);
   }
   return result;
 }
 
-debug_messanger_callback :: (
+vk_debug_messanger_callback :: (
   severity: VkDebugUtilsMessageSeverityFlagBitsEXT,
   msg_type: VkDebugUtilsMessageTypeFlagsEXT,
-  data: *VkDebugUtilsMessengerCallbackDataEXT,
-  _: *void
+  data:     *VkDebugUtilsMessengerCallbackDataEXT,
+  _:        *void
 ) -> VkBool32 #c_call {
   msg_type_str := "unknown";
   if      msg_type & .VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT     msg_type_str = "general";
@@ -841,18 +845,18 @@ debug_messanger_callback :: (
   return xx true;
 }
 
-get_physical_devices :: () -> (result: VkResult, data: []VkPhysicalDevice) {
+vk_get_physical_devices :: () -> (result: VkResult, data: []VkPhysicalDevice) {
   count:  u32                = ---;
   data:   []VkPhysicalDevice = ---;
   result: VkResult           = ---;
-  result = vkEnumeratePhysicalDevices(instance, *count, null);
+  result = vkEnumeratePhysicalDevices(vk_instance, *count, null);
   if result || count == 0 return result, .[];
   data   = new_array(count, VkPhysicalDevice, initialized = false);
-  result = vkEnumeratePhysicalDevices(instance, *count, data.data);
+  result = vkEnumeratePhysicalDevices(vk_instance, *count, data.data);
   return result, data;
 } @NoProfile
 
-get_physical_device_exensions :: (
+vk_get_physical_device_exensions :: (
   physical_device: VkPhysicalDevice,
 ) -> (result: VkResult, data: []VkExtensionProperties) {
   count:  u32                     = ---;
@@ -865,7 +869,7 @@ get_physical_device_exensions :: (
   return result, data;
 } @NoProfile
 
-get_physical_device_layers :: (
+vk_get_physical_device_layers :: (
   physical_device: VkPhysicalDevice,
 ) -> (result: VkResult, data: []VkLayerProperties) {
   count:  u32                 = ---;
@@ -878,7 +882,7 @@ get_physical_device_layers :: (
   return result, data;
 } @NoProfile
 
-get_physical_device_queue_families :: (physical_device: VkPhysicalDevice) -> []VkQueueFamilyProperties {
+vk_get_physical_device_queue_families :: (physical_device: VkPhysicalDevice) -> []VkQueueFamilyProperties {
   count: u32 = ---;
   data: []VkQueueFamilyProperties = ---;
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device, *count, null);
@@ -888,7 +892,7 @@ get_physical_device_queue_families :: (physical_device: VkPhysicalDevice) -> []V
   return data;
 }
 
-get_physical_device_memory_properties :: (
+vk_get_physical_device_memory_properties :: (
   physical_device: VkPhysicalDevice
 ) -> VkPhysicalDeviceMemoryProperties {
   result: VkPhysicalDeviceMemoryProperties;
@@ -896,8 +900,8 @@ get_physical_device_memory_properties :: (
   return result;
 }
 
-select_physical_device :: (enable_validation: bool) {
-  err, physical_devices := get_physical_devices(,, temp);
+vk_select_physical_device :: (enable_validation: bool) {
+  err, physical_devices := vk_get_physical_devices(,, temp);
   if err return;
 
   for pd: physical_devices {
@@ -918,17 +922,17 @@ Device type: %
 DONE
     ,
       device_name,
-      api_version_major(xx properties.apiVersion),
-      api_version_minor(xx properties.apiVersion),
-      api_version_patch(xx properties.apiVersion),
-      api_version_major(xx properties.driverVersion),
-      api_version_minor(xx properties.driverVersion),
-      api_version_patch(xx properties.driverVersion),
+      vk_api_version_major(xx properties.apiVersion),
+      vk_api_version_minor(xx properties.apiVersion),
+      vk_api_version_patch(xx properties.apiVersion),
+      vk_api_version_major(xx properties.driverVersion),
+      vk_api_version_minor(xx properties.driverVersion),
+      vk_api_version_patch(xx properties.driverVersion),
       properties.vendorID,
       properties.deviceID,
       properties.deviceType,
     );
-    mp := get_physical_device_memory_properties(pd);
+    mp := vk_get_physical_device_memory_properties(pd);
     log("Memory properties:\n    Types:\n");
     for 0..mp.memoryTypeCount
       log(
@@ -945,17 +949,17 @@ DONE
       );
 
     if enable_validation {
-      err, layers := get_physical_device_layers(pd,, temp);
+      err, layers := vk_get_physical_device_layers(pd,, temp);
       if err continue;
-      if !contains_all_layers(device_name, layers, VALIDATION_LAYERS_NAMES)
+      if !vk_contains_all_layers(device_name, layers, VK_VALIDATION_LAYERS_NAMES)
         continue;
     }
-    err, extensions := get_physical_device_exensions(pd,, temp);
+    err, extensions := vk_get_physical_device_exensions(pd,, temp);
     if err continue;
-    if !contains_all_extensions(device_name, extensions, .[BASE_DEVICE_EXTENSIONS])
+    if !vk_contains_all_extensions(device_name, extensions, .[VK_BASE_DEVICE_EXTENSIONS])
       continue;
 
-    queue_families := get_physical_device_queue_families(pd,, temp);
+    queue_families := vk_get_physical_device_queue_families(pd,, temp);
     graphics_queue_family := -1;
     present_queue_family  := -1;
     compute_queue_family  := -1;
@@ -970,7 +974,7 @@ DONE
         _ = vkGetPhysicalDeviceSurfaceSupportKHR(
           pd,
           xx i,
-          surface,
+          vk_surface,
           *supported,
         );
         if supported present_queue_family = i;
@@ -998,35 +1002,38 @@ DONE
         transfer_queue_family,
       );
 
-      physical_device = pd;
-      graphics_queue_family = xx graphics_queue_family;
-      present_queue_family  = xx present_queue_family;
-      compute_queue_family  = xx compute_queue_family;
-      transfer_queue_family = xx transfer_queue_family;
+      vk_physical_device = pd;
+      vk_graphics_queue_family = xx graphics_queue_family;
+      vk_present_queue_family  = xx present_queue_family;
+      vk_compute_queue_family  = xx compute_queue_family;
+      vk_transfer_queue_family = xx transfer_queue_family;
       return;
     }
   }
 }
 
 vk_check_additional_extensions_support :: () {
-    err, extensions := get_physical_device_exensions(physical_device,, temp);
+    err, extensions := vk_get_physical_device_exensions(vk_physical_device,, temp);
     assert(!err);
-    vk_supports_present_timing = contains_all_extensions("", extensions,
+    vk_supports_present_timing = vk_contains_all_extensions("", extensions,
                                                          .[VK_EXT_PRESENT_TIMING_DEVICE_EXTENSIONS]);
 }
 
-init_device :: () {
+vk_init_device :: () {
   unique_count := 0;
   ui := s32.[-1, -1, -1, -1];
   unique_indexes : []s32 = ui;
-  for qf : u32.[graphics_queue_family, present_queue_family, compute_queue_family, transfer_queue_family] {
+  for qf : u32.[vk_graphics_queue_family,
+                vk_present_queue_family,
+                vk_compute_queue_family,
+                vk_transfer_queue_family] {
     for unique_indexes if it == xx qf continue qf;
     unique_indexes[unique_count] = xx qf;
     unique_count += 1;
   }
   unique_indexes.count = unique_count;
 
-  qci: [4]VkDeviceQueueCreateInfo = ---;
+  qci:                [4]VkDeviceQueueCreateInfo = ---;
   queue_create_infos: []VkDeviceQueueCreateInfo  = .{data = qci.data, count = unique_count };
 
   queue_priority: float = 1.0;
@@ -1040,7 +1047,7 @@ init_device :: () {
 
   enabled_extensions: [..]*u8;
   enabled_extensions.allocator = temp;
-  array_copy(*enabled_extensions, BASE_DEVICE_EXTENSIONS);
+  array_copy(*enabled_extensions, VK_BASE_DEVICE_EXTENSIONS);
   if vk_supports_present_timing {
     for VK_EXT_PRESENT_TIMING_DEVICE_EXTENSIONS array_add(*enabled_extensions, it);
   }
@@ -1083,7 +1090,7 @@ init_device :: () {
   unified_image_layouts:        VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR = .{};
   physical_device_features_1_4: VkPhysicalDeviceVulkan14Features               = .{};
   maintenance5:                 VkPhysicalDeviceMaintenance5Features           = .{};
-  if api_version(0, 1, 4, 0) <= instance_version {
+  if vk_create_api_version(0, 1, 4, 0) <= vk_instance_version {
     unified_image_layouts = .{
       unifiedImageLayouts = xx true,
     };
@@ -1127,65 +1134,67 @@ init_device :: () {
 
   for enabled_extensions log("(Device) Enabled extension: %\n", to_string(it));
 
-  r := vkCreateDevice(physical_device, *create_info, null, *device);
+  r := vkCreateDevice(vk_physical_device, *create_info, null, *vk_device);
   if r != .SUCCESS {
     log_error("Cannot create device: %\n", r);
     return;
   }
-  vkGetDeviceQueue(device, present_queue_family,  0, *present_queue);
-  vkGetDeviceQueue(device, graphics_queue_family, 0, *graphics_queue);
-  vkGetDeviceQueue(device, compute_queue_family,  0, *compute_queue);
-  vkGetDeviceQueue(device, transfer_queue_family, 0, *transfer_queue);
+  vkGetDeviceQueue(vk_device, vk_present_queue_family,  0, *vk_present_queue);
+  vkGetDeviceQueue(vk_device, vk_graphics_queue_family, 0, *vk_graphics_queue);
+  vkGetDeviceQueue(vk_device, vk_compute_queue_family,  0, *vk_compute_queue);
+  vkGetDeviceQueue(vk_device, vk_transfer_queue_family, 0, *vk_transfer_queue);
 }
 
-get_swapchain_formats :: () -> []VkSurfaceFormatKHR {
+vk_get_swapchain_formats :: () -> []VkSurfaceFormatKHR {
   count:  u32                   = ---;
   data:   []VkSurfaceFormatKHR  = ---;
   result: VkResult              = ---;
-  result = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, null);
+  result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, *count, null);
   assert(!result);
   if count == 0 return .[];
   data = new_array(count, VkSurfaceFormatKHR, initialized = false);
-  result = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, *count, data.data);
+  result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, *count, data.data);
   assert(!result);
   return data;
 } @NoProfile
 
-get_swapchain_images :: () -> []VkImage {
+vk_get_swapchain_images :: () -> []VkImage {
   count:  u32       = ---;
   data:   []VkImage = ---;
   result: VkResult  = ---;
-  result = vkGetSwapchainImagesKHR(device, swapchain, *count, null);
+  result = vkGetSwapchainImagesKHR(vk_device, vk_swapchain, *count, null);
   assert(!result);
   if count == 0 return .[];
   data = new_array(count, VkImage, initialized = false);
-  result = vkGetSwapchainImagesKHR(device, swapchain, *count, data.data);
+  result = vkGetSwapchainImagesKHR(vk_device, vk_swapchain, *count, data.data);
   assert(!result);
   return data;
 } @NoProfile
 
-get_swapchain_time_domain_properties :: () -> (result: VkResult, []VkTimeDomainKHR, []u64, u64) {
+vk_get_swapchain_time_domain_properties :: () -> (result: VkResult, []VkTimeDomainKHR, []u64, u64) {
   domains: []VkTimeDomainKHR = ---;
   ids:     []u64             = ---;
   counter: u64               = ---;
   result:  VkResult          = ---;
   data: VkSwapchainTimeDomainPropertiesEXT = .{};
-  result = vkGetSwapchainTimeDomainPropertiesEXT(device, swapchain, *data, *counter);
+  result = vkGetSwapchainTimeDomainPropertiesEXT(vk_device, vk_swapchain, *data, *counter);
   if result || data.timeDomainCount == 0 then return result, .[], .[], 0;
   domains = new_array(data.timeDomainCount, VkTimeDomainKHR, initialized = false);
   ids     = new_array(data.timeDomainCount, u64,             initialized = false);
   data.pTimeDomains   = domains.data;
   data.pTimeDomainIds = ids.data;
-  result = vkGetSwapchainTimeDomainPropertiesEXT(device, swapchain, *data, *counter);
+  result = vkGetSwapchainTimeDomainPropertiesEXT(vk_device, vk_swapchain, *data, *counter);
   return result, domains, ids, counter;
 } @NoProfile
 
-init_swapchain :: (width: u32, height: u32, old_swapchain: VkSwapchainKHR) {
+vk_init_swapchain :: (width: u32, height: u32, old_swapchain: VkSwapchainKHR) {
   surface_capabilities2: VkSurfaceCapabilities2KHR = .{};
-  if vk_supports_present_timing then surface_capabilities2.pNext = *swapchain_present_timing_surface;
-  surface_info: VkPhysicalDeviceSurfaceInfo2KHR = .{ surface = surface };
-  assert(!vkGetPhysicalDeviceSurfaceCapabilities2KHR(physical_device, *surface_info, *surface_capabilities2));
-  log("present_timing_surface: %", swapchain_present_timing_surface);
+  if vk_supports_present_timing then surface_capabilities2.pNext = *vk_swapchain_present_timing_surface;
+  surface_info: VkPhysicalDeviceSurfaceInfo2KHR = .{ surface = vk_surface };
+  assert(!vkGetPhysicalDeviceSurfaceCapabilities2KHR(vk_physical_device,
+                                                     *surface_info,
+                                                     *surface_capabilities2));
+  log("present_timing_surface: %", vk_swapchain_present_timing_surface);
 
   surface_capabilities := *surface_capabilities2.surfaceCapabilities;
 
@@ -1208,7 +1217,7 @@ DONE
     surface_capabilities.maxImageExtent.height,
   );
 
-  surface_formats := get_swapchain_formats(,, temp);
+  surface_formats := vk_get_swapchain_formats(,, temp);
   surface_format_found := false;
   surface_format: VkSurfaceFormatKHR;
   for surface_formats {
@@ -1220,28 +1229,29 @@ DONE
   }
 
   if surface_format_found {
-    swapchain_format = surface_format.format;
-    swapchain_extent = surface_capabilities.currentExtent;
-    if swapchain_extent.width == 0xffff_ffff {
-      swapchain_extent.width = min(
+    vk_swapchain_format = surface_format.format;
+    vk_swapchain_extent = surface_capabilities.currentExtent;
+    if vk_swapchain_extent.width == 0xffff_ffff {
+      vk_swapchain_extent.width = min(
         max(width, surface_capabilities.minImageExtent.width),
         surface_capabilities.maxImageExtent.width,
       );
-      swapchain_extent.height = min(
+      vk_swapchain_extent.height = min(
         max(height, surface_capabilities.minImageExtent.height),
         surface_capabilities.maxImageExtent.height,
       );
     }
 
     flags: VkSwapchainCreateFlagsKHR = 0;
-    if swapchain_present_timing_surface.presentTimingSupported then flags |= .PRESENT_TIMING_BIT_EXT;
+    if vk_swapchain_present_timing_surface.presentTimingSupported then flags |= .PRESENT_TIMING_BIT_EXT;
+
     create_info: VkSwapchainCreateInfoKHR = .{
       flags            = flags,
-      surface          = surface,
+      surface          = vk_surface,
       minImageCount    = surface_capabilities.minImageCount,
       imageFormat      = surface_format.format,
       imageColorSpace  = surface_format.colorSpace,
-      imageExtent      = swapchain_extent,
+      imageExtent      = vk_swapchain_extent,
       imageArrayLayers = 1,
       imageUsage       = .COLOR_ATTACHMENT_BIT | .TRANSFER_DST_BIT | .STORAGE_BIT,
       imageSharingMode = .VK_SHARING_MODE_EXCLUSIVE,
@@ -1252,23 +1262,23 @@ DONE
       oldSwapchain     = old_swapchain,
     };
 
-    err := vkCreateSwapchainKHR(device, *create_info, null, *swapchain);
+    err := vkCreateSwapchainKHR(vk_device, *create_info, null, *vk_swapchain);
     if err {
       log_error("Cannot create swapchain: %\n", err);
       return;
     }
 
-    reset(*swapchain_arena);
+    reset(*vk_swapchain_arena);
     new_context := context;
-    new_context.allocator = allocator(*swapchain_arena);
+    new_context.allocator = allocator(*vk_swapchain_arena);
     push_context new_context {
-      swapchain_images      = get_swapchain_images();
-      swapchain_image_views = new_array(swapchain_images.count, VkImageView, initialized = false);
-      swapchain_semaphores  = new_array(swapchain_images.count, VkSemaphore, initialized = false);
-      swapchain_fences      = new_array(swapchain_images.count, VkFence,     initialized = false);
-      for 0..swapchain_images.count - 1 {
+      vk_swapchain_images      = vk_get_swapchain_images();
+      vk_swapchain_image_views = new_array(vk_swapchain_images.count, VkImageView, initialized = false);
+      vk_swapchain_semaphores  = new_array(vk_swapchain_images.count, VkSemaphore, initialized = false);
+      vk_swapchain_fences      = new_array(vk_swapchain_images.count, VkFence,     initialized = false);
+      for 0..vk_swapchain_images.count - 1 {
         view_create_info: VkImageViewCreateInfo = .{
-          image            = swapchain_images[it],
+          image            = vk_swapchain_images[it],
           viewType         = ._2D,
           format           = surface_format.format,
           components       = .{ .IDENTITY, .IDENTITY, .IDENTITY, .IDENTITY },
@@ -1280,36 +1290,40 @@ DONE
             layerCount     = 1,
           },
         };
-        swapchain_image_views[it] = create_image_view(view_create_info);
-        assert(xx swapchain_image_views[it], "Cannot create image view for the swapchain image");
+        vk_swapchain_image_views[it] = vk_create_image_view(view_create_info);
+        assert(xx vk_swapchain_image_views[it], "Cannot create image view for the swapchain image");
 
         semaphore_create_info :VkSemaphoreCreateInfo;
-        vkCreateSemaphore(device, *semaphore_create_info, null, *swapchain_semaphores[it]);
-        assert(xx swapchain_semaphores[it], "Cannot create semaphore for the swapchain image");
+        vkCreateSemaphore(vk_device, *semaphore_create_info, null, *vk_swapchain_semaphores[it]);
+        assert(xx vk_swapchain_semaphores[it], "Cannot create semaphore for the swapchain image");
 
         fence_create_info: VkFenceCreateInfo = .{ flags = .SIGNALED_BIT };
-        vkCreateFence(device, *fence_create_info, null, *swapchain_fences[it]);
-        assert(xx swapchain_fences[it], "Cannot create fence for the swapchain image");
+        vkCreateFence(vk_device, *fence_create_info, null, *vk_swapchain_fences[it]);
+        assert(xx vk_swapchain_fences[it], "Cannot create fence for the swapchain image");
       }
       log("Created swapchain: images: % extent: w: % h: %\n",
-          swapchain_images.count, swapchain_extent.width, swapchain_extent.height);
+          vk_swapchain_images.count, vk_swapchain_extent.width, vk_swapchain_extent.height);
 
-      if swapchain_present_timing_surface.presentTimingSupported {
-        err2, domains, ids, counter :=  get_swapchain_time_domain_properties(,, temp);
+      if vk_swapchain_present_timing_surface.presentTimingSupported {
+        err2, domains, ids, counter :=  vk_get_swapchain_time_domain_properties(,, temp);
         assert(!err2);
         log("Swapchain domains: %", domains);
         log("Swapchain ids: %", ids);
         log("Swapchain counter: %", counter);
 
-        assert(!vkSetSwapchainPresentTimingQueueSizeEXT(device, swapchain, cast(u32)swapchain_images.count));
-        swapchain_past_presentation_timings = new_array(swapchain_images.count, VkPastPresentationTimingEXT,
-                                                        initialized = false);
-        swapchain_present_stage_times       = new_array(swapchain_images.count, VkPresentStageTimeEXT,
-                                                        initialized = false);
-        for * swapchain_past_presentation_timings {
+        assert(!vkSetSwapchainPresentTimingQueueSizeEXT(vk_device,
+                                                        vk_swapchain,
+                                                        cast(u32)vk_swapchain_images.count));
+        vk_swapchain_past_presentation_timings = new_array(vk_swapchain_images.count,
+                                                           VkPastPresentationTimingEXT,
+                                                           initialized = false);
+        vk_swapchain_present_stage_times       = new_array(vk_swapchain_images.count,
+                                                           VkPresentStageTimeEXT,
+                                                           initialized = false);
+        for * vk_swapchain_past_presentation_timings {
           it.* = .{
             presentStageCount = 1,
-            pPresentStages = swapchain_present_stage_times.data + it_index,
+            pPresentStages = vk_swapchain_present_stage_times.data + it_index,
           };
         }
       }
@@ -1317,24 +1331,24 @@ DONE
   }
 }
 
-init_command_pool :: (queue_family_index: u32) -> VkCommandPool {
+vk_init_command_pool :: (queue_family_index: u32) -> VkCommandPool {
     pool_create_info : VkCommandPoolCreateInfo = .{
         flags = .RESET_COMMAND_BUFFER_BIT,
         queueFamilyIndex = queue_family_index,
     };
     result: VkCommandPool = ---;
-    assert(!vkCreateCommandPool(device, *pool_create_info, null, *result));
+    assert(!vkCreateCommandPool(vk_device, *pool_create_info, null, *result));
     return result;
 }
 
-ProcInfo :: struct {
+VkProcInfo :: struct {
   name:     string;
   optional: bool;
 };
-load_procs :: (
+vk_load_procs :: (
   proc_name: string,
   $instance: bool,
-  $fns: []ProcInfo,
+  $fns: []VkProcInfo,
 ) -> string #expand {
 TEMPLATE :: #string,\% DONE
   %1 = xx get_proc(%3, "%1");
@@ -1347,20 +1361,20 @@ DONE
   for fns print_to_builder(*builder, "%1: PFN_%1 = ---;\n", it.name);
 
   print_to_builder(*builder, "% :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {\n", proc_name);
-  if instance for fns print_to_builder(*builder, TEMPLATE, it.name, it.optional, "instance");
+  if instance for fns print_to_builder(*builder, TEMPLATE, it.name, it.optional, "vk_instance");
   else        for fns print_to_builder(*builder, TEMPLATE, it.name, it.optional, "null");
   print_to_builder(*builder, "  return true;\n}\n");
   return builder_to_string(*builder);
 }
 
-#insert #run load_procs("load_basic_procs", false, ProcInfo.[
+#insert #run vk_load_procs("vk_load_basic_procs", false, VkProcInfo.[
   .{"vkCreateInstance",                           false},
   .{"vkEnumerateInstanceExtensionProperties",     false},
   .{"vkEnumerateInstanceLayerProperties",         false},
   .{"vkEnumerateInstanceVersion",                 false},
 ]);
 
-#insert #run load_procs("load_instance_procs" , true, ProcInfo.[
+#insert #run vk_load_procs("vk_load_instance_procs" , true, VkProcInfo.[
   .{"vkDestroyInstance",                          false},
   .{"vkCreateDebugUtilsMessengerEXT",             false},
   .{"vkDestroyDebugUtilsMessengerEXT",            false},

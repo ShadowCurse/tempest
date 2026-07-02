@@ -91,7 +91,7 @@ main :: () {
 
   if !platform_init() return;
   defer platform_quit();
-  if !vulkan_init(true) return;
+  if !vk_init(true) return;
 
   if init(*file_watcher) {
     for WATCHED_FILES {
@@ -130,7 +130,7 @@ main :: () {
     queryType  = .TIMESTAMP,
     queryCount = xx timestamp_array.values.count,
   };
-  timestamp_pool = create_query_pool(pool_create_info);
+  timestamp_pool = vk_create_query_pool(pool_create_info);
 
   font, tmp_curves, tmp_bands := load_font("NotoSans-Regular");
   ok, font_buffer = push(
@@ -187,7 +187,7 @@ main :: () {
       defer submit_wait_reset(imm_command);
       defer end_render_command(imm_command);
 
-      transition_image(
+      vk_transition_image(
         imm_command,
         depth_image.image,
         depth_image.usage,
@@ -292,7 +292,7 @@ main :: () {
     rebuild_pipelines_if_needed();
 
     // note(sc): the caller will get one frame old data
-    get_query_pool_results(timestamp_pool, timestamp_array.values);
+    vk_get_query_pool_results(timestamp_pool, timestamp_array.values);
     compute_ns := timestamp_array[Timestamp.COMPUTE_END] - timestamp_array[Timestamp.COMPUTE_START];
     compute_ms := cast(float)compute_ns / 1000_000.0;
     grid_ns    := timestamp_array[Timestamp.GRID_END] - timestamp_array[Timestamp.GRID_START];
@@ -304,7 +304,7 @@ main :: () {
     gizmo_ns   := timestamp_array[Timestamp.GIZMO_END] - timestamp_array[Timestamp.GIZMO_START];
     gizmo_ms   := cast(float)gizmo_ns / 1000_000.0;
 
-    gpu_present_timings := get_past_presentation_timing();
+    gpu_present_timings := vk_get_past_presentation_timing();
     current_ns: u64 = 0;
     if gpu_present_timings {
       for gpu_present_timings {
@@ -387,8 +387,8 @@ main :: () {
 
     if need_swapchain_recreation {
       if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
-        wait_swapchain_fence(xx last_swapchain_image_index);
-      recreate_swapchain();
+        vk_wait_swapchain_fence(xx last_swapchain_image_index);
+      vk_recreate_swapchain();
       recreate_depth_image();
     }
 
@@ -400,20 +400,20 @@ main :: () {
 
     swapchaine_image_index: u32 = 0;
     while (true) {
-      index, need_swapchain_recreation := acquire_next_image(render_command);
+      index, need_swapchain_recreation := vk_acquire_next_image(render_command);
       if !need_swapchain_recreation {
         swapchaine_image_index = index;
         break;
       } else {
           if last_swapchain_image_index != NO_LAST_SWAPCHAIN_INDEX
-            wait_swapchain_fence(xx last_swapchain_image_index);
-          recreate_swapchain();
+            vk_wait_swapchain_fence(xx last_swapchain_image_index);
+          vk_recreate_swapchain();
           recreate_depth_image();
 
           // note(sc): for some reason acquiring the image singles the semaphore even on
           // failure. Maybe there is a way to handle it more reasonably.
-          destroy_semaphore(render_command);
-          render_command.swapchain_semaphore = create_semaphore(.{});
+          vk_destroy_semaphore(render_command);
+          render_command.swapchain_semaphore = vk_create_semaphore(.{});
 
           last_swapchain_image_index = NO_LAST_SWAPCHAIN_INDEX;
       }
@@ -421,7 +421,7 @@ main :: () {
     last_swapchain_image_index = swapchaine_image_index;
 
     begin_render_command(render_command);
-    cmd_reset_query_pool(render_command, timestamp_pool, xx timestamp_array.values.count);
+    vk_cmd_reset_query_pool(render_command, timestamp_pool, xx timestamp_array.values.count);
 
     cmd_transition_swapchain_image(
       render_command,
@@ -437,14 +437,17 @@ main :: () {
     {
       prof_scope("compute_pipeline");
 
-      cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.COMPUTE_START);
-      defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.COMPUTE_END);
+      vk_cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.COMPUTE_START);
+      defer vk_cmd_write_timestamp(render_command,
+                                   timestamp_pool,
+                                   .BOTTOM_OF_PIPE_BIT,
+                                   xx Timestamp.COMPUTE_END);
 
-      cmd_bind_pipeline(render_command, compute_pipeline, .COMPUTE);
+      vk_cmd_bind_pipeline(render_command, compute_pipeline, .COMPUTE);
       image_descriptors: [1]VkDescriptorImageInfo = .[
         .{
           sampler     = null,
-          imageView   = swapchain_image_views[swapchaine_image_index],
+          imageView   = vk_swapchain_image_views[swapchaine_image_index],
           imageLayout = .GENERAL,
         },
       ];
@@ -457,12 +460,12 @@ main :: () {
           pImageInfo      = *image_descriptors[0],
         },
       ];
-      cmd_push_descriptors(render_command, compute_pipeline, .COMPUTE, descriptor_sets);
-      cmd_push_constants(render_command, compute_pipeline, .COMPUTE_BIT, *v);
-      cmd_dispatch(render_command, (window_width + 15) / 16, (window_height + 15) / 16, 1);
+      vk_cmd_push_descriptors(render_command, compute_pipeline, .COMPUTE, descriptor_sets);
+      vk_cmd_push_constants(render_command, compute_pipeline, .COMPUTE_BIT, *v);
+      vk_cmd_dispatch(render_command, (window_width + 15) / 16, (window_height + 15) / 16, 1);
     }
 
-    cmd_barrier(
+    vk_cmd_barrier(
       render_command,
       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
       VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT ,
@@ -473,8 +476,8 @@ main :: () {
     {
       prof_scope("graphics_pipeline");
 
-      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_image.view);
-      defer cmd_end_rendering(render_command);
+      vk_cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_image.view);
+      defer vk_cmd_end_rendering(render_command);
 
       scene := scene_buffer.host_ptr;
       scene.* = .{
@@ -485,11 +488,11 @@ main :: () {
 
       // mesh
       {
-        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.MESH_START);
-        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.MESH_END);
+        vk_cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.MESH_START);
+        defer vk_cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.MESH_END);
 
-        cmd_bind_pipeline(render_command, mesh_pipeline, .GRAPHICS);
-        cmd_set_polygon_mode(render_command, polygon_mode);
+        vk_cmd_bind_pipeline(render_command, mesh_pipeline, .GRAPHICS);
+        vk_cmd_set_polygon_mode(render_command, polygon_mode);
         if draw_sphere  then draw_node(render_command, default_scene, node2_idx, Matrix4_Identity);
         if draw_crystal then draw_node(render_command, default_scene, crystal_idx, Matrix4_Identity);
         if draw_bistro  then draw_node(render_command, default_scene, bistro_idx, Matrix4_Identity);
@@ -497,15 +500,15 @@ main :: () {
 
       // grid
       {
-        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_START);
-        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.GRID_END);
+        vk_cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GRID_START);
+        defer vk_cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.GRID_END);
 
-        cmd_bind_pipeline(render_command, grid_pipeline, .GRAPHICS);
+        vk_cmd_bind_pipeline(render_command, grid_pipeline, .GRAPHICS);
         constant: GridPushConstant = .{
           scene_buffer.device_address
         };
-        cmd_push_constants(render_command, grid_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-        cmd_draw(render_command, 3, 1, 0, 0);
+        vk_cmd_push_constants(render_command, grid_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+        vk_cmd_draw(render_command, 3, 1, 0, 0);
       }
 
     }
@@ -513,14 +516,14 @@ main :: () {
     {
       prof_scope("ui_pipeline");
 
-      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
-      defer cmd_end_rendering(render_command);
+      vk_cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
+      defer vk_cmd_end_rendering(render_command);
 
       {
-        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_START);
-        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.UI_END);
+        vk_cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_START);
+        defer vk_cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.UI_END);
 
-        cmd_bind_pipeline(render_command, ui_pipeline, .GRAPHICS);
+        vk_cmd_bind_pipeline(render_command, ui_pipeline, .GRAPHICS);
         constant: UiPushConstant = .{
           quads         = ui_buffers[current_frame_idx].device_address,
           screen_size   = .{ xx window_width, xx window_height },
@@ -528,33 +531,33 @@ main :: () {
           curves_offset = font_buffer_info.curves_offset,
           bands_offset  = font_buffer_info.bands_offset,
         };
-        cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-        cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
+        vk_cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+        vk_cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
       }
     }
 
     {
       prof_scope("debug_mesh_pipeline");
 
-      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
-      defer cmd_end_rendering(render_command);
+      vk_cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index);
+      defer vk_cmd_end_rendering(render_command);
 
       {
         // cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.UI_START);
         // defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.UI_END);
 
-        cmd_bind_pipeline(render_command, debug_mesh_pipeline, .GRAPHICS);
+        vk_cmd_bind_pipeline(render_command, debug_mesh_pipeline, .GRAPHICS);
 
         constant: DebugMeshPushConstant = .{
           scene_buffer.device_address,
           debug_meshes_vertex_buffer.device_address,
           debug_meshes_cmd_buffer.device_address,
         };
-        cmd_push_constants(render_command,
+        vk_cmd_push_constants(render_command,
                            debug_mesh_pipeline,
                            .VERTEX_BIT | .FRAGMENT_BIT,
                            *constant);
-        cmd_draw_indirect(
+        vk_cmd_draw_indirect(
           render_command,
           debug_meshes_cmd_buffer.buffer,
           debug_meshes_cmd_buffer.byte_offset,
@@ -567,12 +570,15 @@ main :: () {
     if selected_scene_node_idx {
       prof_scope("gizmo_pipeline");
 
-      cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_image.view);
-      defer cmd_end_rendering(render_command);
+      vk_cmd_begin_rendering_to_swapchain(render_command, swapchaine_image_index, depth_image.view);
+      defer vk_cmd_end_rendering(render_command);
 
       {
-        cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GIZMO_START);
-        defer cmd_write_timestamp(render_command, timestamp_pool, .BOTTOM_OF_PIPE_BIT, xx Timestamp.GIZMO_END);
+        vk_cmd_write_timestamp(render_command, timestamp_pool, .TOP_OF_PIPE_BIT, xx Timestamp.GIZMO_START);
+        defer vk_cmd_write_timestamp(render_command,
+                                     timestamp_pool,
+                                     .BOTTOM_OF_PIPE_BIT,
+                                     xx Timestamp.GIZMO_END);
 
         selected_position := Vector4.{ xyz = selected_world_position, w = 1.0 };
         selected_in_camera_space := camera.view * selected_position;
@@ -685,7 +691,7 @@ main :: () {
           }
         }
 
-        cmd_bind_pipeline(render_command, gizmo_pipeline, .GRAPHICS);
+        vk_cmd_bind_pipeline(render_command, gizmo_pipeline, .GRAPHICS);
         {
           info := *gpu_mesh_infos[gizmo_cylinder_idx];
           constant: GizmoPushConstant = .{
@@ -696,9 +702,9 @@ main :: () {
             0,
           };
 
-          cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.index_buffer_offset, .UINT32);
-          cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
+          vk_cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+          vk_cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.index_buffer_offset, .UINT32);
+          vk_cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
         }
 
         {
@@ -711,9 +717,9 @@ main :: () {
             3,
           };
 
-          cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-          cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.index_buffer_offset, .UINT32);
-          cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
+          vk_cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+          vk_cmd_bind_index_buffer(render_command, mesh_buffer.buffer, info.index_buffer_offset, .UINT32);
+          vk_cmd_draw_indexed(render_command, info.index_count, 3, 0, 0, 0);
         }
       }
     }
@@ -730,8 +736,8 @@ main :: () {
     );
 
     end_render_command(render_command);
-    graphics_queue_submit(render_command, render_command, render_command, swapchaine_image_index);
-    need_swapchain_recreation = present_frame_context(swapchaine_image_index);
+    vk_graphics_queue_submit(render_command, render_command, render_command, swapchaine_image_index);
+    need_swapchain_recreation = vk_present_frame_context(swapchaine_image_index);
   }
 }
 
@@ -751,7 +757,7 @@ recreate_depth_image :: () {
     begin_render_command(imm_command);
     defer end_render_command(imm_command);
 
-    transition_image(
+    vk_transition_image(
       imm_command,
       depth_image.image,
       depth_image.usage,
@@ -786,9 +792,9 @@ draw_node :: (
       scene_buffer.device_address,
       xx info.vertex_buffer_offset,
     };
-    cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-    cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.index_buffer_offset, .UINT32);
-    cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
+    vk_cmd_push_constants(cmd, mesh_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
+    vk_cmd_bind_index_buffer(cmd, mesh_buffer.buffer, info.index_buffer_offset, .UINT32);
+    vk_cmd_draw_indexed(cmd, info.index_count, 1, 0, 0, 0);
 
     if node_idx == selected_scene_node_idx {
       selected_world_position = translation(final_transform);
@@ -835,7 +841,7 @@ create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
     pBindings    = binding_layouts.data,
     bindingCount = xx binding_layouts.count,
   };
-  dsl := create_descriptor_set_layout(layout_create_info);
+  dsl := vk_create_descriptor_set_layout(layout_create_info);
 
   compute_push_constants: VkPushConstantRange = .{
     stageFlags = .COMPUTE_BIT,
@@ -848,7 +854,7 @@ create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
     pPushConstantRanges    = *compute_push_constants,
     pushConstantRangeCount = 1,
   };
-  layout := create_pipeline_layout(compute_layout_create_info);
+  layout := vk_create_pipeline_layout(compute_layout_create_info);
 
   shader_path := "shaders_compiled/gradient_comp.spv";
   shader_spirv, ok := platform_read_entire_file(shader_path,, temp);
@@ -867,7 +873,7 @@ create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
     layout = layout,
     stage  = shader_stage_create_info,
   };
-  pipeline := create_compute_pipeline(compute_pipeline_create_info);
+  pipeline := vk_create_compute_pipeline(compute_pipeline_create_info);
   return .{
     pipeline = pipeline,
     layout = layout,
@@ -886,7 +892,7 @@ create_ui_pipeline :: () -> Pipeline {
   layout_create_info: VkDescriptorSetLayoutCreateInfo = .{
     flags        = .PUSH_DESCRIPTOR_BIT,
   };
-  dsl := create_descriptor_set_layout(layout_create_info);
+  dsl := vk_create_descriptor_set_layout(layout_create_info);
 
   push_constants: VkPushConstantRange = .{
     stageFlags = .VERTEX_BIT | .FRAGMENT_BIT,
@@ -899,7 +905,7 @@ create_ui_pipeline :: () -> Pipeline {
     pPushConstantRanges    = *push_constants,
     pushConstantRangeCount = 1,
   };
-  layout := create_pipeline_layout(pipeline_layout_create_info);
+  layout := vk_create_pipeline_layout(pipeline_layout_create_info);
 
   vert_code := platform_read_entire_file("shaders_compiled/ui_vert.spv",, temp);
   vert_module_create_info: VkShaderModuleCreateInfo = .{
@@ -971,7 +977,7 @@ create_ui_pipeline :: () -> Pipeline {
     pDynamicState       = *dynamic_state_info,
     layout              = layout,
   };
-  pipeline := create_graphics_pipeline(create_info);
+  pipeline := vk_create_graphics_pipeline(create_info);
 
   return .{
     pipeline = pipeline,
@@ -993,7 +999,7 @@ create_grid_pipeline :: () -> Pipeline {
     pPushConstantRanges    = *push_constants,
     pushConstantRangeCount = 1,
   };
-  layout := create_pipeline_layout(pipeline_layout_create_info);
+  layout := vk_create_pipeline_layout(pipeline_layout_create_info);
 
   vert_code := platform_read_entire_file("shaders_compiled/grid_vert.spv",, temp);
   vert_module_create_info: VkShaderModuleCreateInfo = .{
@@ -1075,7 +1081,7 @@ create_grid_pipeline :: () -> Pipeline {
     pDynamicState       = *dynamic_state_info,
     layout              = layout,
   };
-  pipeline := create_graphics_pipeline(create_info);
+  pipeline := vk_create_graphics_pipeline(create_info);
 
   return .{
     pipeline = pipeline,
@@ -1100,7 +1106,7 @@ create_mesh_pipeline :: () -> Pipeline {
     pPushConstantRanges    = *push_constants,
     pushConstantRangeCount = 1,
   };
-  layout := create_pipeline_layout(pipeline_layout_create_info);
+  layout := vk_create_pipeline_layout(pipeline_layout_create_info);
 
   vert_code := platform_read_entire_file("shaders_compiled/mesh_vert.spv",, temp);
   vert_module_create_info: VkShaderModuleCreateInfo = .{
@@ -1183,7 +1189,7 @@ create_mesh_pipeline :: () -> Pipeline {
     pDynamicState       = *dynamic_state_info,
     layout              = layout,
   };
-  pipeline := create_graphics_pipeline(create_info);
+  pipeline := vk_create_graphics_pipeline(create_info);
 
   return .{
     pipeline = pipeline,
@@ -1210,7 +1216,7 @@ create_gizmo_pipeline :: () -> Pipeline {
     pPushConstantRanges    = *push_constants,
     pushConstantRangeCount = 1,
   };
-  layout := create_pipeline_layout(pipeline_layout_create_info);
+  layout := vk_create_pipeline_layout(pipeline_layout_create_info);
 
   vert_code, ok := platform_read_entire_file("shaders_compiled/gizmo_vert.spv",, temp);
   assert(ok);
@@ -1295,7 +1301,7 @@ create_gizmo_pipeline :: () -> Pipeline {
     pDynamicState       = *dynamic_state_info,
     layout              = layout,
   };
-  pipeline := create_graphics_pipeline(create_info);
+  pipeline := vk_create_graphics_pipeline(create_info);
 
   return .{
     pipeline = pipeline,
@@ -1307,8 +1313,6 @@ DebugMeshPushConstant :: struct {
   scene_buffer:  VkDeviceAddress;
   vertex_buffer: VkDeviceAddress;
   cmd_buffer:    VkDeviceAddress;
-  // vertex_offset: u32;
-  // color:         RGBA; @u32
 } @ShaderType
 create_debug_mesh_pipeline :: () -> Pipeline {
   push_constants: VkPushConstantRange = .{
@@ -1320,7 +1324,7 @@ create_debug_mesh_pipeline :: () -> Pipeline {
     pPushConstantRanges    = *push_constants,
     pushConstantRangeCount = 1,
   };
-  layout := create_pipeline_layout(pipeline_layout_create_info);
+  layout := vk_create_pipeline_layout(pipeline_layout_create_info);
 
   vert_code, ok := platform_read_entire_file("shaders_compiled/debug_mesh_vert.spv",, temp);
   assert(ok);
@@ -1367,15 +1371,6 @@ create_debug_mesh_pipeline :: () -> Pipeline {
 
   viewport: VkPipelineViewportStateCreateInfo = .{ viewportCount = 1, scissorCount = 1 };
 
-  // depth_stencil_state: VkPipelineDepthStencilStateCreateInfo = .{
-  //   depthTestEnable       = xx false,
-  //   depthWriteEnable      = xx false,
-  //   depthCompareOp        = .GREATER,
-  //   depthBoundsTestEnable = xx false,
-  //   minDepthBounds        = 0,
-  //   maxDepthBounds        = 1.0,
-  // };
-
   color_blending: VkPipelineColorBlendStateCreateInfo = .{
     logicOpEnable   = xx false,
     logicOp         = .COPY,
@@ -1405,7 +1400,7 @@ create_debug_mesh_pipeline :: () -> Pipeline {
     pDynamicState       = *dynamic_state_info,
     layout              = layout,
   };
-  pipeline := create_graphics_pipeline(create_info);
+  pipeline := vk_create_graphics_pipeline(create_info);
 
   return .{
     pipeline = pipeline,
@@ -1414,9 +1409,9 @@ create_debug_mesh_pipeline :: () -> Pipeline {
 }
 
 destroy_pipeline :: (pipeline: Pipeline) {
-  if pipeline.dsl destroy_descriptor_set_layout(pipeline.dsl);
-  if pipeline.layout destroy_pipeline_layout(pipeline.layout);
-  if pipeline.pipeline destroy_pipeline(pipeline.pipeline);
+  if pipeline.dsl      vk_destroy_descriptor_set_layout(pipeline.dsl);
+  if pipeline.layout   vk_destroy_pipeline_layout(pipeline.layout);
+  if pipeline.pipeline vk_destroy_pipeline(pipeline.pipeline);
 }
 
 rebuild_pipelines_if_needed :: () {
@@ -1443,32 +1438,32 @@ rebuild_pipelines_if_needed :: () {
   if rebuild_gradient_shader {
     log("Rebuiding GRADIENT pipeline");
     if compile_shader("shaders/gradient_comp.glsl") {
-      device_wait_idle();
-      destroy_pipeline(compute_pipeline);
+      vk_device_wait_idle();
+      vk_destroy_pipeline(compute_pipeline);
       compute_pipeline = create_full_screen_effect_comptue_pipeline();
     } else log_error("Failed to rebuild GRADIENT pipeline");
   }
   if rebuild_ui_shader {
     log("Rebuiding UI pipeline");
     if compile_shader("shaders/ui_frag.glsl") && compile_shader("shaders/ui_vert.glsl") {
-      device_wait_idle();
-      destroy_pipeline(ui_pipeline);
+      vk_device_wait_idle();
+      vk_destroy_pipeline(ui_pipeline);
       ui_pipeline = create_ui_pipeline();
     } else log_error("Failed to rebuild UI pipeline");
   }
   if rebuild_mesh_shader {
     log("Rebuiding MESH pipeline");
     if compile_shader("shaders/mesh_frag.glsl") && compile_shader("shaders/mesh_vert.glsl") {
-      device_wait_idle();
-      destroy_pipeline(mesh_pipeline);
+      vk_device_wait_idle();
+      vk_destroy_pipeline(mesh_pipeline);
       mesh_pipeline = create_mesh_pipeline();
     } else log_error("Failed to rebuild MESH pipeline");
   }
   if rebuild_grid_shader {
     log("Rebuiding GRID pipeline");
     if compile_shader("shaders/grid_frag.glsl") && compile_shader("shaders/grid_vert.glsl") {
-      device_wait_idle();
-      destroy_pipeline(grid_pipeline);
+      vk_device_wait_idle();
+      vk_destroy_pipeline(grid_pipeline);
       grid_pipeline = create_grid_pipeline();
     } else log_error("Failed to rebuild GRID pipeline");
   }
@@ -1481,16 +1476,16 @@ RenderCommand :: struct {
 };
 create_render_command :: () -> RenderCommand {
   allocate_info : VkCommandBufferAllocateInfo = .{
-    commandPool = graphics_command_pool,
+    commandPool = vk_graphics_command_pool,
     level = .PRIMARY,
     commandBufferCount = 1,
   };
-  cmd := allocate_command_buffer(allocate_info);
+  cmd := vk_allocate_command_buffer(allocate_info);
 
   fence_create_info: VkFenceCreateInfo = .{ flags = .SIGNALED_BIT };
-  render_fence := create_fence(fence_create_info);
+  render_fence := vk_create_fence(fence_create_info);
 
-  swapchain_semaphore := create_semaphore(.{});
+  swapchain_semaphore := vk_create_semaphore(.{});
 
   return .{
     cmd = cmd,
@@ -1500,31 +1495,31 @@ create_render_command :: () -> RenderCommand {
 }
 
 reset_render_command :: (cmd: RenderCommand) {
-  reset_command_buffer(cmd);
+  vk_reset_command_buffer(cmd);
 }
 
 begin_render_command :: (cmd: RenderCommand) {
   begin_info: VkCommandBufferBeginInfo = .{ flags = .ONE_TIME_SUBMIT_BIT };
-  begin_command_buffer(cmd, begin_info);
+  vk_begin_command_buffer(cmd, begin_info);
 }
 
 end_render_command :: (cmd: RenderCommand) {
-  end_command_buffer(cmd);
+  vk_end_command_buffer(cmd);
 }
 
 submit_wait_reset :: (cmd: RenderCommand) {
   buffer_submit_info: VkCommandBufferSubmitInfo =.{ commandBuffer = cmd };
   submit_info: VkSubmitInfo2 = .{ commandBufferInfoCount = 1, pCommandBufferInfos = *buffer_submit_info };
 
-  reset_fences(.[cmd]);
-  queue_submit(submit_info, cmd);
-  wait_for_fence(cmd);
-  reset_command_buffer(cmd);
+  vk_reset_fences(.[cmd]);
+  vk_queue_submit(submit_info, cmd);
+  vk_wait_for_fence(cmd);
+  vk_reset_command_buffer(cmd);
 }
 
 wait_for_cmd :: (cmd: RenderCommand) {
-  wait_for_fence(cmd.render_fence);
-  reset_fences(.[cmd.render_fence]);
+  vk_wait_for_fence(cmd.render_fence);
+  vk_reset_fences(.[cmd.render_fence]);
 }
 
 cmd_transition_swapchain_image :: (
@@ -1537,9 +1532,9 @@ cmd_transition_swapchain_image :: (
     src_access:  VkAccessFlags2,
     dst_access:  VkAccessFlags2,
 ) {
-  transition_image(
+  vk_transition_image(
     cmd.cmd,
-    swapchain_images[image_index],
+    vk_swapchain_images[image_index],
     0,
     src_layout,
     dst_layout,
