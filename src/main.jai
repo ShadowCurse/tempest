@@ -271,7 +271,7 @@ main :: () {
   v := 0.1;
   need_swapchain_recreation      := false;
   last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
-  last_present_time_ns: u64       = 0;
+  last_present_time_ns: u64       = platform_current_time_ns();
   dt_s: float                     = 0.0;
 
   while !quit {
@@ -304,13 +304,20 @@ main :: () {
     gizmo_ns   := timestamp_array[Timestamp.GIZMO_END] - timestamp_array[Timestamp.GIZMO_START];
     gizmo_ms   := cast(float)gizmo_ns / 1000_000.0;
 
-    for get_past_presentation_timing() {
-      if it.reportComplete {
-        present_time := it.pPresentStages[0].time;
-        dt_s = cast(float)(present_time - last_present_time_ns) / 1000.0 / 1000.0 / 1000.0;
-        last_present_time_ns = present_time;
+    gpu_present_timings := get_past_presentation_timing();
+    current_ns: u64 = 0;
+    if gpu_present_timings {
+      for gpu_present_timings {
+        if it.reportComplete {
+          current_ns = it.pPresentStages[0].time;
+        }
       }
+    } else {
+      current_ns := platform_current_time_ns();
     }
+    dt_ns := current_ns - last_present_time_ns;
+    dt_s = cast(float)dt_ns / 1000.0 / 1000.0 / 1000.0;
+    last_present_time_ns = current_ns;
 
     debug_draw_arrow(.{}, .{1.0, 1.0, 1.0});
     debug_draw_arrow(.{}, .{-1.0, -1.0, -1.0}, GREEN);

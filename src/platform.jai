@@ -54,6 +54,12 @@ platform_read_entire_file :: (path: string) -> string, bool {
   return data, ok;
 }
 
+platform_current_time_ns :: () -> u64 {
+  ts: timespec;
+  clock_gettime(.MONOTONIC, *ts);
+  return cast,no_check(u64)ts.tv_sec * 1000_000_000 + cast,no_check(u64)ts.tv_nsec;
+}
+
 platform_new_frame :: () {
   if !SDL_GetWindowSize(window, xx *window_width, xx *window_height)
     log_error("Cannot get window size. Error: %\n", to_string(SDL_GetError()));
@@ -1253,4 +1259,5 @@ SDLKeyboardScancode :: enum u32 {
 };
 
 #scope_file
+#import "POSIX";
 using,except(VkInstance, PFN_vkGetInstanceProcAddr, VkSurfaceKHR) sdl3 :: #import "SDL3";

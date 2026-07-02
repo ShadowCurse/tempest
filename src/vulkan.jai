@@ -6,19 +6,20 @@ INSTANCE_EXTENSIONS := *u8.[
   "VK_EXT_surface_maintenance1",
   "VK_KHR_get_surface_capabilities2",
 ];
-DEVICE_EXTENSIONS := *u8.[
+BASE_DEVICE_EXTENSIONS := *u8.[
   "VK_KHR_swapchain",
   "VK_KHR_maintenance5",
   "VK_EXT_swapchain_maintenance1",
   "VK_KHR_push_descriptor",
   "VK_EXT_extended_dynamic_state3",
-
+  // "VK_KHR_unified_image_layouts",
+  "VK_KHR_shader_draw_parameters",
+];
+VK_EXT_PRESENT_TIMING_DEVICE_EXTENSIONS := *u8.[
   // these 2 required for VK_EXT_present_timing
   "VK_KHR_present_id2",
   "VK_KHR_calibrated_timestamps",
   "VK_EXT_present_timing",
-  // "VK_KHR_unified_image_layouts",
-  "VK_KHR_shader_draw_parameters",
 ];
 MINIMAL_API_VERSION :: #run api_version(0, 1, 3, 0);
 
@@ -26,7 +27,10 @@ instance:              VkInstance;
 instance_version:      ApiVersion;
 debug_messanger:       VkDebugUtilsMessengerEXT;
 surface:               VkSurfaceKHR;
+
 physical_device:       VkPhysicalDevice;
+vk_supports_present_timing: bool;
+
 device:                VkDevice;
 graphics_queue_family: u32;
 graphics_queue:        VkQueue;
@@ -61,11 +65,12 @@ vulkan_init :: (enable_validation: bool) -> success: bool {
   init_instance(enable_validation);
   if !instance return false;
   if !load_instance_procs(get_proc) return false;
-  if enable_validation debug_messanger = init_debug_messanger();
+  if enable_validation then debug_messanger = init_debug_messanger();
   platform_create_surface(instance, *surface);
   if !surface return false;
   select_physical_device(enable_validation);
   if !physical_device return false;
+  vk_check_additional_extensions_support();
   init_device();
   if !device return false;
   init(*swapchain_arena, new_array(1024, u8, initialized = false));
@@ -947,7 +952,7 @@ DONE
     }
     err, extensions := get_physical_device_exensions(pd,, temp);
     if err continue;
-    if !contains_all_extensions(device_name, extensions, .[DEVICE_EXTENSIONS])
+    if !contains_all_extensions(device_name, extensions, .[BASE_DEVICE_EXTENSIONS])
       continue;
 
     queue_families := get_physical_device_queue_families(pd,, temp);
@@ -1003,6 +1008,13 @@ DONE
   }
 }
 
+vk_check_additional_extensions_support :: () {
+    err, extensions := get_physical_device_exensions(physical_device,, temp);
+    assert(!err);
+    vk_supports_present_timing = contains_all_extensions("", extensions,
+                                                         .[VK_EXT_PRESENT_TIMING_DEVICE_EXTENSIONS]);
+}
+
 init_device :: () {
   unique_count := 0;
   ui := s32.[-1, -1, -1, -1];
@@ -1026,66 +1038,94 @@ init_device :: () {
     };
   }
 
-  unified_image_layouts: VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR;
-  physical_device_features_1_4: VkPhysicalDeviceVulkan14Features;
-  maintenance5: VkPhysicalDeviceMaintenance5Features;
-
-  present_timings: VkPhysicalDevicePresentTimingFeaturesEXT = .{
-    presentTiming         = xx true,
-    presentAtAbsoluteTime = xx true,
-    presentAtRelativeTime = xx true,
-  };
-  swapchain_maintenance1: VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR = .{
-    pNext                 = *present_timings,
-    swapchainMaintenance1 = xx true,
-  };
-  physical_device_features_1_3: VkPhysicalDeviceVulkan13Features = .{
-    dynamicRendering = xx true,
-    synchronization2 = xx true,
-  };
-  if api_version(0, 1, 4, 0) <= instance_version {
-    unified_image_layouts = .{
-      pNext               = *swapchain_maintenance1,
-      unifiedImageLayouts = xx true,
-    };
-    physical_device_features_1_4 = .{
-      pNext          = *unified_image_layouts,
-      maintenance5   = xx true,
-      pushDescriptor = xx true,
-    };
-    physical_device_features_1_3.pNext = *physical_device_features_1_4;
-  } else {
-    maintenance5 = .{
-      pNext        = *swapchain_maintenance1,
-      maintenance5 = xx true,
-    };
-    physical_device_features_1_3.pNext = *maintenance5;
+  enabled_extensions: [..]*u8;
+  enabled_extensions.allocator = temp;
+  array_copy(*enabled_extensions, BASE_DEVICE_EXTENSIONS);
+  if vk_supports_present_timing {
+    for VK_EXT_PRESENT_TIMING_DEVICE_EXTENSIONS array_add(*enabled_extensions, it);
   }
-  dynamic_state3: VkPhysicalDeviceExtendedDynamicState3FeaturesEXT = .{
-    pNext                            = *physical_device_features_1_3,
-    extendedDynamicState3PolygonMode = xx true,
-  };
-  physical_device_features_1_2: VkPhysicalDeviceVulkan12Features = .{
-    pNext               = *dynamic_state3,
-    bufferDeviceAddress = xx true,
-    descriptorIndexing  = xx true,
-  };
+
   physical_device_features: VkPhysicalDeviceFeatures = .{
     shaderInt64       = xx true,
     fillModeNonSolid  = xx true,
     multiDrawIndirect = xx true,
   };
 
+  pnext_head: *VkBaseInStructure = null;
+  push_to_the_chain :: (head: **VkBaseInStructure, next: *VkBaseInStructure) {
+    log("Adding to the device pNext chain: %", next.sType);
+    next.pNext = head.*;
+    head.* = next;
+  }
+
+  physical_device_features_1_2: VkPhysicalDeviceVulkan12Features = .{
+    bufferDeviceAddress = xx true,
+    descriptorIndexing  = xx true,
+  };
+  pnext_head = xx *physical_device_features_1_2;
+
+  physical_device_features_1_3: VkPhysicalDeviceVulkan13Features = .{
+    dynamicRendering = xx true,
+    synchronization2 = xx true,
+  };
+  push_to_the_chain(*pnext_head, xx *physical_device_features_1_3);
+
+  dynamic_state3: VkPhysicalDeviceExtendedDynamicState3FeaturesEXT = .{
+    extendedDynamicState3PolygonMode = xx true,
+  };
+  push_to_the_chain(*pnext_head, xx *dynamic_state3);
+
+  swapchain_maintenance1: VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR = .{
+    swapchainMaintenance1 = xx true,
+  };
+  push_to_the_chain(*pnext_head, xx *swapchain_maintenance1);
+
+  unified_image_layouts:        VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR = .{};
+  physical_device_features_1_4: VkPhysicalDeviceVulkan14Features               = .{};
+  maintenance5:                 VkPhysicalDeviceMaintenance5Features           = .{};
+  if api_version(0, 1, 4, 0) <= instance_version {
+    unified_image_layouts = .{
+      unifiedImageLayouts = xx true,
+    };
+    push_to_the_chain(*pnext_head, xx *unified_image_layouts );
+
+    physical_device_features_1_4 = .{
+      maintenance5   = xx true,
+      pushDescriptor = xx true,
+    };
+    push_to_the_chain(*pnext_head, xx *physical_device_features_1_4);
+  } else {
+    maintenance5 = .{
+      maintenance5 = xx true,
+    };
+    push_to_the_chain(*pnext_head, xx *maintenance5);
+  }
+
+  present_timings: VkPhysicalDevicePresentTimingFeaturesEXT = .{
+    presentTiming         = xx true,
+    presentAtAbsoluteTime = xx true,
+    presentAtRelativeTime = xx true,
+  };
+  if vk_supports_present_timing {
+    push_to_the_chain(*pnext_head, xx *present_timings);
+  }
+
+  pnext_head2 := pnext_head;
+  while pnext_head2 {
+    log("chain: %", pnext_head2.sType);
+    pnext_head2 = pnext_head2.pNext;
+  }
+
   create_info: VkDeviceCreateInfo = .{
-    pNext                   = *physical_device_features_1_2,
+    pNext                   = pnext_head,
     queueCreateInfoCount    = xx queue_create_infos.count,
     pQueueCreateInfos       = queue_create_infos.data,
-    ppEnabledExtensionNames = DEVICE_EXTENSIONS.data,
-    enabledExtensionCount   = DEVICE_EXTENSIONS.count,
+    ppEnabledExtensionNames = enabled_extensions.data,
+    enabledExtensionCount   = xx enabled_extensions.count,
     pEnabledFeatures        = *physical_device_features,
   };
 
-  for DEVICE_EXTENSIONS log("(Device) Enabled extension: %\n", to_string(it));
+  for enabled_extensions log("(Device) Enabled extension: %\n", to_string(it));
 
   r := vkCreateDevice(physical_device, *create_info, null, *device);
   if r != .SUCCESS {
@@ -1141,7 +1181,8 @@ get_swapchain_time_domain_properties :: () -> (result: VkResult, []VkTimeDomainK
 } @NoProfile
 
 init_swapchain :: (width: u32, height: u32, old_swapchain: VkSwapchainKHR) {
-  surface_capabilities2: VkSurfaceCapabilities2KHR = .{ pNext   = *swapchain_present_timing_surface };
+  surface_capabilities2: VkSurfaceCapabilities2KHR = .{};
+  if vk_supports_present_timing then surface_capabilities2.pNext = *swapchain_present_timing_surface;
   surface_info: VkPhysicalDeviceSurfaceInfo2KHR = .{ surface = surface };
   assert(!vkGetPhysicalDeviceSurfaceCapabilities2KHR(physical_device, *surface_info, *surface_capabilities2));
   log("present_timing_surface: %", swapchain_present_timing_surface);
@@ -1286,112 +1327,122 @@ init_command_pool :: (queue_family_index: u32) -> VkCommandPool {
     return result;
 }
 
-load_procs :: (proc_name: string, $instance: bool, $names: []string) -> string #expand {
+ProcInfo :: struct {
+  name:     string;
+  optional: bool;
+};
+load_procs :: (
+  proc_name: string,
+  $instance: bool,
+  $fns: []ProcInfo,
+) -> string #expand {
 TEMPLATE :: #string,\% DONE
-  %1 = xx get_proc(%2, "%1");
-  if !%1 {
+  %1 = xx get_proc(%3, "%1");
+  if !%2 && !%1 {
     log_error("Failed to load \% proc", "%1");
     return false;
   }
 DONE
   builder: String_Builder;
-  for names print_to_builder(*builder, "%1: PFN_%1 = ---;\n", it);
+  for fns print_to_builder(*builder, "%1: PFN_%1 = ---;\n", it.name);
 
   print_to_builder(*builder, "% :: (get_proc: PFN_vkGetInstanceProcAddr) -> bool {\n", proc_name);
-  if instance for names print_to_builder(*builder, TEMPLATE, it, "instance");
-  else        for names print_to_builder(*builder, TEMPLATE, it, "null");
+  if instance for fns print_to_builder(*builder, TEMPLATE, it.name, it.optional, "instance");
+  else        for fns print_to_builder(*builder, TEMPLATE, it.name, it.optional, "null");
   print_to_builder(*builder, "  return true;\n}\n");
   return builder_to_string(*builder);
 }
 
-#insert #run load_procs("load_basic_procs", false, .[
-  "vkCreateInstance",
-  "vkEnumerateInstanceExtensionProperties",
-  "vkEnumerateInstanceLayerProperties",
-  "vkEnumerateInstanceVersion",
+#insert #run load_procs("load_basic_procs", false, ProcInfo.[
+  .{"vkCreateInstance",                           false},
+  .{"vkEnumerateInstanceExtensionProperties",     false},
+  .{"vkEnumerateInstanceLayerProperties",         false},
+  .{"vkEnumerateInstanceVersion",                 false},
 ]);
 
-#insert #run load_procs("load_instance_procs" , true, .[
-  "vkDestroyInstance",
-  "vkCreateDebugUtilsMessengerEXT",
-  "vkDestroyDebugUtilsMessengerEXT",
-  "vkEnumeratePhysicalDevices",
-  "vkGetPhysicalDeviceProperties",
-  "vkGetPhysicalDeviceFeatures",
-  "vkGetPhysicalDeviceFeatures2",
-  "vkGetPhysicalDeviceMemoryProperties",
-  "vkEnumerateDeviceLayerProperties",
-  "vkEnumerateDeviceExtensionProperties",
-  "vkGetPhysicalDeviceQueueFamilyProperties",
-  "vkGetPhysicalDeviceSurfaceSupportKHR",
-  "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
-  "vkDeviceWaitIdle",
-  "vkCreateDevice",
-  "vkDestroyDevice",
-  "vkGetDeviceQueue",
-  "vkGetPhysicalDeviceSurfaceFormatsKHR",
-  "vkCreateSwapchainKHR",
-  "vkDestroySwapchainKHR",
-  "vkGetSwapchainImagesKHR",
-  "vkSetSwapchainPresentTimingQueueSizeEXT",
-  "vkGetSwapchainTimingPropertiesEXT",
-  "vkGetSwapchainTimeDomainPropertiesEXT",
-  "vkGetPastPresentationTimingEXT",
-  "vkCreateImageView",
-  "vkDestroyImage",
-  "vkDestroyImageView",
-  "vkCreateCommandPool",
-  "vkDestroyCommandPool",
-  "vkAllocateCommandBuffers",
-  "vkResetCommandBuffer",
-  "vkBeginCommandBuffer",
-  "vkEndCommandBuffer",
-  "vkCreateFence",
-  "vkWaitForFences",
-  "vkResetFences",
-  "vkDestroyFence",
-  "vkCreateSemaphore",
-  "vkDestroySemaphore",
-  "vkCmdPipelineBarrier2",
-  "vkCmdBeginRendering",
-  "vkCmdEndRendering",
-  "vkCmdSetViewport",
-  "vkCmdSetScissor",
-  "vkQueueSubmit2",
-  "vkQueuePresentKHR",
-  "vkAcquireNextImageKHR",
-  "vkCreatePipelineLayout",
-  "vkDestroyPipelineLayout",
-  "vkCreateComputePipelines",
-  "vkCreateGraphicsPipelines",
-  "vkDestroyPipeline",
-  "vkCmdBindPipeline",
-  "vkCmdBindIndexBuffer",
-  "vkCmdDispatch",
-  "vkCmdPushDescriptorSetKHR",
-  "vkCmdPushConstants",
-  "vkCreateDescriptorSetLayout",
-  "vkDestroyDescriptorSetLayout",
-  "vkCreateBuffer",
-  "vkBindBufferMemory",
-  "vkGetBufferMemoryRequirements",
-  "vkGetBufferDeviceAddress",
-  "vkCreateImage",
-  "vkCreateSampler",
-  "vkBindImageMemory",
-  "vkGetImageMemoryRequirements",
-  "vkAllocateMemory",
-  "vkMapMemory",
-  "vkCmdCopyBufferToImage",
-  "vkCmdCopyBuffer",
-  "vkCmdDraw",
-  "vkCmdDrawIndexed",
-  "vkCmdDrawIndirect",
-  "vkCreateQueryPool",
-  "vkGetQueryPoolResults",
-  "vkCmdResetQueryPool",
-  "vkCmdWriteTimestamp",
-  "vkCmdSetPolygonModeEXT",
+#insert #run load_procs("load_instance_procs" , true, ProcInfo.[
+  .{"vkDestroyInstance",                          false},
+  .{"vkCreateDebugUtilsMessengerEXT",             false},
+  .{"vkDestroyDebugUtilsMessengerEXT",            false},
+  .{"vkEnumeratePhysicalDevices",                 false},
+  .{"vkGetPhysicalDeviceProperties",              false},
+  .{"vkGetPhysicalDeviceFeatures",                false},
+  .{"vkGetPhysicalDeviceFeatures2",               false},
+  .{"vkGetPhysicalDeviceMemoryProperties",        false},
+  .{"vkEnumerateDeviceLayerProperties",           false},
+  .{"vkEnumerateDeviceExtensionProperties",       false},
+  .{"vkGetPhysicalDeviceQueueFamilyProperties",   false},
+  .{"vkGetPhysicalDeviceSurfaceSupportKHR",       false},
+  .{"vkGetPhysicalDeviceSurfaceCapabilities2KHR", false},
+  .{"vkDeviceWaitIdle",                           false},
+  .{"vkCreateDevice",                             false},
+  .{"vkDestroyDevice",                            false},
+  .{"vkGetDeviceQueue",                           false},
+  .{"vkGetPhysicalDeviceSurfaceFormatsKHR",       false},
+  .{"vkCreateSwapchainKHR",                       false},
+  .{"vkDestroySwapchainKHR",                      false},
+  .{"vkGetSwapchainImagesKHR",                    false},
+
+  .{"vkSetSwapchainPresentTimingQueueSizeEXT",    true},
+  .{"vkGetSwapchainTimingPropertiesEXT",          true},
+  .{"vkGetSwapchainTimeDomainPropertiesEXT",      true},
+  .{"vkGetPastPresentationTimingEXT",             true},
+
+  .{"vkCreateImageView",                          false},
+  .{"vkDestroyImage",                             false},
+  .{"vkDestroyImageView",                         false},
+  .{"vkCreateCommandPool",                        false},
+  .{"vkDestroyCommandPool",                       false},
+  .{"vkAllocateCommandBuffers",                   false},
+  .{"vkResetCommandBuffer",                       false},
+  .{"vkBeginCommandBuffer",                       false},
+  .{"vkEndCommandBuffer",                         false},
+  .{"vkCreateFence",                              false},
+  .{"vkWaitForFences",                            false},
+  .{"vkResetFences",                              false},
+  .{"vkDestroyFence",                             false},
+  .{"vkCreateSemaphore",                          false},
+  .{"vkDestroySemaphore",                         false},
+  .{"vkCmdPipelineBarrier2",                      false},
+  .{"vkCmdBeginRendering",                        false},
+  .{"vkCmdEndRendering",                          false},
+  .{"vkCmdSetViewport",                           false},
+  .{"vkCmdSetScissor",                            false},
+  .{"vkQueueSubmit2",                             false},
+  .{"vkQueuePresentKHR",                          false},
+  .{"vkAcquireNextImageKHR",                      false},
+  .{"vkCreatePipelineLayout",                     false},
+  .{"vkDestroyPipelineLayout",                    false},
+  .{"vkCreateComputePipelines",                   false},
+  .{"vkCreateGraphicsPipelines",                  false},
+  .{"vkDestroyPipeline",                          false},
+  .{"vkCmdBindPipeline",                          false},
+  .{"vkCmdBindIndexBuffer",                       false},
+  .{"vkCmdDispatch",                              false},
+  .{"vkCmdPushDescriptorSetKHR",                  false},
+  .{"vkCmdPushConstants",                         false},
+  .{"vkCreateDescriptorSetLayout",                false},
+  .{"vkDestroyDescriptorSetLayout",               false},
+  .{"vkCreateBuffer",                             false},
+  .{"vkBindBufferMemory",                         false},
+  .{"vkGetBufferMemoryRequirements",              false},
+  .{"vkGetBufferDeviceAddress",                   false},
+  .{"vkCreateImage",                              false},
+  .{"vkCreateSampler",                            false},
+  .{"vkBindImageMemory",                          false},
+  .{"vkGetImageMemoryRequirements",               false},
+  .{"vkAllocateMemory",                           false},
+  .{"vkMapMemory",                                false},
+  .{"vkCmdCopyBufferToImage",                     false},
+  .{"vkCmdCopyBuffer",                            false},
+  .{"vkCmdDraw",                                  false},
+  .{"vkCmdDrawIndexed",                           false},
+  .{"vkCmdDrawIndirect",                          false},
+  .{"vkCreateQueryPool",                          false},
+  .{"vkGetQueryPoolResults",                      false},
+  .{"vkCmdResetQueryPool",                        false},
+  .{"vkCmdWriteTimestamp",                        false},
+  .{"vkCmdSetPolygonModeEXT",                     false},
 ]);
 
 VK_REMAINING_MIP_LEVELS   :: 4294967295;
