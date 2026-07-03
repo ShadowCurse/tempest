@@ -1,10 +1,11 @@
-Targets :: struct {
-  tempest         :: "src/main.jai";
-  sdl3_bindings   :: "sdl3_bindings_gen.jai";
-  vulkan_bindings :: "vulkan_bindings_gen.jai";
-  cgltf_bindings  :: "cgltf_bindings_gen.jai";
-  cslug_bindings  :: "cslug_bindings_gen.jai";
-}
+Target :: struct {name: string; src_path: string; imports_prof: bool;}
+targets := Target.[
+.{"tempest",         "src/main.jai",            true},
+.{"sdl3_bindings",   "sdl3_bindings_gen.jai",   false},
+.{"vulkan_bindings", "vulkan_bindings_gen.jai", false},
+.{"cgltf_bindings",  "cgltf_bindings_gen.jai",  false},
+.{"cslug_bindings",  "cslug_bindings_gen.jai",  false},
+];
 
 need_to_compile_shaders := false;
 need_to_instrument      := false;
@@ -29,26 +30,18 @@ build :: () {
     return;
   }
 
-  targets : Type_Info_Struct = type_info(Targets);
-
   target_options := get_build_options(w);
   args := target_options.compile_time_command_line;
 
-  to_compile: [..]struct { name: string; path: *string; };
+  to_compile: [..]Target;
   for arg: args {
-    for targets.members {
-      if arg == it.name {
-        if 0 <= it.offset_into_constant_storage {
-          path: *string = xx (targets.constant_storage.data + it.offset_into_constant_storage);
-          array_add(*to_compile, .{ it.name, path });
-          // compile(it.name, path.*);
-        }
-      }
+    for targets {
+      if arg == it.name array_add(*to_compile, it);
     }
     if arg == "shaders"   need_to_compile_shaders = true;
     if arg == "with_prof" need_to_instrument = true;
   }
-  for to_compile compile(it.name, it.path.*);
+  for to_compile compile(it);
   // note(sc): need to do shaders step after main compile, since it may update shader
   // types
   if need_to_compile_shaders compile_shaders();;
@@ -56,8 +49,8 @@ build :: () {
   set_build_options_dc(.{do_output=false});
 }
 
-compile :: (binary_name: string, path: string) {
-  workspace_name := tprint("Workspace: name: % path: %", binary_name, path);
+compile :: (target: Target) {
+  workspace_name := tprint("Workspace: name: % path: %", target.name, target.src_path);
   w := compiler_create_workspace(workspace_name);
   if !w {
     print(tprint("Failed: %\n", workspace_name));
@@ -65,15 +58,15 @@ compile :: (binary_name: string, path: string) {
   }
 
   workspace_options := get_build_options();
-  workspace_options.output_executable_name = binary_name;
+  workspace_options.output_executable_name = target.name;
   set_build_options(workspace_options, w);
 
   intercept_flags: Intercept_Flags = .SKIP_EXPRESSIONS_WITHOUT_NOTES;
   if need_to_instrument then intercept_flags = 0;
 
   compiler_begin_intercept(w, intercept_flags);
-  add_build_file(tprint("%/%", #filepath, path), w);
-  message_loop(w);
+  add_build_file(tprint("%/%", #filepath, target.src_path), w);
+  message_loop(w, target.imports_prof);
   compiler_end_intercept(w);
 
   write_shader_structs();
@@ -87,12 +80,12 @@ compile_shaders :: () {
   for file_list("./shaders") if ends_with(it, SHADER_EXT) compile_shader(it);
 }
 
-message_loop :: (w: Workspace) {
+message_loop :: (w: Workspace, imports_prof: bool) {
   while true {
     message := compiler_wait_for_message();
     if message.kind == .COMPLETE break;
     capture_shader_structs(message);
-    instrument_prof_functions(message);
+    if imports_prof then instrument_prof_functions(message);
   }
 }
 
