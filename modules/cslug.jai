@@ -553,9 +553,8 @@ STBTT_MAC_LANG :: enum u32 {
 cslug_i32 :: s32;
 cslug_u32 :: u32;
 cslug_u16 :: u16;
+cslug_f16 :: u16;
 cslug_f32 :: float;
-
-cslug_f16 :: cslug_u16;
 
 cslug_glyph :: struct {
     x0:               cslug_f32; // em-space bounding box
@@ -608,7 +607,7 @@ cslug_buffers_packed :: struct {
 cslug_free_buffers :: (info: *stbtt_fontinfo, buffers: *cslug_buffers) -> void #foreign libcslug;
 cslug_free_buffers_packed :: (info: *stbtt_fontinfo, buffers: *cslug_buffers_packed) -> void #foreign libcslug;
 
-// For RGBA32F textures: curves = 8 f16/curve (2 texels), bands = 4 f16/entry (1 texel)
+// For R16G16B16A16 textures: curves = 8 f16/curve (2 texels), bands = 4 f16/entry (1 texel)
 // Curve index divisor = 4, band index divisor = 4
 cslug_build_glyph_for_texture :: (info: *stbtt_fontinfo, code_point: cslug_u32, em_scale: cslug_f32, buffers: *cslug_buffers, glyph: *cslug_glyph) -> void #foreign libcslug;
 

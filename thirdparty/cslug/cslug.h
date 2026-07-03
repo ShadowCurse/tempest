@@ -84,6 +84,16 @@ CSLUG_DEF void cslug_build_glyph_for_buffer(stbtt_fontinfo *info, cslug_u32 code
 #define CSLUG_fmaxf(a, b) fmaxf(a, b)
 #endif
 
+#ifndef CSLUG_ceilf
+#include <math.h>
+#define CSLUG_ceilf(a) ceilf(a)
+#endif
+
+#ifndef CSLUG_sqrtf
+#include <math.h>
+#define CSLUG_sqrtf(a) sqrtf(a)
+#endif
+
 #ifdef CSLUG_IMPL_F16
 static cslug_f16 cslug_f32_to_f16(cslug_f32 v) {
     cslug_u32 i = *(cslug_u32*)&v;
@@ -92,7 +102,7 @@ static cslug_f16 cslug_f32_to_f16(cslug_f32 v) {
     cslug_u32 e = (i >> 23) & 0x000000FF;
     cslug_u32 m = i & 0x007FFFFF;
 
-    cslug_u16 res_s = (uint16_t)s << 15;
+    cslug_u16 res_s = (cslug_u16)s << 15;
     cslug_u16 res_e = 0;
     cslug_u16 res_m = 0;
 
@@ -110,12 +120,12 @@ static cslug_f16 cslug_f32_to_f16(cslug_f32 v) {
             // Underflow: Subnormal or Zero
             if (-10 <= new_e) {
                 m |= 0x00800000; // Add implicit leading bit
-                res_m = (uint16_t)(m >> (14 - new_e));
+                res_m = (cslug_u16)(m >> (14 - new_e));
             }
         } else {
             // Normalized conversion
-            res_e = (uint16_t)new_e;
-            res_m = (uint16_t)(m >> 13);
+            res_e = (cslug_u16)new_e;
+            res_m = (cslug_u16)(m >> 13);
         }
     }
     return res_s | (res_e << 10) | res_m;
@@ -284,7 +294,9 @@ static cslug_u32 cslug_extract_curves(stbtt_fontinfo *info, cslug_u32 glyph_inde
                                                                                                       \
     cslug_buf_ensure_capacity(info, &buffers->curves, n_curves * (CURVE_STRIDE));                     \
                                                                                                       \
-    cslug_u32 n_hbands = (cslug_u32)fmaxf(1, fminf(16, ceilf(sqrtf((cslug_f32)n_curves))));           \
+    cslug_u32 n_hbands = (cslug_u32)CSLUG_fmaxf(1.0f,                                                 \
+                                    CSLUG_fminf(16.0f,                                                \
+                                    CSLUG_ceilf(CSLUG_sqrtf((cslug_f32)n_curves))));                  \
     cslug_u32 n_vbands = n_hbands;                                                                    \
     cslug_u32 total_bands = n_hbands + n_vbands;                                                      \
                                                                                                       \
