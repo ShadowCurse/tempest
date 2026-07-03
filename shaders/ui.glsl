@@ -6,8 +6,8 @@
 
 #include "types.glsl"
 
-layout(buffer_reference, std430) readonly buffer Quads {
-    Quad quads[];
+layout(buffer_reference, std430) readonly buffer UiQuads {
+    UiQuad quads[];
 };
 
 layout(push_constant) uniform constants {
@@ -19,8 +19,8 @@ layout(buffer_reference, std430) readonly buffer CurvesBandsRef {
     uint data[];
 };
 
-Quad get_quad(uint idx) {
-  return Quads(PushConstants.data.quads).quads[idx];
+UiQuad get_quad(uint idx) {
+  return UiQuads(PushConstants.data.quads).quads[idx];
 }
 
 vec2[3] get_curve(uint idx) {

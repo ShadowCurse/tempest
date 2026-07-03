@@ -87,7 +87,7 @@ float calculate_coverage(float xcov, float ycov, float xwgt, float ywgt) {
 }
 
 vec4 draw_glyph() {
-    Quad sq = get_quad(inInstanceId);
+    UiQuad sq = get_quad(inInstanceId);
 
     vec2 em_per_pixel = fwidth(v_texcoord);
     vec2 pixels_per_em = 1.0 / em_per_pixel;
@@ -168,7 +168,7 @@ vec4 draw_glyph() {
 }
 
 void main() {
-    Quad sq = get_quad(inInstanceId);
+    UiQuad sq = get_quad(inInstanceId);
     if ((sq.usage & UI_QUAD_USAGE_TEXT) != 0) {
         outFragColor = draw_glyph();
     }

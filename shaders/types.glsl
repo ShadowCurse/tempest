@@ -38,20 +38,6 @@ struct MeshPushConstant {
     uint vertex_offset;
 };
 
-#define QuadUsage uint
-#define RGBA uint
-struct Quad {
-    QuadUsage usage;
-    RGBA color;
-    vec2 position;
-    vec4 tex;
-    vec2 size;
-    uint glyph_band_texel;
-    uint band_min_max;
-    vec2 band_scale;
-    vec2 band_offset;
-};
-
 struct SceneInfo {
     mat4 camera_view;
     mat4 camera_view_inv;
@@ -64,6 +50,20 @@ struct UiPushConstant {
     VkDeviceAddress data_buffer;
     uint curves_offset;
     uint bands_offset;
+};
+
+#define UiQuadUsage uint
+#define RGBA uint
+struct UiQuad {
+    UiQuadUsage usage;
+    RGBA color;
+    vec2 position;
+    vec4 tex;
+    vec2 size;
+    uint glyph_band_texel;
+    uint band_min_max;
+    vec2 band_scale;
+    vec2 band_offset;
 };
 
 struct Vertex {

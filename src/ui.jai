@@ -1,5 +1,5 @@
-Quad :: struct {
-  usage:            QuadUsage; @u32
+UiQuad :: struct {
+  usage:            UiQuadUsage; @u32
   color:            RGBA;      @u32
   position:         Vector2;
   tex:              Vector4; // also border_width
@@ -10,13 +10,13 @@ Quad :: struct {
   band_offset:      Vector2;
 } @ShaderType
 
-QuadUsage :: enum_flags u32 {
+UiQuadUsage :: enum_flags u32 {
   COLOR    :: 1 << 0;
   NO_ROUND :: 1 << 1;
   TEXT     :: 1 << 2;
 }
 
-ColorType :: enum u8 {
+UiColorType :: enum u8 {
   NONE;        // 0x000000
   FOREGROUND;  // 0xfef8f2
   BACKGROUND;  // 0x000000
@@ -35,8 +35,8 @@ ColorType :: enum u8 {
   BUTTON_PRESSED :: GREEN2;
 }
 
-Colors :: #run -> EnumArray(ColorType, RGBA) {
-  colors: EnumArray(ColorType, RGBA) = ---;
+UiColors :: #run -> EnumArray(UiColorType, RGBA) {
+  colors: EnumArray(UiColorType, RGBA) = ---;
   colors.values = RGBA.[
     /* NONE;        */ 0x000000ff,
     /* FOREGROUND;  */ 0xfef8f2ff,
@@ -56,7 +56,7 @@ Colors :: #run -> EnumArray(ColorType, RGBA) {
 
 // note(sc): maybe add ui context to the `context` to avoid using global one
 // but for now use explicitly passed one
-Context :: struct {
+UiContext :: struct {
   draw_buffer:             BufferAllocator;
   frame_arena:             BufferAllocator;
 
@@ -75,35 +75,35 @@ Context :: struct {
   consumed_mouse_event:    bool;
   consumed_keyboard_event: bool;
 
-  global_parent:           Widget;
+  global_parent:           UiWidget;
   global_parent.border =   2.0;
   global_parent.margin =   8.0;
 
-  current_parent:          *Widget;
-  widgets:                 [1024]Widget;
+  current_parent:          *UiWidget;
+  widgets:                 [1024]UiWidget;
 }
 
-init :: (c: *Context, font: *Font) {
+ui_init :: (c: *UiContext, font: *Font) {
   init(*c.frame_arena, new_array(4096, u8, initialized = false));
   c.font   = font;
   c.current_parent = *c.global_parent;
 }
 
-new_frame :: (c: *Context, buffer: []Quad) {
-  init(*c.draw_buffer, .{ data = cast(*u8)buffer.data, count = buffer.count * size_of(Quad) });
+ui_new_frame :: (c: *UiContext, buffer: []UiQuad) {
+  init(*c.draw_buffer, .{ data = cast(*u8)buffer.data, count = buffer.count * size_of(UiQuad) });
   reset(*c.frame_arena);
   c.frame += 1;
   c.consumed_mouse_event    = false;
   c.consumed_keyboard_event = false;
   c.old_mouse_position = c.mouse_position;
-  frame_reset(*c.global_parent);
+  ui_widget_reset(*c.global_parent);
 }
 
-draw_elements :: (c: Context) -> u32 {
-  return c.draw_buffer.end / cast(u16)size_of(Quad);
+ui_pending_elements :: (c: UiContext) -> u32 {
+  return c.draw_buffer.end / cast(u16)size_of(UiQuad);
 }
 
-WidgetFlags :: enum_flags u32 {
+UiWidgetFlags :: enum_flags u32 {
   CLICK;
   DRAG_ALL;
   DRAG_HORIZONTAL;
@@ -118,20 +118,21 @@ WidgetFlags :: enum_flags u32 {
   FIXED_POSITION_X;
   FIXED_POSITION_Y;
 }
-Widget :: struct {
+
+UiWidget :: struct {
   // per-frame update
   id:                u32;
   last_frame_update: u32;
 
   // per-frame reset
-  parent:            *Widget;
-  next:              *Widget; // next on the same level
-  first:             *Widget; // firt on the level bellow
-  last:              *Widget; // last on the level bellow
+  parent:            *UiWidget;
+  next:              *UiWidget; // next on the same level
+  first:             *UiWidget; // firt on the level bellow
+  last:              *UiWidget; // last on the level bellow
   layout_offset:      float;
 
   // customization
-  flags:              WidgetFlags;
+  flags:              UiWidgetFlags;
   payload:            []u8;
   bg_color:           RGBA;
   border_color:       RGBA;
@@ -145,7 +146,7 @@ Widget :: struct {
   was_pressed:        bool;
 }
 
-frame_reset :: (w: *Widget) {
+ui_widget_reset :: (w: *UiWidget) {
   w.parent        = null;
   w.next          = null;
   w.first         = null;
@@ -154,19 +155,19 @@ frame_reset :: (w: *Widget) {
 }
 
 // sdbm algorithm
-create_id :: (data: []u8, seed: u32 = 0) -> u32 {
+ui_create_id :: (data: []u8, seed: u32 = 0) -> u32 {
   hash: u32 = seed;
   for data hash = cast(u32)it + (hash << 6) + (hash << 16) - hash;
   return hash;
 }
 
-find_existing_widget :: (c: *Context, id: u32) -> *Widget {
+ui_find_existing_widget :: (c: *UiContext, id: u32) -> *UiWidget {
   for * c.widgets if it.id == id return it;
   return null;
 }
 
-find_oldest_widget :: (c: *Context) -> *Widget {
-  result: *Widget;
+ui_find_oldest_widget :: (c: *UiContext) -> *UiWidget {
+  result: *UiWidget;
   oldest_frame: u32 = c.frame;
   for *c.widgets {
     if it.last_frame_update < oldest_frame {
@@ -178,15 +179,15 @@ find_oldest_widget :: (c: *Context) -> *Widget {
   return result;
 }
 
-push_parent :: (c: *Context, w: *Widget) {
+ui_push_parent :: (c: *UiContext, w: *UiWidget) {
   c.current_parent = w;
 }
 
-pop_parent :: (c: *Context) {
+ui_pop_parent :: (c: *UiContext) {
   c.current_parent = c.current_parent.parent;
 }
 
-link_widget :: (parent: *Widget, w: *Widget) {
+ui_link_widget :: (parent: *UiWidget, w: *UiWidget) {
   if !parent.first {
     parent.first, parent.last = w;
   } else {
@@ -197,18 +198,18 @@ link_widget :: (parent: *Widget, w: *Widget) {
   w.parent = parent;
 }
 
-build_widget :: (
-  c:          *Context,
+ui_build_widget :: (
+  c:          *UiContext,
   name:       string,
-  flags:      WidgetFlags,
+  flags:      UiWidgetFlags,
   size:       Vector2 = .{},
   position:   Vector2 = .{},
-) -> *Widget {
+) -> *UiWidget {
   parent    := c.current_parent;
-  widget_id := create_id(xx name, parent.id);
-  widget    := find_existing_widget(c, widget_id);
+  widget_id := ui_create_id(xx name, parent.id);
+  widget    := ui_find_existing_widget(c, widget_id);
   if !widget {
-    widget   = find_oldest_widget(c);
+    widget   = ui_find_oldest_widget(c);
     widget.* = .{};
   }
 
@@ -238,84 +239,84 @@ build_widget :: (
     parent.layout_offset += widget.size.y + widget.border * 2;
   }
 
-  frame_reset(widget);
+  ui_widget_reset(widget);
   widget.id = widget_id;
   widget.last_frame_update = c.frame;
-  link_widget(parent, widget);
+  ui_link_widget(parent, widget);
 
   widget.flags    = flags;
   widget.payload  = clone(cast([]u8)name,, allocator(*c.frame_arena));
   return widget;
 }
 
-panel_start :: (c: *Context, name: string, size: Vector2) {
-  widget: *Widget;
-  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
-  widget = build_widget(c, name, flags, size);
-  widget.bg_color = Colors[ColorType.BACKGROUND];
-  push_parent(c, widget);
+ui_panel_start :: (c: *UiContext, name: string, size: Vector2) {
+  widget: *UiWidget;
+  flags: UiWidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
+  widget = ui_build_widget(c, name, flags, size);
+  widget.bg_color = UiColors[UiColorType.BACKGROUND];
+  ui_push_parent(c, widget);
 }
 
-panel_start :: (c: *Context, name: string, size: Vector2, position: Vector2) {
-  widget: *Widget;
-  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y |
-                       .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
-  widget = build_widget(c, name, flags, size, position);
-  widget.bg_color = Colors[ColorType.BACKGROUND];
-  push_parent(c, widget);
+ui_panel_start :: (c: *UiContext, name: string, size: Vector2, position: Vector2) {
+  widget: *UiWidget;
+  flags: UiWidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y |
+                         .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
+  widget = ui_build_widget(c, name, flags, size, position);
+  widget.bg_color = UiColors[UiColorType.BACKGROUND];
+  ui_push_parent(c, widget);
 }
 
-panel_end :: (c: *Context) {
+ui_panel_end :: (c: *UiContext) {
   // note(sc): can this ensure that it is called on panel and not on any other widget?
-  pop_parent(c);
+  ui_pop_parent(c);
 }
 
-label :: (
-  c:         *Context,
+ui_label :: (
+  c:         *UiContext,
   text:      string,
-  flags:     WidgetFlags = 0,
+  flags:     UiWidgetFlags = 0,
   position:  Vector2     = .{},
   size:      Vector2     = .{},
 ) {
   f := ifx flags else .DRAW_TEXT;
-  build_widget(c, text, f, size, position);
+  ui_build_widget(c, text, f, size, position);
 }
 
-button :: (
-  c:         *Context,
+ui_button :: (
+  c:         *UiContext,
   text:      string,
-  flags:     WidgetFlags = 0,
+  flags:     UiWidgetFlags = 0,
   position:  Vector2     = .{},
   size:      Vector2     = .{},
   color:     RGBA        = 0,
 ) -> pressed: bool, hovered: bool {
   f           := ifx flags else .CLICK | .DRAW_TEXT | .DRAW_BACKGROUND | .DRAW_ROUNDED;
   button_text := tprint("button_%", text);
-  button      := build_widget(c, button_text, f, size, position);
+  button      := ui_build_widget(c, button_text, f, size, position);
   pressed     := c.pressed_id == button.id;
   hovered     := c.hover_id == button.id;
   result      := pressed && !button.was_pressed;
   button.was_pressed = pressed;
-  button.bg_color = ifx color == 0 then Colors[ColorType.BUTTON_NORMAL] else color;
+  button.bg_color = ifx color == 0 then UiColors[UiColorType.BUTTON_NORMAL] else color;
   if (f & .DRAW_TEXT) != 0 {
-    button.flags &= ~WidgetFlags.DRAW_TEXT;
+    button.flags &= ~UiWidgetFlags.DRAW_TEXT;
 
-    push_parent(c, button);
-    defer pop_parent(c);
+    ui_push_parent(c, button);
+    defer ui_pop_parent(c);
 
-    text_flags: WidgetFlags = .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y;
+    text_flags: UiWidgetFlags = .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y;
     text_position := position + button.size / 2.0;
-    _             := build_widget(c, text, text_flags, .{}, text_position);
+    _             := ui_build_widget(c, text, text_flags, .{}, text_position);
   }
   return result, hovered;
 }
 
-toggle :: (c: *Context, text: string, v: *bool) {
-  flags: WidgetFlags = .CLICK | .DRAW_BACKGROUND | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
+ui_toggle :: (c: *UiContext, text: string, v: *bool) {
+  flags: UiWidgetFlags = .CLICK | .DRAW_BACKGROUND | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
   tag := tprint("%_toggle", text);
   toggle_size := c.font_size;
-  toggle := build_widget(c, tag, flags, .{ toggle_size , toggle_size  });
-  toggle.bg_color = Colors[ifx v.* then ColorType.GREEN1 else .BACKGROUND1];
+  toggle := ui_build_widget(c, tag, flags, .{toggle_size , toggle_size});
+  toggle.bg_color = UiColors[ifx v.* then UiColorType.GREEN1 else .BACKGROUND1];
 
   pressed := c.pressed_id == toggle.id;
   result  := pressed && !toggle.was_pressed;
@@ -323,12 +324,12 @@ toggle :: (c: *Context, text: string, v: *bool) {
   if result then v.* = !v.*;
 
   flags     = .DRAW_TEXT | .FIXED_SIZE_X | .FIXED_POSITION_X | .FIXED_POSITION_Y;
-  size     := Vector2.{ x = toggle.parent.size.x - toggle_size  };
-  position := Vector2.{ toggle.position.x + toggle_size, toggle.position.y - toggle_size / 2.0 };
-  _        := build_widget(c, text, flags, size, position);
+  size     := Vector2.{x = toggle.parent.size.x - toggle_size};
+  position := Vector2.{toggle.position.x + toggle_size, toggle.position.y - toggle_size / 2.0};
+  _        := ui_build_widget(c, text, flags, size, position);
 }
 
-select :: (c: *Context, text: string, e: *$T, $names: []string)
+ui_select :: (c: *UiContext, text: string, e: *$T, $names: []string)
 #modify {
   ti := cast(*Type_Info)T;
   if ti.type != .ENUM {
@@ -346,13 +347,13 @@ select :: (c: *Context, text: string, e: *$T, $names: []string)
   }
 }
 {
-  label(c, text);
+  ui_label(c, text);
   info := cast(*Type_Info_Enum )type_info(T);
   for info.names {
     if array_find(names, it) {
       is_selected := cast(s64)e.* == info.values[it_index];
       was_selected := is_selected;
-      toggle(c, it, *is_selected);
+      ui_toggle(c, it, *is_selected);
       if !was_selected && is_selected {
         e.* = xx info.values[it_index];
       }
@@ -360,15 +361,15 @@ select :: (c: *Context, text: string, e: *$T, $names: []string)
   }
 }
 
-slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
-  label(c, tprint("%: %", name, v.*));
+ui_slider :: (c: *UiContext, name: string, lo: float, hi: float, v: *float) {
+  ui_label(c, tprint("%: %", name, v.*));
 
   ratio := (v.* - lo) / (hi - lo);
   ratio = clamp(ratio, 0.0, 1.0);
   tag   := tprint("%_bg", name);
-  flags: WidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_Y;
-  bg    := build_widget(c, tag, flags, .{ y = 20.0 });
-  bg.bg_color = Colors[ColorType.BACKGROUND3];
+  flags: UiWidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_Y;
+  bg    := ui_build_widget(c, tag, flags, .{y = 20.0});
+  bg.bg_color = UiColors[UiColorType.BACKGROUND3];
 
   tag   = tprint("%_knob", name);
   flags = .DRAG_HORIZONTAL | .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED |
@@ -376,10 +377,10 @@ slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
   knob_size := 20.0;
   knob_position_offset := knob_size / 2.0;
   knob_travel_distance := bg.size.x - knob_size;
-  knob_position: Vector2 = .{ knob_position_offset + knob_travel_distance * ratio, bg.position.y };
-  knob := build_widget(c, tag, flags, .{ 20.0, 20.0 }, knob_position);
+  knob_position: Vector2 = .{knob_position_offset + knob_travel_distance * ratio, bg.position.y};
+  knob := ui_build_widget(c, tag, flags, .{20.0, 20.0}, knob_position);
 
-  knob.bg_color = Colors[ColorType.BUTTON_PRESSED];
+  knob.bg_color = UiColors[UiColorType.BUTTON_PRESSED];
   if c.pressed_id == knob.id {
     new_ratio := (knob_position.x - knob_position_offset + knob.position_delta.x) / knob_travel_distance;
     new_ratio = clamp(new_ratio, 0.0, 1.0);
@@ -387,7 +388,7 @@ slider :: (c: *Context, name: string, lo: float, hi: float, v: *float) {
   }
 }
 
-print_widgets :: (c: *Context) {
+ui_print_widgets :: (c: *UiContext) {
   indent := 0;
   w := *c.global_parent;
   while w != null {
@@ -405,7 +406,7 @@ print_widgets :: (c: *Context) {
   }
 }
 
-finish_widgets :: (c: *Context) {
+ui_finish_widgets :: (c: *UiContext) {
   current_p := c.global_parent.position;
   w := *c.global_parent;
   while w != null {
@@ -417,8 +418,8 @@ finish_widgets :: (c: *Context) {
     bg_color := w.bg_color;
     check_rect_interaction(c, w.id, current_p, w.size);
     if w.flags & .CLICK {
-      if c.hover_id   == w.id then bg_color = Colors[ColorType.BUTTON_HOVERED];
-      if c.pressed_id == w.id then bg_color = Colors[ColorType.BUTTON_PRESSED];
+      if c.hover_id   == w.id then bg_color = UiColors[UiColorType.BUTTON_HOVERED];
+      if c.pressed_id == w.id then bg_color = UiColors[UiColorType.BUTTON_PRESSED];
     }
     if c.pressed_id == w.id && c.mouse_down {
       delta := c.mouse_position - c.old_mouse_position;
@@ -430,15 +431,15 @@ finish_widgets :: (c: *Context) {
     }
     rounded := (w.flags & .DRAW_ROUNDED) != 0;
     if w.flags & .DRAW_BACKGROUND {
-      border_color := Colors[ColorType.NONE];
+      border_color := UiColors[UiColorType.NONE];
       border_width := 0.0;
       if w.flags & .DRAW_BORDER {
-        border_color = Colors[ColorType.BORDER];
+        border_color = UiColors[UiColorType.BORDER];
         border_width = w.border;
       }
-      draw_rect(c, current_p, w.size, bg_color, border_color, border_width, rounded);
+      ui_draw_rect(c, current_p, w.size, bg_color, border_color, border_width, rounded);
     } else if w.flags & .DRAW_BORDER {
-      draw_border(c, current_p, w.size, Colors[ColorType.BORDER], w.border, rounded);
+      ui_draw_border(c, current_p, w.size, UiColors[UiColorType.BORDER], w.border, rounded);
     }
     if w.flags & .DRAW_TEXT {
       text_centered := false;
@@ -450,9 +451,9 @@ finish_widgets :: (c: *Context) {
         text_offset_x = 0.0;
       }
       text_offset_y := (w.size.y + c.font_size) / 2.0;
-      text_position += .{ text_offset_x, text_offset_y };
+      text_position += .{text_offset_x, text_offset_y};
       text := cast(string)w.payload;
-      draw_text(c, text_position, text, text_centered, w.size.x);
+      ui_draw_text(c, text_position, text, text_centered, w.size.x);
     }
     if w.first {
       w = w.first;
@@ -467,12 +468,12 @@ finish_widgets :: (c: *Context) {
   }
 }
 
-rect_center :: (position: Vector2, size: Vector2) -> Vector2 {
+ui_rect_center :: (position: Vector2, size: Vector2) -> Vector2 {
   result := position + size / 2.0;
   return result;
 }
 
-point_in_rect :: (position: Vector2, size: Vector2, point: Vector2) -> bool {
+ui_point_in_rect :: (position: Vector2, size: Vector2, point: Vector2) -> bool {
   left   := position.x;
   right  := position.x + size.x;
   up     := position.y;
@@ -480,9 +481,9 @@ point_in_rect :: (position: Vector2, size: Vector2, point: Vector2) -> bool {
   return left <= point.x && point.x <= right && up <= point.y && point.y <= bottom;
 }
 
-check_rect_interaction :: (c: *Context, id: u32, position: Vector2, size: Vector2) {
+check_rect_interaction :: (c: *UiContext, id: u32, position: Vector2, size: Vector2) {
   hovered: bool = false;
-  if point_in_rect(position, size, c.mouse_position) hovered = true;
+  if ui_point_in_rect(position, size, c.mouse_position) hovered = true;
   if hovered && !c.mouse_just_pressed {
     c.consumed_mouse_event = true;
     c.hover_id = id;
@@ -497,8 +498,8 @@ check_rect_interaction :: (c: *Context, id: u32, position: Vector2, size: Vector
   }
 }
 
-draw_rect :: (
-  c:                *Context,
+ui_draw_rect :: (
+  c:                *UiContext,
   position:         Vector2,
   size:             Vector2,
   background_color: RGBA,
@@ -506,40 +507,40 @@ draw_rect :: (
   border_width:     float,
   rounded := true,
 ) {
-  rect_position := rect_center(position, size);
-  quad := new(Quad,, allocator(*c.draw_buffer));
+  rect_position := ui_rect_center(position, size);
+  quad := new(UiQuad,, allocator(*c.draw_buffer));
   if !quad then return;
   quad.* = .{
-    usage            = .COLOR | ifx !rounded QuadUsage.NO_ROUND,
+    usage            = .COLOR | ifx !rounded UiQuadUsage.NO_ROUND,
     color            = background_color,
     position         = rect_position,
     size             = size,
-    tex              = .{ border_width, 0, 0, 0 },
+    tex              = .{border_width, 0, 0, 0},
     glyph_band_texel = cast(u32)border_color,
   };
 }
 
-draw_border :: (c:*Context, position: Vector2, size: Vector2, color: RGBA, width: float, rounded := true) {
-  draw_rect(c, position, size, Colors[ColorType.NONE], color, width);
+ui_draw_border :: (c:*UiContext, position: Vector2, size: Vector2, color: RGBA, width: float, rounded := true) {
+  ui_draw_rect(c, position, size, UiColors[UiColorType.NONE], color, width);
 }
 
-draw_text :: (c: *Context, position: Vector2, text: string, centered: bool, max_width := 1000.0) {
-  text_layout(text, c.font, c.font_size, position, centered, max_width,, allocator(*c.draw_buffer));
+ui_draw_text :: (c: *UiContext, position: Vector2, text: string, centered: bool, max_width := 1000.0) {
+  ui_text_layout(text, c.font, c.font_size, position, centered, max_width,, allocator(*c.draw_buffer));
 }
 
-text_layout :: (
-  text: string,
-  font: Font,
-  size: float,
+ui_text_layout :: (
+  text:     string,
+  font:     Font,
+  size:     float,
   position: Vector2,
-  center: bool,
+  center:   bool,
   max_width := 1000.0,
-) -> []Quad {
+) -> []UiQuad {
   scale := size;
   offset: Vector2;
   max_width = position.x + max_width;
 
-  quads, lines := text_split_in_lines(text);
+  quads, lines := ui_text_split_in_lines(text);
   line_start   := 0;
   for line: lines {
     line_end := line_start + line.count;
@@ -551,20 +552,20 @@ text_layout :: (
       char_kern  := ifx 0 < i then get_kerning(font, text[i + line_start - 1], char);
 
       offset.x += char_kern * scale;
-      if !text_setup_quad(*line[i], char_info, char_kern, scale, position + offset, max_width) {
+      if !ui_text_setup_quad(*line[i], char_info, char_kern, scale, position + offset, max_width) {
         if 3 <= i {
           char_info = get_char_info(font, #char ".");
           char_kern = 1;
           offset.x = max_width - position.x -
                      ((char_info.x1 - char_info.x0) * 3.0 + char_info.advance * 2.0) * scale;
           for j: i - 3..i - 1 {
-            text_setup_quad(*line[j], char_info, char_kern, scale, position + offset);
+            ui_text_setup_quad(*line[j], char_info, char_kern, scale, position + offset);
             offset.x += char_info.advance * scale;
           }
         } else {
           log("Widget with text % is too narrow for the text to render", text, flags = .WARNING);
         }
-        for j: i..line.count - 1 text_setup_quad(*line[j], .{}, 0, 0, .{}, max_width);
+        for j: i..line.count - 1 ui_text_setup_quad(*line[j], .{}, 0, 0, .{}, max_width);
         break;
       } else {
         offset.x += char_info.advance * scale;
@@ -581,7 +582,7 @@ text_layout :: (
   return quads;
 }
 
-text_split_in_lines :: (text: string) -> quads: []Quad, lines: [][]Quad {
+ui_text_split_in_lines :: (text: string) -> quads: []UiQuad, lines: [][]UiQuad {
     total_quads := 0;
     line_breaks: [..]s64;
     line_breaks.allocator = temp;
@@ -602,25 +603,25 @@ text_split_in_lines :: (text: string) -> quads: []Quad, lines: [][]Quad {
       }
     }
 
-    lines := new_array(line_breaks.count, []Quad, initialized = false,, temp);
+    lines := new_array(line_breaks.count, []UiQuad, initialized = false,, temp);
     if !lines then return .[], .[];
-    quads := new_array(total_quads,         Quad, initialized = false);
+    quads := new_array(total_quads,         UiQuad, initialized = false);
     if !quads then return .[], .[];
     quads_offset := 0;
     for line_breaks {
       line_length := ifx it_index == 0 it else it - line_breaks[it_index - 1] - 1;
-      lines[it_index] = .{ data = quads.data + quads_offset, count = line_length };
+      lines[it_index] = .{data = quads.data + quads_offset, count = line_length};
       quads_offset += line_length;
     }
     return quads, lines;
 }
 
-text_setup_quad :: (
-  quad: *Quad,
+ui_text_setup_quad :: (
+  quad:      *UiQuad,
   char_info: CharInfo,
-  kerning: s32,
-  scale: float,
-  position: Vector2,
+  kerning:   s32,
+  scale:     float,
+  position:  Vector2,
   max_width := 1000.0,
 ) -> bool {
   char_width  := char_info.x1 - char_info.x0;
@@ -634,15 +635,15 @@ text_setup_quad :: (
   } * 0.5 * scale;
 
   band_min_max        := (char_info.band_max_y << 16) | char_info.band_max_x;
-  band_scale:  Vector2 = .{ char_info.band_scale_x,  char_info.band_scale_y };
-  band_offset: Vector2 = .{ char_info.band_offset_x, char_info.band_offset_y };
+  band_scale:  Vector2 = .{char_info.band_scale_x,  char_info.band_scale_y};
+  band_offset: Vector2 = .{char_info.band_offset_x, char_info.band_offset_y};
 
   quad.* = .{
     usage     = .TEXT,
     color     = 0xffffffff,
     position  = char_position,
-    size      = .{ char_width, char_height } * scale,
-    tex       = .{ char_info.x0, char_info.y1, char_info.x1, char_info.y0 },
+    size      = .{char_width, char_height} * scale,
+    tex       = .{char_info.x0, char_info.y1, char_info.x1, char_info.y0},
     glyph_band_texel = char_info.glyph_band_texel,
     band_min_max = band_min_max,
     band_scale = band_scale,

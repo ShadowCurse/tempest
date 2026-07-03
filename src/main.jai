@@ -18,7 +18,7 @@ NO_LAST_SWAPCHAIN_INDEX : u32 = ~cast(u32)0;
 
 cpu_to_gpu_buffer_arena: GpuBufferArena;
 staging_buffer:          GpuBufferSlice(u8);
-ui_buffers:              [FRAMES]GpuBufferSlice(Quad);
+ui_buffers:              [FRAMES]GpuBufferSlice(UiQuad);
 scene_buffer:            GpuBufferSlice(SceneInfo);
 gizmo_buffers:           [FRAMES]GpuBufferSlice(Matrix4);
 
@@ -106,7 +106,7 @@ main :: () {
   ok, staging_buffer := push(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
   assert(ok);
   for * ui_buffers {
-    ok, it.* = push(*cpu_to_gpu_buffer_arena, Quad, 1 << 15);
+    ok, it.* = push(*cpu_to_gpu_buffer_arena, UiQuad, 1 << 15);
     assert(ok);
   }
   ok, scene_buffer = push(*cpu_to_gpu_buffer_arena, SceneInfo);
@@ -262,8 +262,8 @@ main :: () {
   gizmo_pipeline      = create_gizmo_pipeline();
   debug_mesh_pipeline = create_debug_mesh_pipeline();
 
-  ui: Context;
-  init(*ui, *font);
+  ui: UiContext;
+  ui_init(*ui, *font);
   draw_sphere  := false;
   draw_crystal := false;
   draw_bistro  := false;
@@ -272,13 +272,13 @@ main :: () {
   need_swapchain_recreation      := false;
   last_swapchain_image_index: u32 = NO_LAST_SWAPCHAIN_INDEX ;
   last_present_time_ns: u64       = platform_current_time_ns();
-  dt_s: float                     = 0.0;
+  dt_s: float                     = 1.0/120.0;// 0.0;
 
   while !quit {
     reset_temporary_storage();
     debug_meshes_cmd_count = 0;
     platform_new_frame();
-    new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
+    ui_new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
     ui.mouse_position     = mouse_position;
     ui.mouse_just_pressed = just_pressed(mouse_state, .LMB);
     ui.mouse_down         = pressed(mouse_state, .LMB);
@@ -327,28 +327,28 @@ main :: () {
       prof_scope("build_ui");
 
       {
-        panel_start(*ui, "Panel", .{ 300.0, 750.0 }, .{ 1.0, 1.0 });
-        defer panel_end(*ui);
+        ui_panel_start(*ui, "Panel", .{ 300.0, 750.0 }, .{ 1.0, 1.0 });
+        defer ui_panel_end(*ui);
 
-        label(*ui, tprint("FPS: %", 1.0 / dt_s));
-        label(*ui, tprint("dt s: %", dt_s));
-        label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
-        label(*ui, tprint("GPU GRID ms: %", grid_ms));
-        label(*ui, tprint("GPU MESH ms: %", mesh_ms));
-        label(*ui, tprint("GPU UI ms: %", ui_ms));
-        label(*ui, tprint("GPU GIZMO ms: %", gizmo_ms));
-        label(*ui, tprint("pos: %", camera.position));
-        label(*ui, tprint("rot: %", camera.rotation));
-        label(*ui, tprint("pressed_id: %", ui.pressed_id));
-        label(*ui, tprint("hover_id: %", ui.hover_id));
-        toggle(*ui, "Visualize AABB", *visual_aabb);
-        toggle(*ui, "Draw Sphere",    *draw_sphere);
-        toggle(*ui, "Draw Crystal",   *draw_crystal);
-        toggle(*ui, "Draw Bistro",    *draw_bistro);
-        slider(*ui, "Gradient", 0.0, 1.0, *v);
-        select(*ui, "Polygon mode2", *polygon_mode, .["FILL", "LINE", "POINT"]);
+        ui_label(*ui, tprint("FPS: %", 1.0 / dt_s));
+        ui_label(*ui, tprint("dt s: %", dt_s));
+        ui_label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
+        ui_label(*ui, tprint("GPU GRID ms: %", grid_ms));
+        ui_label(*ui, tprint("GPU MESH ms: %", mesh_ms));
+        ui_label(*ui, tprint("GPU UI ms: %", ui_ms));
+        ui_label(*ui, tprint("GPU GIZMO ms: %", gizmo_ms));
+        ui_label(*ui, tprint("pos: %", camera.position));
+        ui_label(*ui, tprint("rot: %", camera.rotation));
+        ui_label(*ui, tprint("pressed_id: %", ui.pressed_id));
+        ui_label(*ui, tprint("hover_id: %", ui.hover_id));
+        ui_toggle(*ui, "Visualize AABB", *visual_aabb);
+        ui_toggle(*ui, "Draw Sphere",    *draw_sphere);
+        ui_toggle(*ui, "Draw Crystal",   *draw_crystal);
+        ui_toggle(*ui, "Draw Bistro",    *draw_bistro);
+        ui_slider(*ui, "Gradient", 0.0, 1.0, *v);
+        ui_select(*ui, "Polygon mode2", *polygon_mode, .["FILL", "LINE", "POINT"]);
       }
-      finish_widgets(*ui);
+      ui_finish_widgets(*ui);
     }
 
     camera_velocity: Vector3;
@@ -532,7 +532,7 @@ main :: () {
           bands_offset  = font_buffer_info.bands_offset,
         };
         vk_cmd_push_constants(render_command, ui_pipeline, .VERTEX_BIT | .FRAGMENT_BIT, *constant);
-        vk_cmd_draw(render_command, 6, draw_elements(ui), 0, 0);
+        vk_cmd_draw(render_command, 6, ui_pending_elements(ui), 0, 0);
       }
     }
 
@@ -1560,14 +1560,14 @@ GpuMeshInfo :: struct {
 
 prof_selected_bound := -1;
 prof_drawn_nodes := 0;
-prof_draw :: (ui: *Context) {
+prof_draw :: (ui: *UiContext) {
   #if !context.Prof_Module.PROF_ZONES_COUNT return;
 
   size:     Vector2 = .{ 1000, 600 };
   position: Vector2 = .{ (window_width - size.x) / 2.0, (window_height - size.y) / 2.0 };
   padding := 10.0;
-  panel_start(ui, "Prof", size, position);
-  defer panel_end(ui);
+  ui_panel_start(ui, "Prof", size, position);
+  defer ui_panel_end(ui);
 
   box_width  := (size.x - padding * 2.0 - cast(float32)FRAMES_TO_CAPTURE * 2.0) /
                 cast(float32)FRAMES_TO_CAPTURE;
@@ -1589,20 +1589,20 @@ prof_draw :: (ui: *Context) {
     diff_sum += diff;
     p: Vector2 = .{ x = padding + (box_width + 2.0) * current_frame_bound, y = padding };
     s: Vector2 = .{ box_width, box_height };
-    color: ColorType = .BACKGROUND2;
+    color: UiColorType = .BACKGROUND2;
     if diff_sum < PROF_TREE_NODES                        then color = .BLUE;
     if current_frame_bound == prof_selected_bound        then color = .RED;
     if current_frame_bound == context.prof_current_frame then color = .GREEN;
-    pressed, hovered := button(
+    pressed, hovered := ui_button(
       ui,
       tprint("prof_frame_%", current_frame_bound),
       .FIXED_POSITION_X | .FIXED_POSITION_Y | .FIXED_SIZE_X | .FIXED_SIZE_Y | .DRAW_BACKGROUND,
       p,
       s,
-      Colors[color],
+      UiColors[color],
     );
     if pressed then prof_selected_bound = current_frame_bound;
-    if hovered then label(
+    if hovered then ui_label(
       ui,
       tprint("%", current_frame_bound),
       .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y,
@@ -1628,7 +1628,7 @@ prof_draw :: (ui: *Context) {
   ns_to_px := (size.x - padding * 2.0) / cast(float32)top_level_ns;
 
   draw_node :: (
-    ui: *Context,
+    ui: *UiContext,
     current_node_idx: u32,
     ns_to_px: float32,
     position: Vector2,
@@ -1642,7 +1642,7 @@ prof_draw :: (ui: *Context) {
     if 2.0 < current_width {
       bg := rgba(255, 180 + cast(u8)position.x, 180 + cast(u8)position.y * 2, 255);
       size: Vector2 = .{ current_width, 10.0 };
-      _, hovered := button(
+      _, hovered := ui_button(
         ui,
         tprint("%_%", context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name, prof_drawn_nodes),
         .FIXED_POSITION_X | .FIXED_POSITION_Y | .FIXED_SIZE_X | .FIXED_SIZE_Y | .DRAW_BACKGROUND,
@@ -1650,7 +1650,7 @@ prof_draw :: (ui: *Context) {
         size,
         bg,
       );
-      if hovered then label(
+      if hovered then ui_label(
         ui,
         context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name,
         .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y,

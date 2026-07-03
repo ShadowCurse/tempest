@@ -9,7 +9,7 @@ layout (location = 1) out int  outInstanceId;
 layout (location = 2) out vec2 v_texcoord;
 
 void main() {
-    Quad sq = get_quad(gl_InstanceIndex);
+    UiQuad sq = get_quad(gl_InstanceIndex);
     UiVertex v = ui_quad_vertices[gl_VertexIndex];
     vec2 screen_size = PushConstants.data.screen_size;
 
