@@ -2,19 +2,19 @@ Font :: struct {
   ascent:         float;
   descent:        float;
   line_gap:       float;
-  char_info:      []CharInfo;
-  kerning_table:  []KerningInfo;
+  char_info:      []FontCharInfo;
+  kerning_table:  []FontKerningInfo;
 }
-ALL_CHARS :: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+FONT_ALL_CHARS :: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 
-CharInfo :: cslug_glyph;
-KerningInfo :: struct {
+FontCharInfo :: cslug_glyph;
+FontKerningInfo :: struct {
   char_1:  u8;
   char_2:  u8;
   kerning: s32;
 };
 
-load_font :: (name: string) -> Font, tmp_curves: []u16, tmp_bands: []u16 {
+font_load :: (name: string) -> Font, tmp_curves: []u16, tmp_bands: []u16 {
   font_path := tprint("resources/fonts/%.ttf", name);
   font_file_bytes: []u8 = xx platform_read_entire_file(font_path);
 
@@ -34,12 +34,12 @@ load_font :: (name: string) -> Font, tmp_curves: []u16, tmp_bands: []u16 {
   ascent  := cast(float)asc  * em_scale;
   descent := cast(float)desc * em_scale;
 
-  char_info := new_array(ALL_CHARS.count, cslug_glyph, initialized = false);
+  char_info := new_array(FONT_ALL_CHARS.count, cslug_glyph, initialized = false);
 
   buffers: cslug_buffers_packed;
   defer cslug_free_buffers_packed(*info, *buffers);
 
-  for ALL_CHARS cslug_build_glyph_for_buffer(*info, it, em_scale, *buffers, *char_info[it_index]);
+  for FONT_ALL_CHARS cslug_build_glyph_for_buffer(*info, it, em_scale, *buffers, *char_info[it_index]);
 
   curves_bytes := buffers.curves.len * size_of(u16);
   tmp_curves := new_array(curves_bytes , u16, initialized = false,, temp);
@@ -49,10 +49,10 @@ load_font :: (name: string) -> Font, tmp_curves: []u16, tmp_bands: []u16 {
   tmp_bands := new_array(bands_bytes , u16, initialized = false,, temp);
   memcpy(tmp_bands.data,  buffers.bands.ptr, bands_bytes );
 
-  kerning_table := new_array(ALL_CHARS.count * ALL_CHARS.count, KerningInfo, initialized = false);
+  kerning_table := new_array(FONT_ALL_CHARS.count * FONT_ALL_CHARS.count, FontKerningInfo, initialized = false);
   kerning_table_index: u32 = 0;
-  for c1: ALL_CHARS {
-      for c2: ALL_CHARS {
+  for c1: FONT_ALL_CHARS {
+      for c2: FONT_ALL_CHARS {
           kerning := stbtt_GetCodepointKernAdvance(*info, c1, c2);
           kerning_table[kerning_table_index] = .{
               char_1 = c1,
@@ -72,19 +72,19 @@ load_font :: (name: string) -> Font, tmp_curves: []u16, tmp_bands: []u16 {
   }, tmp_curves, tmp_bands;
 }
 
-get_char_info :: (font: Font, char: u8) -> CharInfo {
-  char_info: CharInfo;
-  if ALL_CHARS[0] <= char && char <= ALL_CHARS[ALL_CHARS.count - 1] {
-    index: u32 = char - ALL_CHARS[0];
+font_get_char_info :: (font: Font, char: u8) -> FontCharInfo {
+  char_info: FontCharInfo;
+  if FONT_ALL_CHARS[0] <= char && char <= FONT_ALL_CHARS[FONT_ALL_CHARS.count - 1] {
+    index: u32 = char - FONT_ALL_CHARS[0];
     char_info = font.char_info[index];
   }
   return char_info;
 }
 
-get_kerning :: (font: Font, char_1: u8, char_2: u8) -> s32 {
-    index:  u32 = char_1 - ALL_CHARS[0];
-    offset: u32 = char_2 - ALL_CHARS[0];
-    info   := font.kerning_table[index * ALL_CHARS.count + offset];
+font_get_kerning :: (font: Font, char_1: u8, char_2: u8) -> s32 {
+    index:  u32 = char_1 - FONT_ALL_CHARS[0];
+    offset: u32 = char_2 - FONT_ALL_CHARS[0];
+    info   := font.kerning_table[index * FONT_ALL_CHARS.count + offset];
     assert(info.char_1 == char_1 && info.char_2 == char_2,
         "Tryingt to get a kerninig info for pair %/% but got one for pair %/%",
         str_from_char(*char_1), str_from_char(*char_2),

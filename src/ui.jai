@@ -548,13 +548,13 @@ ui_text_layout :: (
 
     for i: 0..line.count - 1 {
       char       := text[i + line_start];
-      char_info  := get_char_info(font, char);
-      char_kern  := ifx 0 < i then get_kerning(font, text[i + line_start - 1], char);
+      char_info  := font_get_char_info(font, char);
+      char_kern  := ifx 0 < i then font_get_kerning(font, text[i + line_start - 1], char);
 
       offset.x += char_kern * scale;
       if !ui_text_setup_quad(*line[i], char_info, char_kern, scale, position + offset, max_width) {
         if 3 <= i {
-          char_info = get_char_info(font, #char ".");
+          char_info = font_get_char_info(font, #char ".");
           char_kern = 1;
           offset.x = max_width - position.x -
                      ((char_info.x1 - char_info.x0) * 3.0 + char_info.advance * 2.0) * scale;
@@ -618,7 +618,7 @@ ui_text_split_in_lines :: (text: string) -> quads: []UiQuad, lines: [][]UiQuad {
 
 ui_text_setup_quad :: (
   quad:      *UiQuad,
-  char_info: CharInfo,
+  char_info: FontCharInfo,
   kerning:   s32,
   scale:     float,
   position:  Vector2,

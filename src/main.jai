@@ -102,7 +102,9 @@ main :: () {
 
   for *rc: render_commands rc.* = create_render_command();
   cpu_to_gpu_memory := allocate_gpu_memory(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
-  init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, VK_BUFFER_USAGE_2_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT);// .TRANSFER_SRC_BIT | .SHADER_DEVICE_ADDRESS_BIT);
+  init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, VK_BUFFER_USAGE_2_TRANSFER_SRC_BIT |
+                                                    VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT |
+                                                    VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT);
   ok, staging_buffer := push(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
   assert(ok);
   for * ui_buffers {
@@ -132,7 +134,7 @@ main :: () {
   };
   timestamp_pool = vk_create_query_pool(pool_create_info);
 
-  font, tmp_curves, tmp_bands := load_font("NotoSans-Regular");
+  font, tmp_curves, tmp_bands := font_load("NotoSans-Regular");
   ok, font_buffer = push(
     *gpu_buffer_arena,
     u8,
