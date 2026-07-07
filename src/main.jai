@@ -306,14 +306,15 @@ main :: () {
     gizmo_ns   := timestamp_array[Timestamp.GIZMO_END] - timestamp_array[Timestamp.GIZMO_START];
     gizmo_ms   := cast(float)gizmo_ns / 1000_000.0;
 
-    gpu_present_timings := vk_get_past_presentation_timing();
     current_ns: u64 = 0;
-    if gpu_present_timings {
-      for gpu_present_timings {
-        if it.reportComplete {
-          current_ns = it.pPresentStages[0].time;
+    if vk_swapchain_present_timing_surface.presentTimingSupported {
+        present_timings := vk_get_past_presentation_timing();
+        for present_timings {
+          if it.reportComplete {
+            // log("id: % from % frames ago", it.presentId, vk_swapchain_current_present_id - it.presentId);
+            current_ns = it.pPresentStages[0].time;
+          }
         }
-      }
     } else {
       current_ns := platform_current_time_ns();
     }

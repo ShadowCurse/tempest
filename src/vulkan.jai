@@ -31,6 +31,9 @@ vk_swapchain_extent:                    VkExtent2D;
 vk_swapchain_present_timing_surface:    VkPresentTimingSurfaceCapabilitiesEXT;
 vk_swapchain_past_presentation_timings: []VkPastPresentationTimingEXT;
 vk_swapchain_present_stage_times:       []VkPresentStageTimeEXT;
+vk_swapchain_time_domain_counter:       u64;
+vk_swapchain_time_properties_counter:   u64;
+vk_swapchain_current_present_id:        u64;
 
 vk_graphics_command_pool: VkCommandPool;
 
@@ -48,7 +51,7 @@ vk_init :: (enable_validation: bool) -> success: bool {
   vk_check_additional_extensions_support();
   vk_init_device();
   if !vk_device return false;
-  init(*vk_swapchain_arena, new_array(1024, u8, initialized = false));
+  init(*vk_swapchain_arena, new_array(4096, u8, initialized = false));
   vk_init_swapchain(window_width, window_height, null);
   if !vk_swapchain return false;
   vk_graphics_command_pool = vk_init_command_pool(vk_graphics_queue_family);
@@ -155,29 +158,79 @@ vk_get_buffer_address :: (buffer: VkBuffer) -> VkDeviceAddress {
   return result;
 }
 
-vk_get_swapchain_timing_properties :: () -> (refresh_duration: u64,
-                                          refresh_interval: u64,
-                                          properties_counter: u64) {
+vk_get_swapchain_timing_properties :: () -> (refresh_duration:   u64,
+                                             refresh_interval:   u64,
+                                             counter:            u64) {
   timing_props: VkSwapchainTimingPropertiesEXT;
-  counter: u64;
+  counter:      u64;
   _ = vkGetSwapchainTimingPropertiesEXT(vk_device, vk_swapchain, *timing_props, *counter);
   return timing_props.refreshDuration, timing_props.refreshInterval, counter;
 }
 
+vk_get_swapchain_time_domain_properties :: () -> (result:  VkResult,
+                                                  domains: []VkTimeDomainKHR,
+                                                  ids:     []u64,
+                                                  counter: u64) {
+  domains: []VkTimeDomainKHR = ---;
+  ids:     []u64             = ---;
+  counter: u64               = ---;
+  result:  VkResult          = ---;
+  data: VkSwapchainTimeDomainPropertiesEXT = .{};
+  result = vkGetSwapchainTimeDomainPropertiesEXT(vk_device, vk_swapchain, *data, *counter);
+  if result || data.timeDomainCount == 0 then return result, .[], .[], 0;
+  domains = new_array(data.timeDomainCount, VkTimeDomainKHR, initialized = false);
+  ids     = new_array(data.timeDomainCount, u64,             initialized = false);
+  data.pTimeDomains   = domains.data;
+  data.pTimeDomainIds = ids.data;
+  result = vkGetSwapchainTimeDomainPropertiesEXT(vk_device, vk_swapchain, *data, *counter);
+  return result, domains, ids, counter;
+} @NoProfile
+
 vk_get_past_presentation_timing :: () -> []VkPastPresentationTimingEXT {
-  result: []VkPastPresentationTimingEXT = .[];
-  if vk_swapchain_present_timing_surface.presentTimingSupported {
-    past_timing_info: VkPastPresentationTimingInfoEXT = .{ swapchain = vk_swapchain };
+  get_past_presentation_timing :: () -> (timings:                   []VkPastPresentationTimingEXT,
+                                         timing_properties_counter: u64,
+                                         time_domains_counter:      u64) {
+    result: []VkPastPresentationTimingEXT = .[];
+    past_timing_info:       VkPastPresentationTimingInfoEXT       = .{swapchain = vk_swapchain};
     past_timing_properties: VkPastPresentationTimingPropertiesEXT = .{};
-    if vkGetPastPresentationTimingEXT(vk_device, *past_timing_info, *past_timing_properties) then return .[];
+    err := vkGetPastPresentationTimingEXT(vk_device, *past_timing_info, *past_timing_properties);
+    if err {
+      log("vkGetPastPresentationTimingEXT err: %", err);
+      return .[], 0, 0;
+    }
     past_timing_properties.pPresentationTimings = vk_swapchain_past_presentation_timings.data;
-    if vkGetPastPresentationTimingEXT(vk_device, *past_timing_info, *past_timing_properties) then return .[];
+    err = vkGetPastPresentationTimingEXT(vk_device, *past_timing_info, *past_timing_properties);
+    if err {
+      log("vkGetPastPresentationTimingEXT err: %", err);
+      return .[], 0, 0;
+    }
     result = .{
-      data = vk_swapchain_past_presentation_timings.data,
+      data  = vk_swapchain_past_presentation_timings.data,
       count = past_timing_properties.presentationTimingCount
     };
+    return result, past_timing_properties.timingPropertiesCounter, past_timing_properties.timeDomainsCounter;
   }
-  return result;
+  if vk_swapchain_present_timing_surface.presentTimingSupported {
+    present_timings, tpc, tdc := get_past_presentation_timing();
+    if tpc != vk_swapchain_time_properties_counter {
+      refresh_duration, refresh_interval, counter := vk_get_swapchain_timing_properties();
+      log("New swapchain present_timing refresh_duration: %", refresh_duration);
+      log("New swapchain present_timing refresh_interval: %", refresh_interval);
+      log("New swapchain present_timing counter: %", counter);
+      vk_swapchain_time_properties_counter = counter;
+    }
+    if tdc != vk_swapchain_time_domain_counter {
+      err2, domains, ids, counter := vk_get_swapchain_time_domain_properties(,, temp);
+      assert(!err2);
+      log("Swapchain domains: %", domains);
+      log("Swapchain domain ids: %", ids);
+      log("Swapchain domain counter: %", counter);
+      vk_swapchain_time_domain_counter = counter;
+    }
+    return present_timings;
+  } else {
+    return .[];
+  }
 }
 
 vk_bind_buffer_memory :: (buffer: VkBuffer, device_memory: VkDeviceMemory, offset: u32) {
@@ -533,9 +586,16 @@ vk_graphics_queue_submit :: (cmd: VkCommandBuffer, semaphore: VkSemaphore, fence
 vk_present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
   fence := *vk_swapchain_fences[image_idx];
 
-  present_info_fence: VkSwapchainPresentFenceInfoKHR = .{
+  present_id: VkPresentId2KHR = .{
     swapchainCount = 1,
-    pFences = fence
+    pPresentIds    = *vk_swapchain_current_present_id,
+  };
+  defer vk_swapchain_current_present_id += 1;
+
+  present_info_fence: VkSwapchainPresentFenceInfoKHR = .{
+    pNext          = *present_id,
+    swapchainCount = 1,
+    pFences        = fence
   };
   present_info: VkPresentInfoKHR = .{
     pNext              = *present_info_fence,
@@ -561,7 +621,7 @@ vk_present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool 
       swapchainCount = 1,
       pTimingInfos   = *timing_info
     };
-    present_info_fence.pNext = *present_timings_info;
+    present_id.pNext = *present_timings_info;
   }
 
   r := vkQueuePresentKHR(vk_graphics_queue, *present_info);
@@ -906,9 +966,7 @@ vk_select_physical_device :: (enable_validation: bool) {
 
   for pd: physical_devices {
     properties: VkPhysicalDeviceProperties = ---;
-    features:   VkPhysicalDeviceFeatures   = ---;
     vkGetPhysicalDeviceProperties(pd, *properties);
-    vkGetPhysicalDeviceFeatures(pd, *features);
 
     device_name := to_string(properties.deviceName);
     log(#string DONE
@@ -1077,6 +1135,11 @@ vk_init_device :: () {
   };
   push_to_the_chain(*pnext_head, xx *physical_device_features_1_3);
 
+  present_id: VkPhysicalDevicePresentId2FeaturesKHR = .{
+    presentId2 = xx true,
+  };
+  push_to_the_chain(*pnext_head, xx *present_id);
+
   dynamic_state3: VkPhysicalDeviceExtendedDynamicState3FeaturesEXT = .{
     extendedDynamicState3PolygonMode = xx true,
   };
@@ -1171,22 +1234,6 @@ vk_get_swapchain_images :: () -> []VkImage {
   return data;
 } @NoProfile
 
-vk_get_swapchain_time_domain_properties :: () -> (result: VkResult, []VkTimeDomainKHR, []u64, u64) {
-  domains: []VkTimeDomainKHR = ---;
-  ids:     []u64             = ---;
-  counter: u64               = ---;
-  result:  VkResult          = ---;
-  data: VkSwapchainTimeDomainPropertiesEXT = .{};
-  result = vkGetSwapchainTimeDomainPropertiesEXT(vk_device, vk_swapchain, *data, *counter);
-  if result || data.timeDomainCount == 0 then return result, .[], .[], 0;
-  domains = new_array(data.timeDomainCount, VkTimeDomainKHR, initialized = false);
-  ids     = new_array(data.timeDomainCount, u64,             initialized = false);
-  data.pTimeDomains   = domains.data;
-  data.pTimeDomainIds = ids.data;
-  result = vkGetSwapchainTimeDomainPropertiesEXT(vk_device, vk_swapchain, *data, *counter);
-  return result, domains, ids, counter;
-} @NoProfile
-
 vk_init_swapchain :: (width: u32, height: u32, old_swapchain: VkSwapchainKHR) {
   surface_capabilities2: VkSurfaceCapabilities2KHR = .{};
   if vk_supports_present_timing then surface_capabilities2.pNext = *vk_swapchain_present_timing_surface;
@@ -1242,7 +1289,7 @@ DONE
       );
     }
 
-    flags: VkSwapchainCreateFlagsKHR = 0;
+    flags: VkSwapchainCreateFlagsKHR = .PRESENT_ID_2_BIT_KHR;
     if vk_swapchain_present_timing_surface.presentTimingSupported then flags |= .PRESENT_TIMING_BIT_EXT;
 
     create_info: VkSwapchainCreateInfoKHR = .{
@@ -1308,18 +1355,28 @@ DONE
         err2, domains, ids, counter :=  vk_get_swapchain_time_domain_properties(,, temp);
         assert(!err2);
         log("Swapchain domains: %", domains);
-        log("Swapchain ids: %", ids);
-        log("Swapchain counter: %", counter);
+        log("Swapchain domain ids: %", ids);
+        log("Swapchain domain counter: %", counter);
+        vk_swapchain_time_domain_counter = counter;
 
+        refresh_duration:, refresh_interval:, counter = vk_get_swapchain_timing_properties();
+        log("Swapchain present_timing refresh_duration: %", refresh_duration);
+        log("Swapchain present_timing refresh_interval: %", refresh_interval);
+        log("Swapchain present_timing counter: %", counter);
+        vk_swapchain_time_properties_counter = counter;
+
+        timing_queue_size := cast(u32)vk_swapchain_images.count * 4;
         assert(!vkSetSwapchainPresentTimingQueueSizeEXT(vk_device,
                                                         vk_swapchain,
-                                                        cast(u32)vk_swapchain_images.count));
-        vk_swapchain_past_presentation_timings = new_array(vk_swapchain_images.count,
+                                                        timing_queue_size));
+        vk_swapchain_past_presentation_timings = new_array(timing_queue_size,
                                                            VkPastPresentationTimingEXT,
                                                            initialized = false);
-        vk_swapchain_present_stage_times       = new_array(vk_swapchain_images.count,
+        assert(xx vk_swapchain_past_presentation_timings);
+        vk_swapchain_present_stage_times       = new_array(timing_queue_size,
                                                            VkPresentStageTimeEXT,
                                                            initialized = false);
+        assert(xx vk_swapchain_present_stage_times);
         for * vk_swapchain_past_presentation_timings {
           it.* = .{
             presentStageCount = 1,
