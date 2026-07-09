@@ -3,17 +3,17 @@ FixedSlice :: struct($T: Type, $I: Type = u32) {
   count: u32;
 }
 
-fixed_slice :: (slice: []$T) -> FixedSlice(T) {
+fixed_slice_init :: (slice: []$T) -> FixedSlice(T) {
   return .{ slice, 0 };
 } @NoProfile
 
-push :: (fa: *FixedSlice, item: fa.T) {
+fixed_slice_add :: (fa: *FixedSlice, item: fa.T) {
   assert(fa.count + 1 <= fa.data.count);
   fa.data[fa.count] = item;
   fa.count += 1;
 }
 
-push :: (fa: *FixedSlice) -> *fa.T {
+fixed_slice_add :: (fa: *FixedSlice) -> *fa.T {
   assert(fa.count + 1 <= fa.data.count);
   result := *fa.data[fa.count];
   fa.count += 1;

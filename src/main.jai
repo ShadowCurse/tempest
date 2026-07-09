@@ -93,9 +93,9 @@ main :: () {
   defer platform_quit();
   if !vk_init(true) return;
 
-  if init(*file_watcher) {
+  if file_watcher_init(*file_watcher) {
     for WATCHED_FILES {
-      if !add_file(*file_watcher, it) log_error("Cannot setup watch for file: %", it);
+      if !file_watcher_add_file(*file_watcher, it) log_error("Cannot setup watch for file: %", it);
     }
     log("Watcher: %", file_watcher);
   }
@@ -158,31 +158,31 @@ main :: () {
   assert(ok);
 
   default_scene: Scene;
-  init(*default_scene);
-  crystal_idx := load_gltf(*default_scene, "crystal.glb");
-  bistro_idx  := load_gltf(*default_scene, "bistro.glb");
-  cube_mesh_idx   = add_mesh(*default_scene, create_box(1.0, 1.0, 1.0,, temp));
-  sphere_mesh_idx = add_mesh(*default_scene, create_sphere_uv(1.0, 32, 32,,
+  scene_init(*default_scene);
+  crystal_idx := scene_load_gltf(*default_scene, "crystal.glb");
+  bistro_idx  := scene_load_gltf(*default_scene, "bistro.glb");
+  cube_mesh_idx   = scene_add_mesh(*default_scene, create_box(1.0, 1.0, 1.0,, temp));
+  sphere_mesh_idx = scene_add_mesh(*default_scene, create_sphere_uv(1.0, 32, 32,,
                                                               allocator(*default_scene.mesh_arena)));
-  gizmo_cylinder_idx = add_mesh(*default_scene, create_cylinder(0.2, 32, 4.0,,
+  gizmo_cylinder_idx = scene_add_mesh(*default_scene, create_cylinder(0.2, 32, 4.0,,
                                                               allocator(*default_scene.mesh_arena)));
-  gizmo_cone_idx     = add_mesh(*default_scene, create_cone(0.4, 32, 1.0,,
-                                                              allocator(*default_scene.mesh_arena)));
-
-  cylinder_mesh_idx := add_mesh(*default_scene, create_cylinder(0.5, 32, 1.0,,
+  gizmo_cone_idx     = scene_add_mesh(*default_scene, create_cone(0.4, 32, 1.0,,
                                                               allocator(*default_scene.mesh_arena)));
 
-  node2_idx,   node2   := add_node(*default_scene, "root");
+  cylinder_mesh_idx := scene_add_mesh(*default_scene, create_cylinder(0.5, 32, 1.0,,
+                                                              allocator(*default_scene.mesh_arena)));
 
-  node1_c_idx, node1_c := add_node(*default_scene, node2_idx, "center");
+  node2_idx,   node2   := scene_add_node(*default_scene, "root");
+
+  node1_c_idx, node1_c := scene_add_node(*default_scene, node2_idx, "center");
   node1_c.mesh_idx = cylinder_mesh_idx;
   node1_c.local_transform = quat_to_mat4(quat_from_axis_angle(.{y = 1.0}, PI / 2.0));
 
-  node2_c_idx, node2_c := add_node(*default_scene, node2_idx, "ball1");
+  node2_c_idx, node2_c := scene_add_node(*default_scene, node2_idx, "ball1");
   node2_c.mesh_idx = sphere_mesh_idx;
   node2_c.local_transform = mat4_from_trs(translation = .{x = 1.5});
 
-  node3_c_idx, node3_c := add_node(*default_scene, node2_idx, "ball2");
+  node3_c_idx, node3_c := scene_add_node(*default_scene, node2_idx, "ball2");
   node3_c.mesh_idx = sphere_mesh_idx;
   node3_c.local_transform = mat4_from_trs(translation = .{x = -1.5});
 
@@ -235,7 +235,7 @@ main :: () {
       defer submit_wait_reset(imm_command);
       defer end_render_command(imm_command);
 
-      mesh_info := array_add(*gpu_mesh_infos);
+      mesh_info := fixed_array_add(*gpu_mesh_infos);
       if mesh.vertices.count == 0 || mesh.indices.count == 0 then continue;
 
       vertex_bytes := mesh.vertices.count * size_of(Vertex);
@@ -1427,7 +1427,7 @@ rebuild_pipelines_if_needed :: () {
   rebuild_ui_shader := false;
   rebuild_mesh_shader := false;
   rebuild_grid_shader := false;
-  while changed_file := has_event(*file_watcher) {
+  while changed_file := file_watcher_has_event(*file_watcher) {
     log("Found changed file: %", changed_file);
     if changed_file == {
       case "shaders/gradient_comp.glsl";
@@ -1758,11 +1758,11 @@ debug_draw_arrow :: (start: Vector3, end: Vector3, color := MAGENTA) {
   }
 
   vertices := gpu_buffer_slice_host_memory(debug_meshes_vertex_buffer);
-  vv := fixed_slice(vertices);
+  vv := fixed_slice_init(vertices);
   vv.count = vertex_offest;
 
-  push(*vv, start);
-  push(*vv, end);
+  fixed_slice_add(*vv, start);
+  fixed_slice_add(*vv, end);
 
   d     := normalize(end - start);
   right := cross(d, .{z = 1.0});
@@ -1772,15 +1772,15 @@ debug_draw_arrow :: (start: Vector3, end: Vector3, color := MAGENTA) {
   right *= 0.2;
   up    *= 0.2;
 
-  push(*vv, end);
-  push(*vv, end + right - d);
-  push(*vv, end);
-  push(*vv, end - right - d);
+  fixed_slice_add(*vv, end);
+  fixed_slice_add(*vv, end + right - d);
+  fixed_slice_add(*vv, end);
+  fixed_slice_add(*vv, end - right - d);
 
-  push(*vv, end);
-  push(*vv, end + up - d);
-  push(*vv, end);
-  push(*vv, end - up - d);
+  fixed_slice_add(*vv, end);
+  fixed_slice_add(*vv, end + up - d);
+  fixed_slice_add(*vv, end);
+  fixed_slice_add(*vv, end - up - d);
 
   new_cmd: DebugMeshIndirectCommand = .{
     vertex_count   = vv.count - vertex_offest,
@@ -1801,7 +1801,7 @@ debug_draw_aabb :: (aabb: AABB, transform: Matrix4, color := MAGENTA) {
   }
 
   vertices := gpu_buffer_slice_host_memory(debug_meshes_vertex_buffer);
-  vv       := fixed_slice(vertices);
+  vv       := fixed_slice_init(vertices);
   // vv.count  = starting_offset;
   vv.count = vertex_offest;
 
@@ -1821,34 +1821,34 @@ debug_draw_aabb :: (aabb: AABB, transform: Matrix4, color := MAGENTA) {
   top3: Vector3 = i * aabb.min.x + j * aabb.max.y + k * aabb.max.z + position;
 
   // bottom rect
-  push(*vv, low0);
-  push(*vv, low1);
-  push(*vv, low1);
-  push(*vv, low2);
-  push(*vv, low2);
-  push(*vv, low3);
-  push(*vv, low3);
-  push(*vv, low0);
+  fixed_slice_add(*vv, low0);
+  fixed_slice_add(*vv, low1);
+  fixed_slice_add(*vv, low1);
+  fixed_slice_add(*vv, low2);
+  fixed_slice_add(*vv, low2);
+  fixed_slice_add(*vv, low3);
+  fixed_slice_add(*vv, low3);
+  fixed_slice_add(*vv, low0);
 
   // top rect
-  push(*vv, top0);
-  push(*vv, top1);
-  push(*vv, top1);
-  push(*vv, top2);
-  push(*vv, top2);
-  push(*vv, top3);
-  push(*vv, top3);
-  push(*vv, top0);
+  fixed_slice_add(*vv, top0);
+  fixed_slice_add(*vv, top1);
+  fixed_slice_add(*vv, top1);
+  fixed_slice_add(*vv, top2);
+  fixed_slice_add(*vv, top2);
+  fixed_slice_add(*vv, top3);
+  fixed_slice_add(*vv, top3);
+  fixed_slice_add(*vv, top0);
 
   // sides
-  push(*vv, low0);
-  push(*vv, top0);
-  push(*vv, low1);
-  push(*vv, top1);
-  push(*vv, low2);
-  push(*vv, top2);
-  push(*vv, low3);
-  push(*vv, top3);
+  fixed_slice_add(*vv, low0);
+  fixed_slice_add(*vv, top0);
+  fixed_slice_add(*vv, low1);
+  fixed_slice_add(*vv, top1);
+  fixed_slice_add(*vv, low2);
+  fixed_slice_add(*vv, top2);
+  fixed_slice_add(*vv, low3);
+  fixed_slice_add(*vv, top3);
 
   new_cmd: DebugMeshIndirectCommand = .{
     vertex_count   = vv.count - vertex_offest,

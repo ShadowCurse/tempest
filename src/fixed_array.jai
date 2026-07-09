@@ -3,24 +3,24 @@ FixedArray :: struct($T: Type, $N: I, $I: Type = u32) {
   count: u32;
 }
 
-array_add :: (fa: *FixedArray, item: fa.T) {
+fixed_array_add :: (fa: *FixedArray, item: fa.T) {
   assert(fa.count + 1 < fa.N);
   fa.data[fa.count] = item;
   fa.count += 1;
 }
 
-array_add :: (fa: *FixedArray) -> *fa.T {
+fixed_array_add :: (fa: *FixedArray) -> *fa.T {
   assert(fa.count + 1 < fa.N);
   result := *fa.data[fa.count];
   fa.count += 1;
   return result;
 }
 
-reset :: (fa: *FixedArray) {
+fixed_array_reset :: (fa: *FixedArray) {
   fa.count = 0;
 }
 
-last :: (fa: *FixedArray) -> (success: bool, result: *fa.T) {
+fixed_array_last :: (fa: *FixedArray) -> (success: bool, result: *fa.T) {
   if fa.count == 0 then return false, null;
                    else return true, *fa.data[fa.count - 1];
 }

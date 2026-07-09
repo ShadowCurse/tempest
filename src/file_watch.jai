@@ -8,7 +8,7 @@ FileWatcher :: struct {
   files: [..]WatchedFile ;
 };
 
-init :: (watcher: *FileWatcher) -> bool {
+file_watcher_init :: (watcher: *FileWatcher) -> bool {
   fd := inotify_init(O_NONBLOCK);
   if fd < 0 {
     log_error("Cannot init FileWatcher: %", fd);
@@ -19,7 +19,7 @@ init :: (watcher: *FileWatcher) -> bool {
   }
 }
 
-add_file :: (watcher: *FileWatcher, path: string) -> bool {
+file_watcher_add_file :: (watcher: *FileWatcher, path: string) -> bool {
   wd := inotify_add_watch(watcher, path);
   if wd != -1 {
     array_add(*watcher.files, .{ wd, copy_string(path) });
@@ -30,7 +30,7 @@ add_file :: (watcher: *FileWatcher, path: string) -> bool {
   }
 }
 
-has_event :: (watcher: *FileWatcher) -> string {
+file_watcher_has_event :: (watcher: *FileWatcher) -> string {
   if watcher.fd != 0 {
     // just enough bytes for a single event
     buff: [(size_of(inotify_event) + 256) / 4]u32 = ---;

@@ -46,18 +46,18 @@ Scene :: struct {
   mesh_arena:    BufferAllocator;
 }
 
-add_node :: (scene: *Scene, name: string) -> SceneNodeIdx, *SceneNode {
+scene_add_node :: (scene: *Scene, name: string) -> SceneNodeIdx, *SceneNode {
   parent_idx := 0;
   node_idx := cast(SceneNodeIdx)scene.nodes.count;
-  node     := array_add(*scene.nodes);
+  node     := fixed_array_add(*scene.nodes);
   node.* = .{};
   memcpy(node.name.data, name.data, min(node.name.count, name.count));
   return node_idx, node;
 }
 
-add_node :: (scene: *Scene, parent_idx: SceneNodeIdx, name: string) -> SceneNodeIdx, *SceneNode {
+scene_add_node :: (scene: *Scene, parent_idx: SceneNodeIdx, name: string) -> SceneNodeIdx, *SceneNode {
   node_idx := cast(SceneNodeIdx)scene.nodes.count;
-  node     := array_add(*scene.nodes);
+  node     := fixed_array_add(*scene.nodes);
   node.* = .{ parent_idx = parent_idx };
   memcpy(node.name.data, name.data, min(node.name.count, name.count));
 
@@ -74,17 +74,17 @@ add_node :: (scene: *Scene, parent_idx: SceneNodeIdx, name: string) -> SceneNode
   return node_idx, node;
 }
 
-init :: (scene: *Scene) {
+scene_init :: (scene: *Scene) {
   buffer := alloc_array(512 << 20, u8, initialized = false);
   buffer_allocator_init(*scene.mesh_arena, buffer);
 
   // Make 0 indexes be usable values
-  array_add(*scene.nodes, .{});
-  array_add(*scene.meshes, .{});
-  array_add(*scene.materials, .{});
+  fixed_array_add(*scene.nodes, .{});
+  fixed_array_add(*scene.meshes, .{});
+  fixed_array_add(*scene.materials, .{});
 }
 
-load_gltf :: (scene: *Scene, name: string) -> SceneNodeIdx {
+scene_load_gltf :: (scene: *Scene, name: string) -> SceneNodeIdx {
   path := tprint("resources/scenes/%\0", name);
   log("Loading gltf scene from path: %", path);
 
@@ -111,7 +111,7 @@ load_gltf :: (scene: *Scene, name: string) -> SceneNodeIdx {
 
   add_node_to_scene :: (scene: *Scene, node: *cgltf_node, parent_idx: SceneNodeIdx, l: GltfLoading) {
     node_name := to_string(node.name);
-    new_node_idx, new_node := add_node(scene, parent_idx, node_name);
+    new_node_idx, new_node := scene_add_node(scene, parent_idx, node_name);
     setup_node(new_node, node, l);
     if node.children_count {
       for 0..node.children_count - 1 {
@@ -121,7 +121,7 @@ load_gltf :: (scene: *Scene, name: string) -> SceneNodeIdx {
     }
   }
 
-  root_idx, root := add_node(scene, "root");
+  root_idx, root := scene_add_node(scene, "root");
   for 0..gltf_scene.nodes_count - 1 {
     node := (gltf_scene.nodes + it).*;
     add_node_to_scene(scene, node, root_idx, l);
@@ -134,7 +134,7 @@ load_gltf :: (scene: *Scene, name: string) -> SceneNodeIdx {
 
   for 0..l.data.materials_count - 1 {
     material := l.data.materials + it;
-    array_add(*scene.materials, .{
+    fixed_array_add(*scene.materials, .{
       albedo    = .{ component = material.pbr_metallic_roughness.base_color_factor },
       metallic  = material.pbr_metallic_roughness.metallic_factor,
       roughness = material.pbr_metallic_roughness.roughness_factor,
@@ -143,13 +143,13 @@ load_gltf :: (scene: *Scene, name: string) -> SceneNodeIdx {
   return root_idx;
 }
 
-add_mesh :: (scene: *Scene, mesh: Mesh) -> MeshIdx {
+scene_add_mesh :: (scene: *Scene, mesh: Mesh) -> MeshIdx {
   mesh_idx := scene.meshes.count;
-  array_add(*scene.meshes, mesh);
+  fixed_array_add(*scene.meshes, mesh);
   return cast(MeshIdx)mesh_idx;
 }
 
-get_node_by_name :: (scene: *Scene, name: string) -> SceneNodeIdx, *SceneNode {
+scene_get_node_by_name :: (scene: *Scene, name: string) -> SceneNodeIdx, *SceneNode {
   for * scene.nodes if to_string(it.name) == name then return cast(SceneNodeIdx) it_index, it;
   return 0, *scene.nodes[0];
 }
@@ -222,9 +222,9 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
   vertices := alloc_array(vertex_count, Vertex, initialized = false);
   indices  := alloc_array(index_count,  u32,    initialized = false);
 
-  vv := fixed_slice(vertices);
+  vv := fixed_slice_init(vertices);
 
-  push(*vv, .{.{0.0, 0.0, radius}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
+  fixed_slice_add(*vv, .{.{0.0, 0.0, radius}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
   for i: 1..inner_stacks {
     stack_angle := PI / 2.0 - stack_step * i;
     xy := cos(stack_angle) * radius;
@@ -237,20 +237,20 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
       normal   := Vector3.{x * length_inv, y * length_inv, z * length_inv};
       uv_x     := cast(float)j / cast(float)sectors;
       uv_y     := cast(float)i / cast(float)stacks;
-      push(*vv, .{ position, uv_x, normal, uv_y, normal, 0 });
+      fixed_slice_add(*vv, .{ position, uv_x, normal, uv_y, normal, 0 });
     }
   }
-  push(*vv, .{.{0.0, 0.0, -radius}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
+  fixed_slice_add(*vv, .{.{0.0, 0.0, -radius}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
   assert(vv.count == vertex_count, "% != %", vv.count, vertex_count);
 
-  ii := fixed_slice(indices);
+  ii := fixed_slice_init(indices);
   for i: 0..sectors - 1 {
-    push(*ii, 0);
-    push(*ii, i + 1);
+    fixed_slice_add(*ii, 0);
+    fixed_slice_add(*ii, i + 1);
     if i != sectors - 1 {
-      push(*ii, i + 2);
+      fixed_slice_add(*ii, i + 2);
     } else {
-      push(*ii, 1);
+      fixed_slice_add(*ii, 1);
     }
   }
   //  k1--k1+1
@@ -264,33 +264,33 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
     k2 := 1 + (i + 1) * sectors;
     for j: 0..sectors - 1 {
       if j != sectors - 1 {
-        push(*ii, k1);
-        push(*ii, k2);
-        push(*ii, k1 + 1);
+        fixed_slice_add(*ii, k1);
+        fixed_slice_add(*ii, k2);
+        fixed_slice_add(*ii, k1 + 1);
 
-        push(*ii, k1 + 1);
-        push(*ii, k2);
-        push(*ii, k2 + 1);
+        fixed_slice_add(*ii, k1 + 1);
+        fixed_slice_add(*ii, k2);
+        fixed_slice_add(*ii, k2 + 1);
       } else {
-        push(*ii, k1);
-        push(*ii, k2);
-        push(*ii, 1 + i * sectors);
+        fixed_slice_add(*ii, k1);
+        fixed_slice_add(*ii, k2);
+        fixed_slice_add(*ii, 1 + i * sectors);
 
-        push(*ii, 1 + i * sectors);
-        push(*ii, k2);
-        push(*ii, 1 + (i + 1) * sectors);
+        fixed_slice_add(*ii, 1 + i * sectors);
+        fixed_slice_add(*ii, k2);
+        fixed_slice_add(*ii, 1 + (i + 1) * sectors);
       }
       k1 += 1;
       k2 += 1;
     }
   }
   for i: 0..sectors - 1 {
-    push(*ii, vertex_count - 1 - sectors + i);
-    push(*ii, vertex_count - 1);
+    fixed_slice_add(*ii, vertex_count - 1 - sectors + i);
+    fixed_slice_add(*ii, vertex_count - 1);
     if i != sectors - 1 {
-      push(*ii, vertex_count - 1 - sectors + i + 1);
+      fixed_slice_add(*ii, vertex_count - 1 - sectors + i + 1);
     } else {
-      push(*ii, vertex_count - 1 - sectors);
+      fixed_slice_add(*ii, vertex_count - 1 - sectors);
     }
   }
   assert(ii.count == index_count, "% != %", ii.count, index_count);
@@ -303,15 +303,14 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
   };
 }
 
-
 create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
   half_h := height / 2.0;
   sector_step   := 2.0 * PI / cast(float)sectors;
   points := alloc_array(sectors, Vector3,, temp);
-  pp := fixed_slice(points);
+  pp := fixed_slice_init(points);
   for i: 0..sectors - 1 {
     angle := sector_step * i;
-    push(*pp, .{cos(angle), sin(angle), 0});
+    fixed_slice_add(*pp, .{cos(angle), sin(angle), 0});
   }
 
   vertex_count := sectors * 2 + 2; // for 2 centers
@@ -319,8 +318,8 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
   vertices := alloc_array(vertex_count, Vertex, initialized = false);
   indices  := alloc_array(index_count,  u32,    initialized = false);
 
-  vv := fixed_slice(vertices);
-  push(*vv, .{.{0.0, 0.0, half_h}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
+  vv := fixed_slice_init(vertices);
+  fixed_slice_add(*vv, .{.{0.0, 0.0, half_h}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
   for < i: 0..1 {
     h := -half_h + height * i;
     uv_y := cast(float)(1 - i);
@@ -330,21 +329,21 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
       position := Vector3.{p.x * radius, p.y * radius, h};
       normal   := p;
       uv_x     := cast(float)j / cast(float)sectors;
-      push(*vv, .{ position, uv_x, normal, uv_y, normal, 0 });
+      fixed_slice_add(*vv, .{ position, uv_x, normal, uv_y, normal, 0 });
     }
   }
-  push(*vv, .{.{0.0, 0.0, -half_h}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
+  fixed_slice_add(*vv, .{.{0.0, 0.0, -half_h}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
   assert(vv.count == vertex_count, "% != %", vv.count, vertex_count);
 
   // note(sc): this logic is basically same as for sphere
-  ii := fixed_slice(indices);
+  ii := fixed_slice_init(indices);
   for i: 0..sectors - 1 {
-    push(*ii, 0);
-    push(*ii, i + 1);
+    fixed_slice_add(*ii, 0);
+    fixed_slice_add(*ii, i + 1);
     if i != sectors - 1 {
-      push(*ii, i + 2);
+      fixed_slice_add(*ii, i + 2);
     } else {
-      push(*ii, 1);
+      fixed_slice_add(*ii, 1);
     }
   }
   //  k1--k1+1
@@ -356,33 +355,33 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
     k2: u32 = 1 + sectors;
     for j: 0..sectors - 1 {
       if j != sectors - 1 {
-        push(*ii, k1);
-        push(*ii, k2);
-        push(*ii, k1 + 1);
+        fixed_slice_add(*ii, k1);
+        fixed_slice_add(*ii, k2);
+        fixed_slice_add(*ii, k1 + 1);
 
-        push(*ii, k1 + 1);
-        push(*ii, k2);
-        push(*ii, k2 + 1);
+        fixed_slice_add(*ii, k1 + 1);
+        fixed_slice_add(*ii, k2);
+        fixed_slice_add(*ii, k2 + 1);
       } else {
-        push(*ii, k1);
-        push(*ii, k2);
-        push(*ii, 1);
+        fixed_slice_add(*ii, k1);
+        fixed_slice_add(*ii, k2);
+        fixed_slice_add(*ii, 1);
 
-        push(*ii, 1);
-        push(*ii, k2);
-        push(*ii, 1 + sectors);
+        fixed_slice_add(*ii, 1);
+        fixed_slice_add(*ii, k2);
+        fixed_slice_add(*ii, 1 + sectors);
       }
       k1 += 1;
       k2 += 1;
     }
   }
   for i: 0..sectors - 1 {
-    push(*ii, vertex_count - 1 - sectors + i);
-    push(*ii, vertex_count - 1);
+    fixed_slice_add(*ii, vertex_count - 1 - sectors + i);
+    fixed_slice_add(*ii, vertex_count - 1);
     if i != sectors - 1 {
-      push(*ii, vertex_count - 1 - sectors + i + 1);
+      fixed_slice_add(*ii, vertex_count - 1 - sectors + i + 1);
     } else {
-      push(*ii, vertex_count - 1 - sectors);
+      fixed_slice_add(*ii, vertex_count - 1 - sectors);
     }
   }
   assert(ii.count == index_count, "% != %", ii.count, index_count);
@@ -398,10 +397,10 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
 create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
   sector_step := 2.0 * PI / cast(float)sectors;
   points      := alloc_array(sectors, Vector3,, temp);
-  pp          := fixed_slice(points);
+  pp          := fixed_slice_init(points);
   for i: 0..sectors - 1 {
     angle := sector_step * i;
-    push(*pp, .{cos(angle), sin(angle), 0});
+    fixed_slice_add(*pp, .{cos(angle), sin(angle), 0});
   }
 
   vertex_count := sectors + 2;
@@ -409,8 +408,8 @@ create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
   vertices := alloc_array(vertex_count, Vertex, initialized = false);
   indices  := alloc_array(index_count,  u32,    initialized = false);
 
-  vv := fixed_slice(vertices);
-  push(*vv, .{.{0.0, 0.0, height}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
+  vv := fixed_slice_init(vertices);
+  fixed_slice_add(*vv, .{.{0.0, 0.0, height}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
 
   uv_y := 1.0;
   for j: 0..sectors - 1 {
@@ -418,30 +417,30 @@ create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
     position := Vector3.{p.x * radius, p.y * radius, 0};
     normal   := p;
     uv_x     := cast(float)j / cast(float)sectors;
-    push(*vv, .{ position, uv_x, normal, uv_y, normal, 0 });
+    fixed_slice_add(*vv, .{ position, uv_x, normal, uv_y, normal, 0 });
   }
 
-  push(*vv, .{.{0.0, 0.0, 0}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
+  fixed_slice_add(*vv, .{.{0.0, 0.0, 0}, 0.0, .{0.0, 0.0, -1.0}, 0.0, .{0.0, 0.0, -1.0}, 0.0});
   assert(vv.count == vertex_count, "% != %", vv.count, vertex_count);
 
   // note(sc): this logic is basically same as for sphere
-  ii := fixed_slice(indices);
+  ii := fixed_slice_init(indices);
   for i: 0..sectors - 1 {
-    push(*ii, 0);
-    push(*ii, i + 1);
+    fixed_slice_add(*ii, 0);
+    fixed_slice_add(*ii, i + 1);
     if i != sectors - 1 {
-      push(*ii, i + 2);
+      fixed_slice_add(*ii, i + 2);
     } else {
-      push(*ii, 1);
+      fixed_slice_add(*ii, 1);
     }
   }
   for i: 0..sectors - 1 {
-    push(*ii, vertex_count - 1 - sectors + i);
-    push(*ii, vertex_count - 1);
+    fixed_slice_add(*ii, vertex_count - 1 - sectors + i);
+    fixed_slice_add(*ii, vertex_count - 1);
     if i != sectors - 1 {
-      push(*ii, vertex_count - 1 - sectors + i + 1);
+      fixed_slice_add(*ii, vertex_count - 1 - sectors + i + 1);
     } else {
-      push(*ii, vertex_count - 1 - sectors);
+      fixed_slice_add(*ii, vertex_count - 1 - sectors);
     }
   }
   assert(ii.count == index_count, "% != %", ii.count, index_count);
@@ -562,5 +561,5 @@ add_gltf_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: GltfLoading) {
   // mesh_idx := prev_meshes_count + mesh - data.meshes;
   // mesh_name := to_string(mesh.name);
   // log("Mesh %: % vertices: % indices: %", mesh_idx, mesh_name, vertices.count, indices.count);
-  array_add(*scene.meshes, Mesh.{ material_idx, aabb, indices, vertices });
+  fixed_array_add(*scene.meshes, Mesh.{ material_idx, aabb, indices, vertices });
 }
