@@ -84,14 +84,14 @@ UiContext :: struct {
 }
 
 ui_init :: (c: *UiContext, font: *Font) {
-  init(*c.frame_arena, new_array(4096, u8, initialized = false));
+  buffer_allocator_init(*c.frame_arena, alloc_array(4096, u8, initialized = false));
   c.font   = font;
   c.current_parent = *c.global_parent;
 }
 
 ui_new_frame :: (c: *UiContext, buffer: []UiQuad) {
-  init(*c.draw_buffer, .{ data = cast(*u8)buffer.data, count = buffer.count * size_of(UiQuad) });
-  reset(*c.frame_arena);
+  buffer_allocator_init(*c.draw_buffer, .{ data = cast(*u8)buffer.data, count = buffer.count * size_of(UiQuad) });
+  buffer_allocator_reset(*c.frame_arena);
   c.frame += 1;
   c.consumed_mouse_event    = false;
   c.consumed_keyboard_event = false;
@@ -245,7 +245,7 @@ ui_build_widget :: (
   ui_link_widget(parent, widget);
 
   widget.flags    = flags;
-  widget.payload  = clone(cast([]u8)name,, allocator(*c.frame_arena));
+  widget.payload  = clone_array(cast([]u8)name,, allocator(*c.frame_arena));
   return widget;
 }
 
@@ -508,7 +508,7 @@ ui_draw_rect :: (
   rounded := true,
 ) {
   rect_position := ui_rect_center(position, size);
-  quad := new(UiQuad,, allocator(*c.draw_buffer));
+  quad := alloc_one(UiQuad,, allocator(*c.draw_buffer));
   if !quad then return;
   quad.* = .{
     usage            = .COLOR | ifx !rounded UiQuadUsage.NO_ROUND,
@@ -603,9 +603,9 @@ ui_text_split_in_lines :: (text: string) -> quads: []UiQuad, lines: [][]UiQuad {
       }
     }
 
-    lines := new_array(line_breaks.count, []UiQuad, initialized = false,, temp);
+    lines := alloc_array(line_breaks.count, []UiQuad, initialized = false,, temp);
     if !lines then return .[], .[];
-    quads := new_array(total_quads,         UiQuad, initialized = false);
+    quads := alloc_array(total_quads,         UiQuad, initialized = false);
     if !quads then return .[], .[];
     quads_offset := 0;
     for line_breaks {

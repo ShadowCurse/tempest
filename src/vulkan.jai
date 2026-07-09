@@ -51,7 +51,7 @@ vk_init :: (enable_validation: bool) -> success: bool {
   vk_check_additional_extensions_support();
   vk_init_device();
   if !vk_device return false;
-  init(*vk_swapchain_arena, new_array(4096, u8, initialized = false));
+  buffer_allocator_init(*vk_swapchain_arena, alloc_array(4096, u8, initialized = false));
   vk_init_swapchain(window_width, window_height, null);
   if !vk_swapchain return false;
   vk_graphics_command_pool = vk_init_command_pool(vk_graphics_queue_family);
@@ -178,8 +178,8 @@ vk_get_swapchain_time_domain_properties :: () -> (result:  VkResult,
   data: VkSwapchainTimeDomainPropertiesEXT = .{};
   result = vkGetSwapchainTimeDomainPropertiesEXT(vk_device, vk_swapchain, *data, *counter);
   if result || data.timeDomainCount == 0 then return result, .[], .[], 0;
-  domains = new_array(data.timeDomainCount, VkTimeDomainKHR, initialized = false);
-  ids     = new_array(data.timeDomainCount, u64,             initialized = false);
+  domains = alloc_array(data.timeDomainCount, VkTimeDomainKHR, initialized = false);
+  ids     = alloc_array(data.timeDomainCount, u64,             initialized = false);
   data.pTimeDomains   = domains.data;
   data.pTimeDomainIds = ids.data;
   result = vkGetSwapchainTimeDomainPropertiesEXT(vk_device, vk_swapchain, *data, *counter);
@@ -719,7 +719,7 @@ vk_get_instance_extensions :: () -> (result: VkResult, data: []VkExtensionProper
   result: VkResult                = ---;
   result = vkEnumerateInstanceExtensionProperties(null, *count, null);
   if result || count == 0 return result, .[];
-  data   = new_array(count, VkExtensionProperties, initialized = false);
+  data   = alloc_array(count, VkExtensionProperties, initialized = false);
   result = vkEnumerateInstanceExtensionProperties(null, *count, data.data);
   return result, data;
 } @NoProfile
@@ -730,7 +730,7 @@ vk_get_instance_layers :: () -> (result: VkResult, data: []VkLayerProperties) {
   result: VkResult            = ---;
   result = vkEnumerateInstanceLayerProperties(*count, null);
   if result || count == 0 return result, .[];
-  data   = new_array(count, VkLayerProperties, initialized = false);
+  data   = alloc_array(count, VkLayerProperties, initialized = false);
   result = vkEnumerateInstanceLayerProperties(*count, data.data);
   return result, data;
 } @NoProfile
@@ -825,7 +825,7 @@ vk_init_instance :: (enable_validation: bool) {
   }
 
   total_extensions_count := platform_extensions.count + VK_INSTANCE_EXTENSIONS.count;
-  enabled_extensions: []*u8 = new_array(total_extensions_count, *u8, initialized = false,, temp);
+  enabled_extensions: []*u8 = alloc_array(total_extensions_count, *u8, initialized = false,, temp);
   if !enabled_extensions return;
   {
     i: u32 = 0;
@@ -911,7 +911,7 @@ vk_get_physical_devices :: () -> (result: VkResult, data: []VkPhysicalDevice) {
   result: VkResult           = ---;
   result = vkEnumeratePhysicalDevices(vk_instance, *count, null);
   if result || count == 0 return result, .[];
-  data   = new_array(count, VkPhysicalDevice, initialized = false);
+  data   = alloc_array(count, VkPhysicalDevice, initialized = false);
   result = vkEnumeratePhysicalDevices(vk_instance, *count, data.data);
   return result, data;
 } @NoProfile
@@ -924,7 +924,7 @@ vk_get_physical_device_exensions :: (
   result: VkResult                = ---;
   result = vkEnumerateDeviceExtensionProperties(physical_device, null, *count, null);
   if result || count == 0 return result, .[];
-  data   = new_array(count, VkExtensionProperties, initialized = false);
+  data   = alloc_array(count, VkExtensionProperties, initialized = false);
   result = vkEnumerateDeviceExtensionProperties(physical_device, null, *count, data.data);
   return result, data;
 } @NoProfile
@@ -937,7 +937,7 @@ vk_get_physical_device_layers :: (
   result: VkResult            = ---;
   result = vkEnumerateDeviceLayerProperties(physical_device, *count, null);
   if result || count == 0 return result, .[];
-  data   = new_array(count, VkLayerProperties, initialized = false);
+  data   = alloc_array(count, VkLayerProperties, initialized = false);
   result = vkEnumerateDeviceLayerProperties(physical_device, *count, data.data);
   return result, data;
 } @NoProfile
@@ -947,7 +947,7 @@ vk_get_physical_device_queue_families :: (physical_device: VkPhysicalDevice) -> 
   data: []VkQueueFamilyProperties = ---;
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device, *count, null);
   if count == 0 return .[];
-  data = new_array(count, VkQueueFamilyProperties, initialized = false);
+  data = alloc_array(count, VkQueueFamilyProperties, initialized = false);
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device, *count, data.data);
   return data;
 }
@@ -1215,7 +1215,7 @@ vk_get_swapchain_formats :: () -> []VkSurfaceFormatKHR {
   result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, *count, null);
   assert(!result);
   if count == 0 return .[];
-  data = new_array(count, VkSurfaceFormatKHR, initialized = false);
+  data = alloc_array(count, VkSurfaceFormatKHR, initialized = false);
   result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, *count, data.data);
   assert(!result);
   return data;
@@ -1228,7 +1228,7 @@ vk_get_swapchain_images :: () -> []VkImage {
   result = vkGetSwapchainImagesKHR(vk_device, vk_swapchain, *count, null);
   assert(!result);
   if count == 0 return .[];
-  data = new_array(count, VkImage, initialized = false);
+  data = alloc_array(count, VkImage, initialized = false);
   result = vkGetSwapchainImagesKHR(vk_device, vk_swapchain, *count, data.data);
   assert(!result);
   return data;
@@ -1315,14 +1315,14 @@ DONE
       return;
     }
 
-    reset(*vk_swapchain_arena);
+    buffer_allocator_reset(*vk_swapchain_arena);
     new_context := context;
     new_context.allocator = allocator(*vk_swapchain_arena);
     push_context new_context {
       vk_swapchain_images      = vk_get_swapchain_images();
-      vk_swapchain_image_views = new_array(vk_swapchain_images.count, VkImageView, initialized = false);
-      vk_swapchain_semaphores  = new_array(vk_swapchain_images.count, VkSemaphore, initialized = false);
-      vk_swapchain_fences      = new_array(vk_swapchain_images.count, VkFence,     initialized = false);
+      vk_swapchain_image_views = alloc_array(vk_swapchain_images.count, VkImageView, initialized = false);
+      vk_swapchain_semaphores  = alloc_array(vk_swapchain_images.count, VkSemaphore, initialized = false);
+      vk_swapchain_fences      = alloc_array(vk_swapchain_images.count, VkFence,     initialized = false);
       for 0..vk_swapchain_images.count - 1 {
         view_create_info: VkImageViewCreateInfo = .{
           image            = vk_swapchain_images[it],
@@ -1369,11 +1369,11 @@ DONE
         assert(!vkSetSwapchainPresentTimingQueueSizeEXT(vk_device,
                                                         vk_swapchain,
                                                         timing_queue_size));
-        vk_swapchain_past_presentation_timings = new_array(timing_queue_size,
+        vk_swapchain_past_presentation_timings = alloc_array(timing_queue_size,
                                                            VkPastPresentationTimingEXT,
                                                            initialized = false);
         assert(xx vk_swapchain_past_presentation_timings);
-        vk_swapchain_present_stage_times       = new_array(timing_queue_size,
+        vk_swapchain_present_stage_times       = alloc_array(timing_queue_size,
                                                            VkPresentStageTimeEXT,
                                                            initialized = false);
         assert(xx vk_swapchain_present_stage_times);

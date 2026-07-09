@@ -34,7 +34,7 @@ font_load :: (name: string) -> Font, tmp_curves: []u16, tmp_bands: []u16 {
   ascent  := cast(float)asc  * em_scale;
   descent := cast(float)desc * em_scale;
 
-  char_info := new_array(FONT_ALL_CHARS.count, cslug_glyph, initialized = false);
+  char_info := alloc_array(FONT_ALL_CHARS.count, cslug_glyph, initialized = false);
 
   buffers: cslug_buffers_packed;
   defer cslug_free_buffers_packed(*info, *buffers);
@@ -42,14 +42,16 @@ font_load :: (name: string) -> Font, tmp_curves: []u16, tmp_bands: []u16 {
   for FONT_ALL_CHARS cslug_build_glyph_for_buffer(*info, it, em_scale, *buffers, *char_info[it_index]);
 
   curves_bytes := buffers.curves.len * size_of(u16);
-  tmp_curves := new_array(curves_bytes , u16, initialized = false,, temp);
+  tmp_curves := alloc_array(curves_bytes , u16, initialized = false,, temp);
   memcpy(tmp_curves.data,  buffers.curves.ptr, curves_bytes );
 
   bands_bytes := buffers.bands.len * size_of(u16);
-  tmp_bands := new_array(bands_bytes , u16, initialized = false,, temp);
+  tmp_bands := alloc_array(bands_bytes , u16, initialized = false,, temp);
   memcpy(tmp_bands.data,  buffers.bands.ptr, bands_bytes );
 
-  kerning_table := new_array(FONT_ALL_CHARS.count * FONT_ALL_CHARS.count, FontKerningInfo, initialized = false);
+  kerning_table := alloc_array(FONT_ALL_CHARS.count * FONT_ALL_CHARS.count,
+                               FontKerningInfo,
+                               initialized = false);
   kerning_table_index: u32 = 0;
   for c1: FONT_ALL_CHARS {
       for c2: FONT_ALL_CHARS {

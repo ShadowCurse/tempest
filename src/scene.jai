@@ -75,8 +75,8 @@ add_node :: (scene: *Scene, parent_idx: SceneNodeIdx, name: string) -> SceneNode
 }
 
 init :: (scene: *Scene) {
-  buffer := new_array(512 << 20, u8, initialized = false);
-  init(*scene.mesh_arena, buffer);
+  buffer := alloc_array(512 << 20, u8, initialized = false);
+  buffer_allocator_init(*scene.mesh_arena, buffer);
 
   // Make 0 indexes be usable values
   array_add(*scene.nodes, .{});
@@ -219,8 +219,8 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
 
   vertex_count := sectors * inner_stacks + 2; // 2 for top and bottom
   index_count  := sectors * 3 * 2 + (sectors * (inner_stacks - 1)) * 2 * 3;
-  vertices := new_array(vertex_count, Vertex, initialized = false);
-  indices  := new_array(index_count,  u32,    initialized = false);
+  vertices := alloc_array(vertex_count, Vertex, initialized = false);
+  indices  := alloc_array(index_count,  u32,    initialized = false);
 
   vv := fixed_slice(vertices);
 
@@ -307,7 +307,7 @@ create_sphere_uv :: (radius: float, sectors: u32, stacks: u32) -> Mesh {
 create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
   half_h := height / 2.0;
   sector_step   := 2.0 * PI / cast(float)sectors;
-  points := new_array(sectors, Vector3,, temp);
+  points := alloc_array(sectors, Vector3,, temp);
   pp := fixed_slice(points);
   for i: 0..sectors - 1 {
     angle := sector_step * i;
@@ -316,8 +316,8 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
 
   vertex_count := sectors * 2 + 2; // for 2 centers
   index_count  := sectors * 2 * 3 * 2;
-  vertices := new_array(vertex_count, Vertex, initialized = false);
-  indices  := new_array(index_count,  u32,    initialized = false);
+  vertices := alloc_array(vertex_count, Vertex, initialized = false);
+  indices  := alloc_array(index_count,  u32,    initialized = false);
 
   vv := fixed_slice(vertices);
   push(*vv, .{.{0.0, 0.0, half_h}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
@@ -397,7 +397,7 @@ create_cylinder :: (radius: float, sectors: u32, height: float) -> Mesh {
 
 create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
   sector_step := 2.0 * PI / cast(float)sectors;
-  points      := new_array(sectors, Vector3,, temp);
+  points      := alloc_array(sectors, Vector3,, temp);
   pp          := fixed_slice(points);
   for i: 0..sectors - 1 {
     angle := sector_step * i;
@@ -406,8 +406,8 @@ create_cone :: (radius: float, sectors: u32, height: float) -> Mesh {
 
   vertex_count := sectors + 2;
   index_count  := sectors * 3 * 2;
-  vertices := new_array(vertex_count, Vertex, initialized = false);
-  indices  := new_array(index_count,  u32,    initialized = false);
+  vertices := alloc_array(vertex_count, Vertex, initialized = false);
+  indices  := alloc_array(index_count,  u32,    initialized = false);
 
   vv := fixed_slice(vertices);
   push(*vv, .{.{0.0, 0.0, height}, 0.0, .{0.0, 0.0, 1.0}, 0.0, .{0.0, 0.0, 1.0}, 0.0});
@@ -490,7 +490,7 @@ add_gltf_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: GltfLoading) {
   material_idx := cast(MaterialIdx) (l.prev_materials_count + primitive.material - l.data.materials);
 
   total_bytes  := index_count * size_of(u32) + vertex_count * size_of(Vertex);
-  model_memory := new_array(xx total_bytes, u8, initialized = false,, allocator(*scene.mesh_arena));
+  model_memory := alloc_array(xx total_bytes, u8, initialized = false,, allocator(*scene.mesh_arena));
 
   indices: []u32 = {
     data  = cast(*u32)(model_memory.data + vertex_count * size_of(Vertex)),
@@ -514,7 +514,7 @@ add_gltf_mesh :: (scene: *Scene, mesh: *cgltf_mesh, l: GltfLoading) {
     //     attr.data[0].count,
     // );
     floats_count := cgltf_accessor_unpack_floats(attr.data, null, 0);
-    floats := new_array(xx floats_count, float,, temp);
+    floats := alloc_array(xx floats_count, float,, temp);
     _ = cgltf_accessor_unpack_floats(attr.data, floats.data, floats_count);
 
     if attr.type == {

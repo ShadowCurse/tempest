@@ -4,13 +4,13 @@ BufferAllocator :: struct {
   end:       u32;
 }
 
-init :: (allocator: *BufferAllocator, buffer: []u8) {
+buffer_allocator_init :: (allocator: *BufferAllocator, buffer: []u8) {
   allocator.data      = buffer.data;
   allocator.capacity  = xx buffer.count;
   allocator.end       = 0;
 }
 
-reset :: (allocator: *BufferAllocator) {
+buffer_allocator_reset :: (allocator: *BufferAllocator) {
   allocator.end = 0;
 }
 
@@ -84,7 +84,7 @@ GpuMemory :: struct {
   host_mem:   []u8;
 };
 
-allocate_gpu_memory :: (size: u32, flags: VkMemoryPropertyFlags) -> GpuMemory {
+gpu_memory_allocate :: (size: u32, flags: VkMemoryPropertyFlags) -> GpuMemory {
   index  := vk_find_arena_index(~cast(u32)0, flags);
   device_memory := vk_allocate_memory(index, size);
   host_mem := ifx flags & .HOST_VISIBLE_BIT vk_map_memory(device_memory, size);
@@ -98,7 +98,7 @@ GpuBufferArena :: struct {
   end:              u32;
 };
 
-init :: (arena: *GpuBufferArena, memory: GpuMemory, usage: VkBufferUsageFlags2) {
+gpu_buffer_arena_init :: (arena: *GpuBufferArena, memory: GpuMemory, usage: VkBufferUsageFlags2) {
   usage_flags: VkBufferUsageFlags2CreateInfo = .{
     usage = usage,
   };
@@ -121,7 +121,11 @@ GpuBufferSlice :: struct ($T: Type) {
   count:          u32;
 }
 
-push :: (arena: *GpuBufferArena, $T: Type, count: u32 = 1) -> (success: bool, result: GpuBufferSlice(T)) {
+gpu_buffer_arena_allocate :: (
+  arena: *GpuBufferArena,
+  $T: Type,
+  count: u32 = 1
+) -> (success: bool, result: GpuBufferSlice(T)) {
   alignment := align_of(T);
   bytes     := size_of(T) * count;
 
@@ -139,13 +143,13 @@ push :: (arena: *GpuBufferArena, $T: Type, count: u32 = 1) -> (success: bool, re
   }
 }
 
-host_memory :: inline (slice: GpuBufferSlice) -> []slice.T {
+gpu_buffer_slice_host_memory :: inline (slice: GpuBufferSlice) -> []slice.T {
   result: []slice.T;
   if slice.host_ptr then result = .{ data = slice.host_ptr, count = slice.count };
   return result;
 }
 
-slice :: (slice: GpuBufferSlice, start: u32, end: u32) -> GpuBufferSlice(slice.T) {
+gpu_buffer_slice :: (slice: GpuBufferSlice, start: u32, end: u32) -> GpuBufferSlice(slice.T) {
   assert(start <= slice.count, "start: % slice.count: %", start, slice.count);
   assert(end   <= slice.count, "end: % slice.count: %", end, slice.count);
   assert(start <= end,         "start: % end: %", start, end);
@@ -177,7 +181,7 @@ GpuImageArena :: struct {
   end:              u32;
 };
 
-init :: (arena: *GpuImageArena, memory: GpuMemory) {
+gpu_image_arena_init :: (arena: *GpuImageArena, memory: GpuMemory) {
   arena.* = .{ memory, 0 };
 }
 
@@ -190,7 +194,7 @@ GpuImage :: struct {
   total_bytes: u32; // total bytes used to satisfy alignment and size
 }
 
-push :: (
+gpu_image_arena_allocate :: (
   arena: *GpuImageArena,
   width: u32,
   height: u32,
@@ -249,7 +253,7 @@ push :: (
 }
 
 // note(sc): assume this is the last image allocated from this arena
-pop :: (arena: *GpuImageArena, image: GpuImage) {
+gpu_image_arena_free_last :: (arena: *GpuImageArena, image: GpuImage) {
   vk_destroy_image_view(image.view);
   vk_destroy_image(image.image);
   arena.end -= image.total_bytes;
@@ -285,21 +289,21 @@ slice :: inline (slice: []$T, start: u32, end: u32) -> []T {
   return .{ data = slice.data + start, count = count };
 }
 
-new :: ($T: Type, $initialized := true) -> *T {
+alloc_one :: ($T: Type, $initialized := true) -> *T {
   size   := size_of(T);
 
   allocation := alloc_aligned(size, align_of(T));
   if allocation {
     #if initialized {
       ini :: initializer_of(T);
-      #if ini inline ini(allocation);
-      else    memset(allocation, 0, size_of(T));
+      #if ini then inline ini(allocation);
+      else                memset(allocation, 0, size_of(T));
     }
   }
   return cast(*T)allocation;
 }
 
-new_array :: (count: s64, $T: Type, $initialized := true) -> []T {
+alloc_array :: (count: s64, $T: Type, $initialized := true) -> []T {
   size   := count * size_of(T);
   result: []T;
 
@@ -319,9 +323,9 @@ new_array :: (count: s64, $T: Type, $initialized := true) -> []T {
   return result;
 }
 
-clone :: (data: []$T) -> []T {
+clone_array :: (data: []$T) -> []T {
   if data.count == 0 then return .[];
-  result := new_array(data.count, T, initialized = false);
+  result := alloc_array(data.count, T, initialized = false);
   if result then memcpy(result.data, data.data, size_of(T) * data.count);
   return result;
 }

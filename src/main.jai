@@ -101,31 +101,35 @@ main :: () {
   }
 
   for *rc: render_commands rc.* = create_render_command();
-  cpu_to_gpu_memory := allocate_gpu_memory(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
-  init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, VK_BUFFER_USAGE_2_TRANSFER_SRC_BIT |
-                                                    VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT |
-                                                    VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT);
-  ok, staging_buffer := push(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
+  cpu_to_gpu_memory := gpu_memory_allocate(64 << 20, .HOST_VISIBLE_BIT | .HOST_COHERENT_BIT);
+  gpu_buffer_arena_init(*cpu_to_gpu_buffer_arena, cpu_to_gpu_memory, VK_BUFFER_USAGE_2_TRANSFER_SRC_BIT |
+                                                            VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT |
+                                                            VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT);
+  ok, staging_buffer := gpu_buffer_arena_allocate(*cpu_to_gpu_buffer_arena, u8, 16 << 20);
   assert(ok);
   for * ui_buffers {
-    ok, it.* = push(*cpu_to_gpu_buffer_arena, UiQuad, 1 << 15);
+    ok, it.* = gpu_buffer_arena_allocate(*cpu_to_gpu_buffer_arena, UiQuad, 1 << 15);
     assert(ok);
   }
-  ok, scene_buffer = push(*cpu_to_gpu_buffer_arena, SceneInfo);
+  ok, scene_buffer = gpu_buffer_arena_allocate(*cpu_to_gpu_buffer_arena, SceneInfo);
   assert(ok);
   for * gizmo_buffers {
-    ok, it.* = push(*cpu_to_gpu_buffer_arena, Matrix4, 6); // 3 rods, 3 cones
+    ok, it.* = gpu_buffer_arena_allocate(*cpu_to_gpu_buffer_arena, Matrix4, 6); // 3 rods, 3 cones
     assert(ok);
   }
 
-  ok, debug_meshes_cmd_buffer = push(*cpu_to_gpu_buffer_arena, DebugMeshIndirectCommand, 8096);
+  ok, debug_meshes_cmd_buffer = gpu_buffer_arena_allocate(*cpu_to_gpu_buffer_arena,
+                                                       DebugMeshIndirectCommand,
+                                                       8096);
   assert(ok);
-  ok, debug_meshes_vertex_buffer = push(*cpu_to_gpu_buffer_arena, Vector3, 8096 * 32);
+  ok, debug_meshes_vertex_buffer = gpu_buffer_arena_allocate(*cpu_to_gpu_buffer_arena, Vector3, 8096 * 32);
   assert(ok);
 
-  gpu_memory := allocate_gpu_memory(256 << 20, .DEVICE_LOCAL_BIT);
-  init(*gpu_buffer_arena, gpu_memory, VK_BUFFER_USAGE_2_TRANSFER_DST_BIT | VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT |  VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);//.TRANSFER_DST_BIT | .INDEX_BUFFER_BIT | .SHADER_DEVICE_ADDRESS_BIT);
-  ok, mesh_buffer = push(*gpu_buffer_arena, u8, 128 << 20);
+  gpu_memory := gpu_memory_allocate(256 << 20, .DEVICE_LOCAL_BIT);
+  gpu_buffer_arena_init (*gpu_buffer_arena, gpu_memory, VK_BUFFER_USAGE_2_TRANSFER_DST_BIT |
+                                                        VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT |
+                                                        VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT);
+  ok, mesh_buffer = gpu_buffer_arena_allocate(*gpu_buffer_arena, u8, 128 << 20);
   assert(ok);
 
   pool_create_info: VkQueryPoolCreateInfo = .{
@@ -135,16 +139,16 @@ main :: () {
   timestamp_pool = vk_create_query_pool(pool_create_info);
 
   font, tmp_curves, tmp_bands := font_load("NotoSans-Regular");
-  ok, font_buffer = push(
+  ok, font_buffer = gpu_buffer_arena_allocate(
     *gpu_buffer_arena,
     u8,
     cast(u32)(tmp_curves.count * size_of(u16) + tmp_bands.count * size_of(u16)),
   );
   assert(ok);
 
-  gpu_image_memory := allocate_gpu_memory(64 << 20, .DEVICE_LOCAL_BIT);
-  init(*gpu_image_arena, gpu_image_memory);
-  ok, depth_image = push(
+  gpu_image_memory := gpu_memory_allocate(64 << 20, .DEVICE_LOCAL_BIT);
+  gpu_image_arena_init(*gpu_image_arena, gpu_image_memory);
+  ok, depth_image = gpu_image_arena_allocate(
     *gpu_image_arena,
     window_width,
     window_height,
@@ -202,7 +206,7 @@ main :: () {
       );
     }
 
-    staging_buffer_host_mem := host_memory(staging_buffer);
+    staging_buffer_host_mem := gpu_buffer_slice_host_memory(staging_buffer);
     {
       begin_render_command(imm_command);
       defer submit_wait_reset(imm_command);
@@ -220,8 +224,8 @@ main :: () {
       memcpy(staging_buffer_host_mem.data + curves_bytes, tmp_bands.data, bands_bytes);
       cmd_copy_buffer_slice_to_buffer_slice(
         imm_command,
-        slice(font_buffer,    0, cast(u32)total_bytes),
-        slice(staging_buffer, 0, cast(u32)total_bytes),
+        gpu_buffer_slice(font_buffer,    0, cast(u32)total_bytes),
+        gpu_buffer_slice(staging_buffer, 0, cast(u32)total_bytes),
       );
     }
 
@@ -250,8 +254,9 @@ main :: () {
 
       cmd_copy_buffer_slice_to_buffer_slice(
         imm_command,
-        slice(mesh_buffer,    cast(u32)mesh_buffer_offset, cast(u32)(mesh_buffer_offset + total_bytes)),
-        slice(staging_buffer, 0,                           cast(u32)total_bytes)
+        gpu_buffer_slice (mesh_buffer, cast(u32)mesh_buffer_offset,
+                                       cast(u32)(mesh_buffer_offset + total_bytes)),
+        gpu_buffer_slice (staging_buffer, 0, cast(u32)total_bytes)
       );
       mesh_buffer_offset += total_bytes;
     }
@@ -280,7 +285,7 @@ main :: () {
     reset_temporary_storage();
     debug_meshes_cmd_count = 0;
     platform_new_frame();
-    ui_new_frame(*ui, host_memory(ui_buffers[current_frame_idx]));
+    ui_new_frame(*ui, gpu_buffer_slice_host_memory(ui_buffers[current_frame_idx]));
     ui.mouse_position     = mouse_position;
     ui.mouse_just_pressed = just_pressed(mouse_state, .LMB);
     ui.mouse_down         = pressed(mouse_state, .LMB);
@@ -592,7 +597,7 @@ main :: () {
         selected_in_world_space := camera.view_inv * selected_in_camera_space;
 
         current_instance_buffer := *gizmo_buffers[current_frame_idx];
-        instance_buffer         := host_memory(current_instance_buffer);
+        instance_buffer         := gpu_buffer_slice_host_memory (current_instance_buffer);
 
         // rods
         instance_buffer[0] = Matrix4_Identity;
@@ -745,8 +750,8 @@ main :: () {
 }
 
 recreate_depth_image :: () {
-  pop(*gpu_image_arena, depth_image);
-  ok, new_depth_image := push(
+  gpu_image_arena_free_last(*gpu_image_arena, depth_image);
+  ok, new_depth_image := gpu_image_arena_allocate(
     *gpu_image_arena,
     window_width,
     window_height,
@@ -1745,14 +1750,14 @@ DebugMeshIndirectCommand :: struct {
 } @ShaderType
 
 debug_draw_arrow :: (start: Vector3, end: Vector3, color := MAGENTA) {
-  commands := host_memory(debug_meshes_cmd_buffer);
+  commands := gpu_buffer_slice_host_memory(debug_meshes_cmd_buffer);
   vertex_offest: u32 = 0;
   if debug_meshes_cmd_count {
     last := *commands[debug_meshes_cmd_count - 1];
     vertex_offest = last.vertex_offset + last.vertex_count;
   }
 
-  vertices := host_memory(debug_meshes_vertex_buffer);
+  vertices := gpu_buffer_slice_host_memory(debug_meshes_vertex_buffer);
   vv := fixed_slice(vertices);
   vv.count = vertex_offest;
 
@@ -1788,14 +1793,14 @@ debug_draw_arrow :: (start: Vector3, end: Vector3, color := MAGENTA) {
 }
 
 debug_draw_aabb :: (aabb: AABB, transform: Matrix4, color := MAGENTA) {
-  commands := host_memory(debug_meshes_cmd_buffer);
+  commands := gpu_buffer_slice_host_memory(debug_meshes_cmd_buffer);
   vertex_offest: u32 = 0;
   if debug_meshes_cmd_count {
     last := *commands[debug_meshes_cmd_count - 1];
     vertex_offest = last.vertex_offset + last.vertex_count;
   }
 
-  vertices := host_memory(debug_meshes_vertex_buffer);
+  vertices := gpu_buffer_slice_host_memory(debug_meshes_vertex_buffer);
   vv       := fixed_slice(vertices);
   // vv.count  = starting_offset;
   vv.count = vertex_offest;
@@ -1861,10 +1866,10 @@ debug_draw_aabb :: (aabb: AABB, transform: Matrix4, color := MAGENTA) {
 #load "utils.jai";
 #load "scene.jai";
 #load "vulkan.jai";
+#load "memory.jai";
 #load "shaders.jai";
 #load "platform.jai";
 #load "file_watch.jai";
-#load "allocators.jai";
 #load "enum_array.jai";
 #load "fixed_array.jai";
 #load "fixed_slice.jai";
