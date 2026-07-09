@@ -230,7 +230,12 @@ PROF_BLOCK_ZONE :: #string DONE
 context.Prof_Module.prof_zone(%1);
 DONE;
 
-insert_instrumentation_into_scope :: (block: *Code_Block, zone_index: s64, location: Code_Node.Location) {
+insert_instrumentation_into_scope :: (
+  block: *Code_Block,
+  index: s64,
+  zone_index: s64,
+  location: Code_Node.Location
+) {
   literal_start := New(Code_Literal);
   literal_start.kind = .LITERAL;
   literal_start.value_type = .STRING;
@@ -241,8 +246,11 @@ insert_instrumentation_into_scope :: (block: *Code_Block, zone_index: s64, locat
   insert_start.location = location;
 
   new_statements := NewArray(block.statements.count + 1, *Code_Node, initialized = false);
-  memcpy(new_statements.data + 1, block.statements.data, block.statements.count * size_of(*Code_Node));
-  new_statements[0] = insert_start;
+  memcpy(new_statements.data, block.statements.data, index * size_of(*Code_Node));
+  new_statements[index] = insert_start;
+  memcpy(new_statements.data + index + 1,
+         block.statements.data + index,
+         (block.statements.count - index) * size_of(*Code_Node));
   block.statements = new_statements;
 }
 
@@ -269,7 +277,7 @@ instrument_prof_scopes :: (block: *Code_Block) -> bool {
             info.line = cast(u64)it.location.l0;
             // log("found: % at %/%", name, idx, len);
 
-            insert_instrumentation_into_scope(block, zone_index, it.location);
+            insert_instrumentation_into_scope(block, idx, zone_index, it.location);
             idx += 1;
             len += 1;
           }
@@ -355,7 +363,7 @@ instrument_prof_functions :: (message: *Message) {
       info.name = h.name;
       info.line = cast(u64)h.l0;
 
-      insert_instrumentation_into_scope(body.block, zone_index, body.location);
+      insert_instrumentation_into_scope(body.block, 0, zone_index, body.location);
       need_to_modify_procedure = true;
     }
 }
