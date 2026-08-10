@@ -200,13 +200,14 @@ ui_link_widget :: (parent: *UiWidget, w: *UiWidget) {
 
 ui_build_widget :: (
   c:          *UiContext,
-  name:       string,
+  id:         string,
+  payload:    string,
   flags:      UiWidgetFlags,
   size:       Vector2 = .{},
   position:   Vector2 = .{},
 ) -> *UiWidget {
   parent    := c.current_parent;
-  widget_id := ui_create_id(xx name, parent.id);
+  widget_id := ui_create_id(xx id, parent.id);
   widget    := ui_find_existing_widget(c, widget_id);
   if !widget {
     widget   = ui_find_oldest_widget(c);
@@ -245,14 +246,14 @@ ui_build_widget :: (
   ui_link_widget(parent, widget);
 
   widget.flags    = flags;
-  widget.payload  = clone_array(cast([]u8)name,, allocator(*c.frame_arena));
+  widget.payload  = clone_array(cast([]u8)payload,, allocator(*c.frame_arena));
   return widget;
 }
 
 ui_panel_start :: (c: *UiContext, name: string, size: Vector2) {
   widget: *UiWidget;
   flags: UiWidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
-  widget = ui_build_widget(c, name, flags, size);
+  widget = ui_build_widget(c, name, "", flags, size);
   widget.bg_color = UiColors[UiColorType.BACKGROUND];
   ui_push_parent(c, widget);
 }
@@ -261,7 +262,7 @@ ui_panel_start :: (c: *UiContext, name: string, size: Vector2, position: Vector2
   widget: *UiWidget;
   flags: UiWidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y |
                          .DRAG_ALL | .FIXED_POSITION_X | .FIXED_POSITION_Y;
-  widget = ui_build_widget(c, name, flags, size, position);
+  widget = ui_build_widget(c, name, "", flags, size, position);
   widget.bg_color = UiColors[UiColorType.BACKGROUND];
   ui_push_parent(c, widget);
 }
@@ -273,26 +274,28 @@ ui_panel_end :: (c: *UiContext) {
 
 ui_label :: (
   c:         *UiContext,
+  name:      string,
   text:      string,
   flags:     UiWidgetFlags = 0,
-  position:  Vector2     = .{},
-  size:      Vector2     = .{},
+  position:  Vector2       = .{},
+  size:      Vector2       = .{},
 ) {
   f := ifx flags else .DRAW_TEXT;
-  ui_build_widget(c, text, f, size, position);
+  t := tprint("% %", name, text);
+  ui_build_widget(c, name, t, f, size, position);
 }
 
 ui_button :: (
   c:         *UiContext,
-  text:      string,
+  name:      string,
   flags:     UiWidgetFlags = 0,
   position:  Vector2     = .{},
   size:      Vector2     = .{},
   color:     RGBA        = 0,
 ) -> pressed: bool, hovered: bool {
   f           := ifx flags else .CLICK | .DRAW_TEXT | .DRAW_BACKGROUND | .DRAW_ROUNDED;
-  button_text := tprint("button_%", text);
-  button      := ui_build_widget(c, button_text, f, size, position);
+  button_id   := tprint("button_%", name);
+  button      := ui_build_widget(c, button_id, "", f, size, position);
   pressed     := c.pressed_id == button.id;
   hovered     := c.hover_id == button.id;
   result      := pressed && !button.was_pressed;
@@ -305,28 +308,30 @@ ui_button :: (
     defer ui_pop_parent(c);
 
     text_flags: UiWidgetFlags = .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y;
+    button_text_id := tprint("button_text_%", name);
     text_position := position + button.size / 2.0;
-    _             := ui_build_widget(c, text, text_flags, .{}, text_position);
+    _             := ui_build_widget(c, button_text_id, name, text_flags, .{}, text_position);
   }
   return result, hovered;
 }
 
-ui_toggle :: (c: *UiContext, text: string, v: *bool) {
+ui_toggle :: (c: *UiContext, name: string, v: *bool) {
   flags: UiWidgetFlags = .CLICK | .DRAW_BACKGROUND | .DRAW_ROUNDED | .FIXED_SIZE_X | .FIXED_SIZE_Y;
-  tag := tprint("%_toggle", text);
-  toggle_size := c.font_size;
-  toggle := ui_build_widget(c, tag, flags, .{toggle_size , toggle_size});
-  toggle.bg_color = UiColors[ifx v.* then UiColorType.GREEN1 else .BACKGROUND1];
+  toggle_label_size := c.font_size;
+  toggle_label_id   := tprint("toggle_label_%", name);
+  toggle_label      := ui_build_widget(c, toggle_label_id, "", flags, .{toggle_label_size, toggle_label_size});
+  toggle_label.bg_color = UiColors[ifx v.* then UiColorType.GREEN1 else .BACKGROUND1];
 
-  pressed := c.pressed_id == toggle.id;
-  result  := pressed && !toggle.was_pressed;
-  toggle.was_pressed = pressed;
+  pressed := c.pressed_id == toggle_label.id;
+  result  := pressed && !toggle_label.was_pressed;
+  toggle_label.was_pressed = pressed;
   if result then v.* = !v.*;
 
   flags     = .DRAW_TEXT | .FIXED_SIZE_X | .FIXED_POSITION_X | .FIXED_POSITION_Y;
-  size     := Vector2.{x = toggle.parent.size.x - toggle_size};
-  position := Vector2.{toggle.position.x + toggle_size, toggle.position.y - toggle_size / 2.0};
-  _        := ui_build_widget(c, text, flags, size, position);
+  size      := Vector2.{x = toggle_label.parent.size.x - toggle_label_size};
+  position  := Vector2.{toggle_label.position.x + toggle_label_size, toggle_label.position.y - toggle_label_size / 2.0};
+  toggle_id := tprint("toggle_%", name);
+  _        := ui_build_widget(c, toggle_id, name, flags, size, position);
 }
 
 ui_select :: (c: *UiContext, text: string, e: *$T, $names: []string)
@@ -347,7 +352,7 @@ ui_select :: (c: *UiContext, text: string, e: *$T, $names: []string)
   }
 }
 {
-  ui_label(c, text);
+  ui_label(c, text, "");
   info := cast(*Type_Info_Enum )type_info(T);
   for info.names {
     if array_find(names, it) {
@@ -362,13 +367,13 @@ ui_select :: (c: *UiContext, text: string, e: *$T, $names: []string)
 }
 
 ui_slider :: (c: *UiContext, name: string, lo: float, hi: float, v: *float) {
-  ui_label(c, tprint("%: %", name, v.*));
+  ui_label(c, name, tprint("%", v.*));
 
   ratio := (v.* - lo) / (hi - lo);
   ratio = clamp(ratio, 0.0, 1.0);
   tag   := tprint("%_bg", name);
   flags: UiWidgetFlags = .DRAW_BACKGROUND | .DRAW_BORDER | .DRAW_ROUNDED | .FIXED_SIZE_Y;
-  bg    := ui_build_widget(c, tag, flags, .{y = 20.0});
+  bg    := ui_build_widget(c, tag, tag, flags, .{y = 20.0});
   bg.bg_color = UiColors[UiColorType.BACKGROUND3];
 
   tag   = tprint("%_knob", name);
@@ -378,7 +383,7 @@ ui_slider :: (c: *UiContext, name: string, lo: float, hi: float, v: *float) {
   knob_position_offset := knob_size / 2.0;
   knob_travel_distance := bg.size.x - knob_size;
   knob_position: Vector2 = .{knob_position_offset + knob_travel_distance * ratio, bg.position.y};
-  knob := ui_build_widget(c, tag, flags, .{20.0, 20.0}, knob_position);
+  knob := ui_build_widget(c, tag, tag, flags, .{20.0, 20.0}, knob_position);
 
   knob.bg_color = UiColors[UiColorType.BUTTON_PRESSED];
   if c.pressed_id == knob.id {
@@ -391,17 +396,25 @@ ui_slider :: (c: *UiContext, name: string, lo: float, hi: float, v: *float) {
 ui_print_widgets :: (c: *UiContext) {
   indent := 0;
   w := *c.global_parent;
-  while w != null {
+  while w {
     for 0..indent - 1 print(" ");
-    log("id: % flags: % position: %", w.id, w.flags, w.position);
+    log("id: % flags: % position: % payload: %", w.id, w.flags, w.position, cast(string)w.payload);
     if w.first {
       indent += 1;
       w = w.first;
     } else if w.next {
       w = w.next;
     } else {
-      indent -= 1;
-      w = w.parent.next;
+      while w {
+        indent -= 1;
+        if !w.parent then return;
+        if w.parent.next {
+          w = w.parent.next;
+          break;
+        } else {
+          w = w.parent;
+        }
+      }
     }
   }
 }
@@ -461,9 +474,17 @@ ui_finish_widgets :: (c: *UiContext) {
       current_p -= widget_p;
       w = w.next;
     } else {
-      if w.parent && w.parent.parent current_p = w.parent.parent.position;
-      else current_p = .{};
-      w = w.parent.next;
+      while w {
+        if !w.parent       then return;
+        if w.parent.parent then current_p = w.parent.parent.position;
+                           else current_p = .{};
+        if w.parent.next {
+          w = w.parent.next;
+          break;
+        } else {
+          w = w.parent;
+        }
+      }
     }
   }
 }

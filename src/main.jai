@@ -338,24 +338,27 @@ main :: () {
         ui_panel_start(*ui, "Panel", .{ 300.0, 750.0 }, .{ 1.0, 1.0 });
         defer ui_panel_end(*ui);
 
-        ui_label(*ui, tprint("FPS: %", 1.0 / dt_s));
-        ui_label(*ui, tprint("dt s: %", dt_s));
-        ui_label(*ui, tprint("GPU COMPUTE ms: %", compute_ms));
-        ui_label(*ui, tprint("GPU GRID ms: %", grid_ms));
-        ui_label(*ui, tprint("GPU MESH ms: %", mesh_ms));
-        ui_label(*ui, tprint("GPU UI ms: %", ui_ms));
-        ui_label(*ui, tprint("GPU GIZMO ms: %", gizmo_ms));
-        ui_label(*ui, tprint("pos: %", camera.position));
-        ui_label(*ui, tprint("rot: %", camera.rotation));
-        ui_label(*ui, tprint("pressed_id: %", ui.pressed_id));
-        ui_label(*ui, tprint("hover_id: %", ui.hover_id));
+        ui_label(*ui, "FPS:",            tprint("%", 1.0 / dt_s));
+        ui_label(*ui, "dt s:",           tprint("%", dt_s));
+        ui_label(*ui, "GPU COMPUTE ms:", tprint("%", compute_ms));
+        ui_label(*ui, "GPU GRID ms:",    tprint("%", grid_ms));
+        ui_label(*ui, "GPU MESH ms:",    tprint("%", mesh_ms));
+        ui_label(*ui, "GPU UI ms:",      tprint("%", ui_ms));
+        ui_label(*ui, "GPU GIZMO ms:",   tprint("%", gizmo_ms));
+        ui_label(*ui, "pos:",            tprint("%", camera.position));
+        ui_label(*ui, "rot:",            tprint("%", camera.rotation));
+        ui_label(*ui, "pressed_id:",     tprint("%", ui.pressed_id));
+        ui_label(*ui, "hover_id:",       tprint("%", ui.hover_id));
         ui_toggle(*ui, "Visualize AABB", *visual_aabb);
         ui_toggle(*ui, "Draw Sphere",    *draw_sphere);
         ui_toggle(*ui, "Draw Crystal",   *draw_crystal);
         ui_toggle(*ui, "Draw Bistro",    *draw_bistro);
         ui_slider(*ui, "Gradient", 0.0, 1.0, *v);
         ui_select(*ui, "Polygon mode2", *polygon_mode, .["FILL", "LINE", "POINT"]);
+
+        ui_button(*ui, "BUTTON");
       }
+
       ui_finish_widgets(*ui);
     }
 
@@ -1612,6 +1615,7 @@ prof_draw :: (ui: *UiContext) {
     if pressed then prof_selected_bound = current_frame_bound;
     if hovered then ui_label(
       ui,
+      "",
       tprint("%", current_frame_bound),
       .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y,
       p + .{ box_width / 2.0, box_height + 5.0 },
@@ -1660,6 +1664,7 @@ prof_draw :: (ui: *UiContext) {
       );
       if hovered then ui_label(
         ui,
+        "",
         context.Prof_Module.PROF_ZONES_INFOS[current.zone_index].name,
         .DRAW_TEXT | .DRAW_CENTERED | .FIXED_POSITION_X | .FIXED_POSITION_Y,
         position + .{ x = size.x / 2.0, y = -15.0 },
