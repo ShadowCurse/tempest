@@ -307,6 +307,15 @@ vk_wait_swapchain_fence :: (index: u32) {
   vk_wait_for_fence(vk_swapchain_fences[index]);
 }
 
+vk_wait_for_timeline_semaphore :: (semaphore: VkSemaphore, value: u64) {
+  wait_info: VkSemaphoreWaitInfoKHR = .{
+    pSemaphores    = *semaphore,
+    semaphoreCount = 1,
+    pValues        = *value,
+  };
+  assert(!vkWaitSemaphores(vk_device, *wait_info, ~0));
+}
+
 vk_cmd_copy_buffer_to_buffer :: (cmd: VkCommandBuffer, dst: VkBuffer, src: VkBuffer, copy: VkBufferCopy) {
   vkCmdCopyBuffer(cmd, src, dst, 1, *copy);
 }
@@ -549,9 +558,9 @@ vk_map_memory :: (device_memory: VkDeviceMemory, size: u32) -> []u8 {
   return result;
 }
 
-vk_acquire_next_image :: (smaphore: VkSemaphore) -> next_image: u32, need_swapchain_recreation: bool {
+vk_acquire_next_image :: (binary_smaphore: VkSemaphore) -> next_image: u32, need_swapchain_recreation: bool {
   result: u32 = ---;
-  r := vkAcquireNextImageKHR(vk_device, vk_swapchain, ~0, smaphore, null, *result);
+  r := vkAcquireNextImageKHR(vk_device, vk_swapchain, ~0, binary_smaphore, null, *result);
   if r == .VK_SUBOPTIMAL_KHR || r == .VK_ERROR_OUT_OF_DATE_KHR return result, true;
 
   assert(!r, "Cannot acquire next image: %", r);
@@ -562,25 +571,40 @@ vk_acquire_next_image :: (smaphore: VkSemaphore) -> next_image: u32, need_swapch
   return result, false;
 }
 
-vk_graphics_queue_submit :: (cmd: VkCommandBuffer, semaphore: VkSemaphore, fence: VkFence, image_idx: u32) {
+vk_graphics_queue_submit_for_present :: (
+  cmd:                      VkCommandBuffer,
+  wait_binary_semaphore:    VkSemaphore,
+  timeline_semaphore:       VkSemaphore,
+  timeline_semaphore_value: u64,
+  image_idx:                u32
+) {
   buffer_submit_info: VkCommandBufferSubmitInfo = .{ commandBuffer = cmd, deviceMask = 0 };
   wait_semaphore_info: VkSemaphoreSubmitInfo = .{
-    semaphore = semaphore,
+    semaphore = wait_binary_semaphore,
     stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
   };
-  signal_semaphore_info: VkSemaphoreSubmitInfo = .{
-    semaphore = vk_swapchain_semaphores[image_idx],
-    stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-  };
+  signal_semaphore_infos: []VkSemaphoreSubmitInfo = .[
+    .{
+      semaphore = vk_swapchain_semaphores[image_idx],
+      value     = 0,
+      stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+    },
+    .{
+      semaphore = timeline_semaphore,
+      value     = timeline_semaphore_value,
+      stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+    },
+  ];
+
   submit_info: VkSubmitInfo2 = .{
     pWaitSemaphoreInfos      = *wait_semaphore_info,
     waitSemaphoreInfoCount   = 1,
-    pSignalSemaphoreInfos    = *signal_semaphore_info,
-    signalSemaphoreInfoCount = 1,
+    pSignalSemaphoreInfos    = signal_semaphore_infos.data,
+    signalSemaphoreInfoCount = cast(u32)signal_semaphore_infos.count,
     pCommandBufferInfos      = *buffer_submit_info,
     commandBufferInfoCount   = 1,
   };
-  vk_queue_submit(submit_info, fence);
+  vk_queue_submit(submit_info, null);
 }
 
 vk_present_frame_context :: (image_idx: u32) -> need_swapchain_recreation: bool {
@@ -1126,6 +1150,7 @@ vk_init_device :: () {
   physical_device_features_1_2: VkPhysicalDeviceVulkan12Features = .{
     bufferDeviceAddress = xx true,
     descriptorIndexing  = xx true,
+    timelineSemaphore   = xx true,
   };
   pnext_head = xx *physical_device_features_1_2;
 
@@ -1514,6 +1539,7 @@ DONE
   .{"vkCmdResetQueryPool",                        false},
   .{"vkCmdWriteTimestamp",                        false},
   .{"vkCmdSetPolygonModeEXT",                     false},
+  .{"vkWaitSemaphores", false},
 ]);
 
 VK_REMAINING_MIP_LEVELS   :: 4294967295;

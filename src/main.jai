@@ -331,6 +331,9 @@ main :: () {
     debug_draw_arrow(.{}, .{-1.0, -1.0, -1.0}, GREEN);
     debug_draw_arrow(.{}, .{1.0, -1.0, 1.0}, BLUE);
 
+    render_command := *render_commands[current_frame_idx];
+    defer current_frame_idx = (current_frame_idx + 1) % FRAMES;
+
     {
       prof_scope("build_ui");
 
@@ -345,6 +348,7 @@ main :: () {
         ui_label(*ui, "GPU MESH ms:",    tprint("%", mesh_ms));
         ui_label(*ui, "GPU UI ms:",      tprint("%", ui_ms));
         ui_label(*ui, "GPU GIZMO ms:",   tprint("%", gizmo_ms));
+        ui_label(*ui, "timeline semaphore:", tprint("%", render_command.timeline_semaphore_value));
         ui_label(*ui, "pos:",            tprint("%", camera.position));
         ui_label(*ui, "rot:",            tprint("%", camera.rotation));
         ui_label(*ui, "pressed_id:",     tprint("%", ui.pressed_id));
@@ -403,15 +407,15 @@ main :: () {
       recreate_depth_image();
     }
 
-    render_command := *render_commands[current_frame_idx];
-    defer current_frame_idx = (current_frame_idx + 1) % FRAMES;
-
-    wait_for_cmd(render_command);
+    vk_wait_for_timeline_semaphore(render_command.timeline_semaphore,
+                                   render_command.timeline_semaphore_value);
+    render_command.timeline_semaphore_value += 1;
     reset_render_command(render_command);
 
     swapchaine_image_index: u32 = 0;
     while (true) {
-      index, need_swapchain_recreation := vk_acquire_next_image(render_command);
+      index, need_swapchain_recreation := vk_acquire_next_image(render_command.acq_to_queue_binary_semaphore);
+
       if !need_swapchain_recreation {
         swapchaine_image_index = index;
         break;
@@ -421,10 +425,10 @@ main :: () {
           vk_recreate_swapchain();
           recreate_depth_image();
 
-          // note(sc): for some reason acquiring the image singles the semaphore even on
+          // note(sc): for some reason acquiring the image signals the semaphore even on
           // failure. Maybe there is a way to handle it more reasonably.
-          vk_destroy_semaphore(render_command);
-          render_command.swapchain_semaphore = vk_create_semaphore(.{});
+          vk_destroy_semaphore(render_command.acq_to_queue_binary_semaphore);
+          render_command.acq_to_queue_binary_semaphore = vk_create_semaphore(.{});
 
           last_swapchain_image_index = NO_LAST_SWAPCHAIN_INDEX;
       }
@@ -455,23 +459,19 @@ main :: () {
                                    xx Timestamp.COMPUTE_END);
 
       vk_cmd_bind_pipeline(render_command, compute_pipeline, .COMPUTE);
-      image_descriptors: [1]VkDescriptorImageInfo = .[
-        .{
-          sampler     = null,
-          imageView   = vk_swapchain_image_views[swapchaine_image_index],
-          imageLayout = .GENERAL,
-        },
-      ];
-      descriptor_sets: [1]VkWriteDescriptorSet = .[
-        .{
-          dstSet          = null,
-          dstBinding      = 0,
-          descriptorCount = 1,
-          descriptorType  = .STORAGE_IMAGE,
-          pImageInfo      = *image_descriptors[0],
-        },
-      ];
-      vk_cmd_push_descriptors(render_command, compute_pipeline, .COMPUTE, descriptor_sets);
+      image_descriptor: VkDescriptorImageInfo = .{
+        sampler     = null,
+        imageView   = vk_swapchain_image_views[swapchaine_image_index],
+        imageLayout = .GENERAL,
+      };
+      descriptor_set: VkWriteDescriptorSet = .{
+        dstSet          = null,
+        dstBinding      = 0,
+        descriptorCount = 1,
+        descriptorType  = .STORAGE_IMAGE,
+        pImageInfo      = *image_descriptor,
+      };
+      vk_cmd_push_descriptors(render_command, compute_pipeline, .COMPUTE, .[descriptor_set]);
       vk_cmd_push_constants(render_command, compute_pipeline, .COMPUTE_BIT, *v);
       vk_cmd_dispatch(render_command, (window_width + 15) / 16, (window_height + 15) / 16, 1);
     }
@@ -747,7 +747,11 @@ main :: () {
     );
 
     end_render_command(render_command);
-    vk_graphics_queue_submit(render_command, render_command, render_command, swapchaine_image_index);
+    vk_graphics_queue_submit_for_present(render_command,
+                                         render_command.acq_to_queue_binary_semaphore,
+                                         render_command.timeline_semaphore,
+                                         render_command.timeline_semaphore_value,
+                                         swapchaine_image_index);
     need_swapchain_recreation = vk_present_frame_context(swapchaine_image_index);
   }
 }
@@ -1481,9 +1485,10 @@ rebuild_pipelines_if_needed :: () {
 }
 
 RenderCommand :: struct {
-  #as cmd:             VkCommandBuffer;
-  #as swapchain_semaphore: VkSemaphore;
-  #as render_fence:        VkFence;
+  #as cmd:                       VkCommandBuffer;
+  acq_to_queue_binary_semaphore: VkSemaphore;
+  timeline_semaphore:            VkSemaphore;
+  timeline_semaphore_value:      u32;
 };
 create_render_command :: () -> RenderCommand {
   allocate_info : VkCommandBufferAllocateInfo = .{
@@ -1493,15 +1498,17 @@ create_render_command :: () -> RenderCommand {
   };
   cmd := vk_allocate_command_buffer(allocate_info);
 
-  fence_create_info: VkFenceCreateInfo = .{ flags = .SIGNALED_BIT };
-  render_fence := vk_create_fence(fence_create_info);
+  acq_to_queue_binary_semaphore := vk_create_semaphore(.{});
 
-  swapchain_semaphore := vk_create_semaphore(.{});
+  ts_type:        VkSemaphoreTypeCreateInfo = .{ semaphoreType = .TIMELINE };
+  ts_create_info: VkSemaphoreCreateInfo     = .{ pNext = *ts_type };
+  timeline_semaphore := vk_create_semaphore(ts_create_info);
 
   return .{
-    cmd = cmd,
-    swapchain_semaphore = swapchain_semaphore,
-    render_fence = render_fence,
+    cmd                           = cmd,
+    acq_to_queue_binary_semaphore = acq_to_queue_binary_semaphore,
+    timeline_semaphore            = timeline_semaphore,
+    timeline_semaphore_value      = 0,
   };
 }
 
@@ -1518,19 +1525,29 @@ end_render_command :: (cmd: RenderCommand) {
   vk_end_command_buffer(cmd);
 }
 
-submit_wait_reset :: (cmd: RenderCommand) {
+submit_wait_reset :: (cmd: *RenderCommand) {
   buffer_submit_info: VkCommandBufferSubmitInfo =.{ commandBuffer = cmd };
-  submit_info: VkSubmitInfo2 = .{ commandBufferInfoCount = 1, pCommandBufferInfos = *buffer_submit_info };
 
-  vk_reset_fences(.[cmd]);
-  vk_queue_submit(submit_info, cmd);
-  vk_wait_for_fence(cmd);
+  cmd.timeline_semaphore_value += 1;
+  signal_semaphore_info: VkSemaphoreSubmitInfo = .{
+    semaphore = cmd.timeline_semaphore,
+    value     = cast(u64)cmd.timeline_semaphore_value,
+    stageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+  };
+
+  submit_info: VkSubmitInfo2 = .{
+    commandBufferInfoCount   = 1,
+    pCommandBufferInfos      = *buffer_submit_info,
+    pWaitSemaphoreInfos      = null,
+    waitSemaphoreInfoCount   = 0,
+    pSignalSemaphoreInfos    = *signal_semaphore_info,
+    signalSemaphoreInfoCount = 1,
+  };
+
+  vk_queue_submit(submit_info, null);
+
+  vk_wait_for_timeline_semaphore(cmd.timeline_semaphore, cast(u64)cmd.timeline_semaphore_value);
   vk_reset_command_buffer(cmd);
-}
-
-wait_for_cmd :: (cmd: RenderCommand) {
-  vk_wait_for_fence(cmd.render_fence);
-  vk_reset_fences(.[cmd.render_fence]);
 }
 
 cmd_transition_swapchain_image :: (
