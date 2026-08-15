@@ -433,7 +433,7 @@ main :: () {
           }
         }
     } else {
-      current_ns := platform_current_time_ns();
+      current_ns = platform_current_time_ns();
     }
     dt_ns := current_ns - last_present_time_ns;
     dt_s = cast(float)dt_ns / 1000.0 / 1000.0 / 1000.0;
