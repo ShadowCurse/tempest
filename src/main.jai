@@ -1,14 +1,88 @@
-WATCHED_FILES :: string.[
-  "shaders/gradient_comp.glsl",
-  "shaders/grid_frag.glsl",
-  "shaders/grid_vert.glsl",
-  "shaders/mesh_frag.glsl",
-  "shaders/mesh_vert.glsl",
-  "shaders/ui_frag.glsl",
-  "shaders/ui_vert.glsl",
-];
-
 file_watcher: FileWatcher;
+
+PipelineKind :: enum u8 {
+  COMPUTE;
+  GRAPHICS;
+}
+RecompilePipelineFiles :: struct {
+  kind: PipelineKind;
+  union {
+    file: string;
+    files: struct {
+      vert_file: string;
+      frag_file: string;
+    };
+  };
+}
+
+PipelineRecompileInfo :: struct {
+  name:           string;
+  pipeline_files: RecompilePipelineFiles;
+  pipeline:       *Pipeline;
+  create_fn:      () -> Pipeline;
+}
+tracked_pipelines: FixedArray(PipelineRecompileInfo, 16);
+tracked_pipelines_add :: (
+  name:           string,
+  pipeline_files: RecompilePipelineFiles,
+  pipeline:       *Pipeline,
+  create_fn:      () -> Pipeline,
+) {
+  if pipeline_files.kind == {
+    case .COMPUTE;
+      file := pipeline_files.file;
+      if !file_watcher_add_file(*file_watcher, file)
+        log_error("Cannot setup watch for file: %", file);
+    case .GRAPHICS;
+      vert_file := pipeline_files.files.vert_file;
+      frag_file := pipeline_files.files.frag_file;
+      if !file_watcher_add_file(*file_watcher, vert_file)
+        log_error("Cannot setup watch for file: %", vert_file);
+      if !file_watcher_add_file(*file_watcher, frag_file)
+        log_error("Cannot setup watch for file: %", frag_file);
+  }
+  info: PipelineRecompileInfo = .{
+    name           = name,
+    pipeline_files = pipeline_files,
+    pipeline       = pipeline,
+    create_fn      = create_fn,
+  };
+  fixed_array_add(*tracked_pipelines, info);
+}
+
+rebuild_pipelines_if_needed :: () {
+  rebuild_gradient_shader := false;
+  rebuild_ui_shader := false;
+  rebuild_mesh_shader := false;
+  rebuild_grid_shader := false;
+  while changed_file := file_watcher_has_event(*file_watcher) {
+    for tracked_pipelines {
+      if it.pipeline_files.kind == {
+        case .COMPUTE;
+          file := it.pipeline_files.file;
+          if changed_file == file {
+            log("Rebuiding % pipeline", it.name);
+            if compile_shader(file) {
+              vk_device_wait_idle();
+              vk_destroy_pipeline(it.pipeline.*);
+              it.pipeline.* = it.create_fn();
+            } else log_error("Failed to rebuild % pipeline", it.name);
+          }
+        case .GRAPHICS;
+          vert_file := it.pipeline_files.files.vert_file;
+          frag_file := it.pipeline_files.files.frag_file;
+          if changed_file == vert_file || changed_file == frag_file {
+            log("Rebuiding % pipeline", it.name);
+            if compile_shader(vert_file) && compile_shader(frag_file) {
+              vk_device_wait_idle();
+              vk_destroy_pipeline(it.pipeline.*);
+              it.pipeline.* = it.create_fn();
+            } else log_error("Failed to rebuild % pipeline", it.name);
+          }
+      }
+    }
+  }
+}
 
 FRAMES :: 2;
 current_frame_idx: u8 = 0;
@@ -93,11 +167,8 @@ main :: () {
   defer platform_quit();
   if !vk_init(true) return;
 
-  if file_watcher_init(*file_watcher) {
-    for WATCHED_FILES {
-      if !file_watcher_add_file(*file_watcher, it) log_error("Cannot setup watch for file: %", it);
-    }
-    log("Watcher: %", file_watcher);
+  if !file_watcher_init(*file_watcher) {
+    log_error("Failed to init file watcher");
   }
 
   for *rc: render_commands rc.* = create_render_command();
@@ -160,7 +231,7 @@ main :: () {
   default_scene: Scene;
   scene_init(*default_scene);
   crystal_idx := scene_load_gltf(*default_scene, "crystal.glb");
-  bistro_idx  := scene_load_gltf(*default_scene, "bistro.glb");
+  bistro_idx  := cast(SceneNodeIdx)0;//scene_load_gltf(*default_scene, "bistro.glb");
   cube_mesh_idx   = scene_add_mesh(*default_scene, create_box(1.0, 1.0, 1.0,, temp));
   sphere_mesh_idx = scene_add_mesh(*default_scene, create_sphere_uv(1.0, 32, 32,,
                                                               allocator(*default_scene.mesh_arena)));
@@ -262,12 +333,53 @@ main :: () {
     }
   }
 
-  compute_pipeline    = create_full_screen_effect_comptue_pipeline();
-  ui_pipeline         = create_ui_pipeline();
-  grid_pipeline       = create_grid_pipeline();
-  mesh_pipeline       = create_mesh_pipeline();
-  gizmo_pipeline      = create_gizmo_pipeline();
+  compute_pipeline = create_compute_pipeline();
+  tracked_pipelines_add(
+    "compute",
+    .{ kind = .COMPUTE, file = "shaders/gradient_comp.glsl" },
+    *compute_pipeline,
+    create_compute_pipeline,
+  );
+
+  ui_pipeline = create_ui_pipeline();
+  tracked_pipelines_add(
+    "ui",
+    .{ kind = .GRAPHICS, files = .{"shaders/ui_frag.glsl", "shaders/ui_vert.glsl"} },
+    *ui_pipeline,
+    create_ui_pipeline,
+  );
+
+  grid_pipeline = create_grid_pipeline();
+  tracked_pipelines_add(
+    "grid",
+    .{ kind = .GRAPHICS, files = .{"shaders/grid_frag.glsl", "shaders/grid_vert.glsl"} },
+    *grid_pipeline,
+    create_grid_pipeline,
+  );
+
+  mesh_pipeline = create_mesh_pipeline();
+  tracked_pipelines_add(
+    "mesh",
+    .{ kind = .GRAPHICS, files = .{"shaders/mesh_frag.glsl", "shaders/mesh_vert.glsl"} },
+    *mesh_pipeline,
+    create_mesh_pipeline,
+  );
+
+  gizmo_pipeline = create_gizmo_pipeline();
+  tracked_pipelines_add(
+    "gizmo_mesh",
+    .{ kind = .GRAPHICS, files = .{"shaders/gizmo_frag.glsl", "shaders/gizmo_vert.glsl"} },
+    *gizmo_pipeline,
+    create_gizmo_pipeline,
+  );
+
   debug_mesh_pipeline = create_debug_mesh_pipeline();
+  tracked_pipelines_add(
+    "debug_mesh",
+    .{ kind = .GRAPHICS, files = .{"shaders/debug_mesh_frag.glsl", "shaders/debug_mesh_vert.glsl"} },
+    *debug_mesh_pipeline,
+    create_debug_mesh_pipeline,
+  );
 
   ui: UiContext;
   ui_init(*ui, *font);
@@ -842,7 +954,7 @@ Pipeline :: struct {
   #as layout:   VkPipelineLayout;
   dsl:          VkDescriptorSetLayout;
 }
-create_full_screen_effect_comptue_pipeline :: () -> Pipeline {
+create_compute_pipeline :: () -> Pipeline {
   binding_layouts: [1]VkDescriptorSetLayoutBinding = .[
     .{
       binding         = 0,
@@ -1427,61 +1539,6 @@ destroy_pipeline :: (pipeline: Pipeline) {
   if pipeline.dsl      vk_destroy_descriptor_set_layout(pipeline.dsl);
   if pipeline.layout   vk_destroy_pipeline_layout(pipeline.layout);
   if pipeline.pipeline vk_destroy_pipeline(pipeline.pipeline);
-}
-
-rebuild_pipelines_if_needed :: () {
-  rebuild_gradient_shader := false;
-  rebuild_ui_shader := false;
-  rebuild_mesh_shader := false;
-  rebuild_grid_shader := false;
-  while changed_file := file_watcher_has_event(*file_watcher) {
-    log("Found changed file: %", changed_file);
-    if changed_file == {
-      case "shaders/gradient_comp.glsl";
-        rebuild_gradient_shader = true;
-      case "shaders/ui_frag.glsl"; #through;
-      case "shaders/ui_vert.glsl";
-        rebuild_ui_shader = true;
-      case "shaders/mesh_frag.glsl"; #through;
-      case "shaders/mesh_vert.glsl";
-        rebuild_mesh_shader = true;
-      case "shaders/grid_frag.glsl"; #through;
-      case "shaders/grid_vert.glsl";
-        rebuild_grid_shader = true;
-    }
-  }
-  if rebuild_gradient_shader {
-    log("Rebuiding GRADIENT pipeline");
-    if compile_shader("shaders/gradient_comp.glsl") {
-      vk_device_wait_idle();
-      vk_destroy_pipeline(compute_pipeline);
-      compute_pipeline = create_full_screen_effect_comptue_pipeline();
-    } else log_error("Failed to rebuild GRADIENT pipeline");
-  }
-  if rebuild_ui_shader {
-    log("Rebuiding UI pipeline");
-    if compile_shader("shaders/ui_frag.glsl") && compile_shader("shaders/ui_vert.glsl") {
-      vk_device_wait_idle();
-      vk_destroy_pipeline(ui_pipeline);
-      ui_pipeline = create_ui_pipeline();
-    } else log_error("Failed to rebuild UI pipeline");
-  }
-  if rebuild_mesh_shader {
-    log("Rebuiding MESH pipeline");
-    if compile_shader("shaders/mesh_frag.glsl") && compile_shader("shaders/mesh_vert.glsl") {
-      vk_device_wait_idle();
-      vk_destroy_pipeline(mesh_pipeline);
-      mesh_pipeline = create_mesh_pipeline();
-    } else log_error("Failed to rebuild MESH pipeline");
-  }
-  if rebuild_grid_shader {
-    log("Rebuiding GRID pipeline");
-    if compile_shader("shaders/grid_frag.glsl") && compile_shader("shaders/grid_vert.glsl") {
-      vk_device_wait_idle();
-      vk_destroy_pipeline(grid_pipeline);
-      grid_pipeline = create_grid_pipeline();
-    } else log_error("Failed to rebuild GRID pipeline");
-  }
 }
 
 RenderCommand :: struct {
